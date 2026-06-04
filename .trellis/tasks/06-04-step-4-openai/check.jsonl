@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "verify no unwrap, no panic paths"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "verify Result<T,String> + graceful API/JSON errors"}
