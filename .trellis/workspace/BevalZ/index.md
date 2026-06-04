@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 1
+- **Total Sessions**: 2
 - **Last Active**: 2026-06-04
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~40 | Active |
+| `journal-1.md` | ~73 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 2 | 2026-06-04 | Step 6: SQLite 持久化 + 知识库列表（MVP 完工） | `9795e7e` | `main` |
 | 1 | 2026-06-04 | Step 5: 探索页 UI 端到端打通 | `b2c6437` | `main` |
 <!-- @@@/auto:session-history -->
 

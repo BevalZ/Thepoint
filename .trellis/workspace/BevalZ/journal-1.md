@@ -38,3 +38,36 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 2: Step 6: SQLite 持久化 + 知识库列表（MVP 完工）
+
+**Date**: 2026-06-04
+**Task**: Step 6: SQLite 持久化 + 知识库列表（MVP 完工）
+**Branch**: `main`
+
+### Summary
+
+完成 Step 6 并归档 Step 2/3/4/6。实现本地 SQLite 持久化：db/mod.rs 在 app_data_dir 建 points 表，commands/library.rs 提供 save_points(事务批量插入)/list_points，探索页加保存按钮，新增知识库页浏览全部 Point（重启后仍在）。cargo check + tsc 双通过。注：trellis-implement 子代理两次因 API/socket 连接错误中断（非代码问题），后端已落地，剩余 4 块前端经用户授权由主代理直接补完。至此 MVP 全部 6 步完工：上传→解析→OpenAI 提取→保存→知识库浏览闭环打通。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9795e7e` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
