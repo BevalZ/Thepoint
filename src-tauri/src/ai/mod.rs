@@ -1,3 +1,5 @@
+pub mod explore;
+pub mod models;
 pub mod openai;
 
 use serde::{Deserialize, Serialize};

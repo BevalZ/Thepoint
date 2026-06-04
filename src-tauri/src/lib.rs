@@ -19,6 +19,10 @@ pub fn run() {
             commands::extract::extract_text,
             commands::library::save_points,
             commands::library::list_points,
+            commands::explore::list_mental_models,
+            commands::explore::recommend_frameworks,
+            commands::explore::deepen_point,
+            commands::explore::find_similar,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

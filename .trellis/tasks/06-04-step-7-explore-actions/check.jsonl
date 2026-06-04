@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "验证 DB 迁移幂等、参数化查询、UUID/时间戳规范、explore_actions 表正确"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "验证 command 错误处理符合 Result<T,String> + anyhow 模式、无 unwrap/panic"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "验证无 any、parentId 前后端 camelCase 对齐、新类型定义正确"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "验证树状组件递归、动作栏、推荐面板符合组件规范"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "验证 store 切片与 loading 态管理符合规范"}
