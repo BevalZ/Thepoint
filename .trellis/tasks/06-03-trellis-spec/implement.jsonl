@@ -1,0 +1,11 @@
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "src-tauri module layout and naming rules"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "rusqlite patterns, migrations, FTS5"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Result<T, String> convention for Tauri commands"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "forbidden patterns, no unwrap, no raw SQL interpolation"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "frontend/src layout and invoke encapsulation rules"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "shadcn/ui + Framer Motion component patterns"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "Zustand slice pattern for Tauri data"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "api/types.ts as single source of truth, no any"}
+{"file": "docs/architecture.md", "reason": "Tauri 2 architecture, Rust crate deps, ADR"}
+{"file": "docs/database-schema.md", "reason": "Full SQLite schema and FTS5 triggers"}
+{"file": ".trellis/tasks/06-03-trellis-spec/prd.md", "reason": "MVP scope, confirmed decisions"}

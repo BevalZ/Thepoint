@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Check: no unwrap, no direct rusqlite in commands, no SQL interpolation"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Check: no invoke in components, no any, no editing components/ui/"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Check: shared types in api/types.ts, no duplicates"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "Check: all commands return Result<T, String>"}
