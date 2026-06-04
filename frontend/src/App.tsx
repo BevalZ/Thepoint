@@ -1,6 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Compass, Settings as SettingsIcon } from 'lucide-react'
 import Settings from '@/pages/Settings'
+import Explore from '@/pages/Explore'
+import { useConfigStore } from '@/store'
 import { cn } from '@/lib/utils'
 
 type Page = 'explore' | 'settings'
@@ -12,6 +14,11 @@ const NAV: { id: Page; label: string; icon: typeof Compass }[] = [
 
 export default function App() {
   const [page, setPage] = useState<Page>('explore')
+  const { loaded, fetchConfig } = useConfigStore()
+
+  useEffect(() => {
+    if (!loaded) fetchConfig()
+  }, [loaded, fetchConfig])
 
   return (
     <div className="flex h-screen">
@@ -37,13 +44,7 @@ export default function App() {
       </nav>
 
       <main className="flex-1 overflow-y-auto">
-        {page === 'settings' ? (
-          <Settings />
-        ) : (
-          <div className="flex h-full items-center justify-center text-sm text-fg-faint">
-            探索页 — 即将开发
-          </div>
-        )}
+        {page === 'settings' ? <Settings /> : <Explore />}
       </main>
     </div>
   )
