@@ -1,6 +1,6 @@
 import { AnimatePresence } from 'framer-motion'
 import { open } from '@tauri-apps/plugin-dialog'
-import { FileText, Loader2, Sparkles, AlertCircle } from 'lucide-react'
+import { FileText, Loader2, Sparkles, AlertCircle, Save, Check } from 'lucide-react'
 import { useConfigStore, useExploreStore } from '@/store'
 import { PointCard } from '@/components/PointCard'
 import { cn } from '@/lib/utils'
@@ -12,15 +12,18 @@ export default function Explore() {
     points,
     parsing,
     extracting,
+    saving,
+    savedCount,
     error,
     setText,
     parseFile,
     extract,
+    save,
   } = useExploreStore()
   const { config, loaded } = useConfigStore()
 
   const noKey = loaded && !config?.openaiApiKey
-  const busy = parsing || extracting
+  const busy = parsing || extracting || saving
   const canExtract = text.trim().length > 0 && !busy
 
   const handlePick = async () => {
@@ -110,6 +113,34 @@ export default function Explore() {
       <div className="mt-6 flex-1">
         {points.length > 0 ? (
           <div className="space-y-3 pb-6">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-fg-muted">
+                共 {points.length} 条观点
+              </span>
+              <button
+                onClick={save}
+                disabled={saving}
+                className={cn(
+                  'flex items-center gap-2 rounded-md border border-border bg-bg-elevated px-3.5 py-2 text-sm transition-colors',
+                  saving
+                    ? 'cursor-not-allowed opacity-60'
+                    : 'hover:bg-bg-hover'
+                )}
+              >
+                {saving ? (
+                  <Loader2 size={16} className="animate-spin" />
+                ) : savedCount !== null ? (
+                  <Check size={16} className="text-emerald-400" />
+                ) : (
+                  <Save size={16} />
+                )}
+                {saving
+                  ? '保存中…'
+                  : savedCount !== null
+                    ? `已保存 ${savedCount} 条`
+                    : '保存到知识库'}
+              </button>
+            </div>
             <AnimatePresence>
               {points.map((point, i) => (
                 <PointCard key={i} point={point} index={i} />

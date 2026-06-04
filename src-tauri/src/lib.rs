@@ -17,6 +17,8 @@ pub fn run() {
             commands::config::set_config,
             commands::extract::parse_document,
             commands::extract::extract_text,
+            commands::library::save_points,
+            commands::library::list_points,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

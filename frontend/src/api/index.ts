@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { AppConfig, ExtractedPoint } from './types'
+import type { AppConfig, ExtractedPoint, StoredPoint } from './types'
 
 export const getConfig = () => invoke<AppConfig>('get_config')
 
@@ -11,3 +11,10 @@ export const parseDocument = (filePath: string) =>
 
 export const extractText = (text: string) =>
   invoke<ExtractedPoint[]>('extract_text', { text })
+
+export const savePoints = (
+  points: ExtractedPoint[],
+  sourceDocName?: string | null
+) => invoke<number>('save_points', { points, sourceDocName: sourceDocName ?? null })
+
+export const listPoints = () => invoke<StoredPoint[]>('list_points')

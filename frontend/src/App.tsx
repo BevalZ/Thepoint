@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react'
-import { Compass, Settings as SettingsIcon } from 'lucide-react'
+import { Compass, Settings as SettingsIcon, Library as LibraryIcon } from 'lucide-react'
 import Settings from '@/pages/Settings'
 import Explore from '@/pages/Explore'
+import Library from '@/pages/Library'
 import { useConfigStore } from '@/store'
 import { cn } from '@/lib/utils'
 
-type Page = 'explore' | 'settings'
+type Page = 'explore' | 'library' | 'settings'
 
 const NAV: { id: Page; label: string; icon: typeof Compass }[] = [
   { id: 'explore', label: '探索', icon: Compass },
+  { id: 'library', label: '知识库', icon: LibraryIcon },
   { id: 'settings', label: '设置', icon: SettingsIcon },
 ]
 
@@ -44,7 +46,13 @@ export default function App() {
       </nav>
 
       <main className="flex-1 overflow-y-auto">
-        {page === 'settings' ? <Settings /> : <Explore />}
+        {page === 'settings' ? (
+          <Settings />
+        ) : page === 'library' ? (
+          <Library />
+        ) : (
+          <Explore />
+        )}
       </main>
     </div>
   )

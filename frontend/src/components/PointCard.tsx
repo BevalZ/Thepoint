@@ -6,6 +6,8 @@ interface PointCardProps {
   point: ExtractedPoint
   index: number
   className?: string
+  sourceDocName?: string | null
+  createdAt?: string | null
 }
 
 const TAG_STYLES: Record<string, string> = {
@@ -16,8 +18,21 @@ const TAG_STYLES: Record<string, string> = {
 
 const TAG_FALLBACK = 'border-border-strong bg-bg-hover text-fg-muted'
 
-export function PointCard({ point, index, className }: PointCardProps) {
+function formatDate(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString()
+}
+
+export function PointCard({
+  point,
+  index,
+  className,
+  sourceDocName,
+  createdAt,
+}: PointCardProps) {
   const tagClass = TAG_STYLES[point.tagType] ?? TAG_FALLBACK
+  const hasMeta = Boolean(sourceDocName) || Boolean(createdAt)
 
   return (
     <motion.div
@@ -38,6 +53,12 @@ export function PointCard({ point, index, className }: PointCardProps) {
         {point.tagType}
       </span>
       <p className="mt-2.5 text-sm leading-relaxed text-fg">{point.content}</p>
+      {hasMeta && (
+        <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-fg-faint">
+          {sourceDocName && <span className="truncate">{sourceDocName}</span>}
+          {createdAt && <span>{formatDate(createdAt)}</span>}
+        </div>
+      )}
     </motion.div>
   )
 }
