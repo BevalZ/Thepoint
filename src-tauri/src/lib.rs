@@ -14,6 +14,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::config::get_config,
             commands::config::set_config,
+            commands::extract::parse_document,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
