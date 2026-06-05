@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "新 parser 文件放在 parsers/，命名规范"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "不支持格式返回友好错误字符串"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "新 parser 无 unwrap，SQL 参数化"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "新组件放 components/，不放页面文件内"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Popover/标注组件的 Props 接口和 inline style 规范"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "richHtml/sourceUrl 加入 useExploreStore"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "ExtractedPoint 新增 anchor 字段需 Rust/TS 两侧同步"}
