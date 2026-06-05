@@ -19,7 +19,7 @@ pub async fn recommend_frameworks(
     point_content: String,
 ) -> Result<Vec<FrameworkRecommendation>, String> {
     let config = crate::commands::config::get_config(app)?;
-    explore::recommend_models(&config.openai_api_key, &config.openai_model, &config.openai_base_url, &point_content)
+    explore::recommend_models(&config.openai_api_key, &config.openai_model, &config.openai_base_url, &config.extra_headers, &point_content)
         .await
         .map_err(|e| e.to_string())
 }
@@ -45,6 +45,7 @@ pub async fn deepen_point(
             &config.openai_api_key,
             &config.openai_model,
             &config.openai_base_url,
+            &config.extra_headers,
             &action_type,
             &parent_content,
         )
@@ -58,6 +59,7 @@ pub async fn deepen_point(
                 &config.openai_api_key,
                 &config.openai_model,
                 &config.openai_base_url,
+                &config.extra_headers,
                 &key,
                 &parent_content,
             )

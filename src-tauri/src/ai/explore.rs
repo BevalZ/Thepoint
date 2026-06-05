@@ -49,11 +49,11 @@ pub struct FrameworkRecommendation {
 }
 
 /// Shared OpenAI JSON-object call. Returns the model's raw content string.
-async fn chat_json(api_key: &str, model: &str, base_url: &str, system: &str, user: &str) -> anyhow::Result<String> {
+async fn chat_json(api_key: &str, model: &str, base_url: &str, extra_headers: &str, system: &str, user: &str) -> anyhow::Result<String> {
     if api_key.is_empty() {
         anyhow::bail!("尚未配置 OpenAI API Key，请在设置页填写");
     }
-    let endpoint = crate::commands::config::completions_endpoint(base_url);
+    let endpoint = crate::commands::config::completions_endpoint(base_url, "openai-compat", "");
 
     let body = json!({
         "model": model,
@@ -66,10 +66,18 @@ async fn chat_json(api_key: &str, model: &str, base_url: &str, system: &str, use
     });
 
     let client = reqwest::Client::new();
-    let resp = client
+    let mut builder = client
         .post(&endpoint)
         .bearer_auth(api_key)
-        .json(&body)
+        .json(&body);
+    if let Ok(map) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(extra_headers) {
+        for (k, v) in &map {
+            if let Some(s) = v.as_str() {
+                builder = builder.header(k.as_str(), s);
+            }
+        }
+    }
+    let resp = builder
         .send()
         .await
         .context("请求 OpenAI 失败")?;
@@ -108,11 +116,12 @@ pub async fn deepen(
     api_key: &str,
     model: &str,
     base_url: &str,
+    extra_headers: &str,
     action: &str,
     point_content: &str,
 ) -> anyhow::Result<Vec<ExtractedPoint>> {
     let system = deepen_system_prompt(action)?;
-    let content = chat_json(api_key, model, base_url, system, point_content).await?;
+    let content = chat_json(api_key, model, base_url, extra_headers, system, point_content).await?;
     let payload: PointsPayload =
         serde_json::from_str(&content).context("模型返回的内容不是预期的 JSON 格式")?;
     Ok(payload.points)
@@ -123,6 +132,7 @@ pub async fn recommend_models(
     api_key: &str,
     model: &str,
     base_url: &str,
+    extra_headers: &str,
     point_content: &str,
 ) -> anyhow::Result<Vec<FrameworkRecommendation>> {
     let library = models::all();
@@ -139,7 +149,7 @@ pub async fn recommend_models(
 恰好 3 条，key 必须来自上面的库，reason 用观点的原始语言，不要其他文字。"
     );
 
-    let content = chat_json(api_key, model, base_url, &system, point_content).await?;
+    let content = chat_json(api_key, model, base_url, extra_headers, &system, point_content).await?;
     let payload: RecPayload =
         serde_json::from_str(&content).context("模型返回的推荐不是预期的 JSON 格式")?;
 
@@ -163,6 +173,7 @@ pub async fn apply_framework(
     api_key: &str,
     model: &str,
     base_url: &str,
+    extra_headers: &str,
     model_key: &str,
     point_content: &str,
 ) -> anyhow::Result<Vec<ExtractedPoint>> {
@@ -175,7 +186,7 @@ pub async fn apply_framework(
         mental.prompt_lens
     );
 
-    let content = chat_json(api_key, model, base_url, &system, point_content).await?;
+    let content = chat_json(api_key, model, base_url, extra_headers, &system, point_content).await?;
     let payload: PointsPayload =
         serde_json::from_str(&content).context("模型返回的内容不是预期的 JSON 格式")?;
     Ok(payload.points)

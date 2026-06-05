@@ -5,6 +5,10 @@ export interface AppConfig {
   imageBaseUrl: string
   imageApiKey: string
   imageModel: string
+  providerKey: string
+  customEndpoint: string
+  customProviderName: string
+  extraHeaders: string
 }
 
 export interface ConfigProfile {

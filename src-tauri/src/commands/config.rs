@@ -11,6 +11,10 @@ const KEY_IMAGE_BASE_URL: &str = "image_base_url";
 const KEY_IMAGE_API_KEY: &str = "image_api_key";
 const KEY_IMAGE_MODEL: &str = "image_model";
 const KEY_PROFILES: &str = "config_profiles";
+const KEY_PROVIDER_KEY: &str = "provider_key";
+const KEY_CUSTOM_ENDPOINT: &str = "custom_endpoint";
+const KEY_CUSTOM_PROVIDER_NAME: &str = "custom_provider_name";
+const KEY_EXTRA_HEADERS: &str = "extra_headers";
 const DEFAULT_MODEL: &str = "gpt-4o-mini";
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -22,6 +26,10 @@ pub struct AppConfig {
     pub image_base_url: String,
     pub image_api_key: String,
     pub image_model: String,
+    pub provider_key: String,
+    pub custom_endpoint: String,
+    pub custom_provider_name: String,
+    pub extra_headers: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -37,11 +45,25 @@ pub struct ConfigProfile {
     pub image_model: Option<String>,
 }
 
-/// Normalise base URL → chat completions endpoint.
-pub fn completions_endpoint(base_url: &str) -> String {
+/// Normalise base URL + provider_key → chat completions endpoint.
+pub fn completions_endpoint(base_url: &str, provider_key: &str, custom_endpoint: &str) -> String {
+    if provider_key == "custom" {
+        if custom_endpoint.trim().is_empty() {
+            // fallback: append openai suffix to base_url
+            let base = base_url.trim().trim_end_matches('/');
+            let base = if base.is_empty() { "https://api.openai.com" } else { base };
+            return format!("{}/v1/chat/completions", base);
+        }
+        return custom_endpoint.to_string();
+    }
     let base = base_url.trim().trim_end_matches('/');
     let base = if base.is_empty() { "https://api.openai.com" } else { base };
-    format!("{}/v1/chat/completions", base)
+    let suffix = if provider_key == "anthropic-compat" {
+        "/v1/messages"
+    } else {
+        "/v1/chat/completions"
+    };
+    format!("{}{}", base, suffix)
 }
 
 fn models_endpoint(base_url: &str) -> String {
@@ -72,6 +94,18 @@ pub fn get_config(app: tauri::AppHandle<Wry>) -> Result<AppConfig, String> {
         image_model: store.get(KEY_IMAGE_MODEL)
             .and_then(|v| v.as_str().map(String::from))
             .unwrap_or_default(),
+        provider_key: store.get(KEY_PROVIDER_KEY)
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_else(|| "openai-compat".to_string()),
+        custom_endpoint: store.get(KEY_CUSTOM_ENDPOINT)
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_default(),
+        custom_provider_name: store.get(KEY_CUSTOM_PROVIDER_NAME)
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_default(),
+        extra_headers: store.get(KEY_EXTRA_HEADERS)
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_else(|| "{}".to_string()),
     })
 }
 
@@ -84,6 +118,10 @@ pub fn set_config(app: tauri::AppHandle<Wry>, config: AppConfig) -> Result<(), S
     store.set(KEY_IMAGE_BASE_URL, config.image_base_url.as_str());
     store.set(KEY_IMAGE_API_KEY, config.image_api_key.as_str());
     store.set(KEY_IMAGE_MODEL, config.image_model.as_str());
+    store.set(KEY_PROVIDER_KEY, config.provider_key.as_str());
+    store.set(KEY_CUSTOM_ENDPOINT, config.custom_endpoint.as_str());
+    store.set(KEY_CUSTOM_PROVIDER_NAME, config.custom_provider_name.as_str());
+    store.set(KEY_EXTRA_HEADERS, config.extra_headers.as_str());
     store.save().map_err(|e| e.to_string())
 }
 

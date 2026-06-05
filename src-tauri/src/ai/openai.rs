@@ -38,12 +38,13 @@ pub async fn extract_points(
     api_key: &str,
     model: &str,
     base_url: &str,
+    extra_headers: &str,
     text: &str,
 ) -> anyhow::Result<Vec<ExtractedPoint>> {
     if api_key.is_empty() {
         anyhow::bail!("尚未配置 OpenAI API Key，请在设置页填写");
     }
-    let endpoint = crate::commands::config::completions_endpoint(base_url);
+    let endpoint = crate::commands::config::completions_endpoint(base_url, "openai-compat", "");
 
     let body = json!({
         "model": model,
@@ -56,10 +57,18 @@ pub async fn extract_points(
     });
 
     let client = reqwest::Client::new();
-    let resp = client
+    let mut builder = client
         .post(&endpoint)
         .bearer_auth(api_key)
-        .json(&body)
+        .json(&body);
+    if let Ok(map) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(extra_headers) {
+        for (k, v) in &map {
+            if let Some(s) = v.as_str() {
+                builder = builder.header(k.as_str(), s);
+            }
+        }
+    }
+    let resp = builder
         .send()
         .await
         .context("请求 OpenAI 失败")?;
