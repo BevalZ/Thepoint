@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "archived 字段用 column_exists 守护添加"}
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "新 command 加在 commands/library.rs"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "archive/unarchive command 错误处理"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "视图组件放 components/library/"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "archivePoint 加入 useLibraryStore，视图模式用 localStorage"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "各视图组件的 Props 接口、className 规范"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "StoredPoint 新增 archived 字段同步 Rust 和 TS"}

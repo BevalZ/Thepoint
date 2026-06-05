@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "新 command 注册、无 unwrap、DB 在 spawn_blocking"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "list_points WHERE archived=0，归档查询参数化"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "StoredPoint.archived 在 Rust/TS 两侧对齐"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "视图状态 localStorage，归档操作走 store action"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "invoke 封装，无 any，cn() 条件样式"}
