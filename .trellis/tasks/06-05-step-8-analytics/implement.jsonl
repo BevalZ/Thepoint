@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "SQL 查询规范：参数化、>3行放函数、UUID/时间戳约定"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "command 返回 Result<T,String>+anyhow+map_err、无 unwrap/panic"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "无 any、AnalyticsData/DailyActions 类型定义、camelCase 对齐"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Analytics 页面组件规范、ECharts 集成方式"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "全局状态 store/index.ts 切片规范"}

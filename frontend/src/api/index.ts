@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core'
 import type {
+  AnalyticsData,
   AppConfig,
   DeepenAction,
   ExtractedPoint,
@@ -47,3 +48,5 @@ export const deepenPoint = (
 
 export const findSimilar = (pointId: string, content: string) =>
   invoke<StoredPoint[]>('find_similar', { pointId, content })
+
+export const getAnalytics = () => invoke<AnalyticsData>('get_analytics')

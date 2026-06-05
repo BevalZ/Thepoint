@@ -23,6 +23,7 @@ pub fn run() {
             commands::explore::recommend_frameworks,
             commands::explore::deepen_point,
             commands::explore::find_similar,
+            commands::analytics::get_analytics,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

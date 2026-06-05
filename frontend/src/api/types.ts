@@ -30,3 +30,20 @@ export interface FrameworkRecommendation {
 }
 
 export type DeepenAction = 'explain' | 'counter' | 'followup' | 'framework'
+
+export interface DailyActions {
+  date: string
+  count: number
+}
+
+export interface AnalyticsData {
+  totalPoints: number
+  totalActions: number
+  explainCount: number
+  counterCount: number
+  followupCount: number
+  similarCount: number
+  frameworkCount: number
+  totalChildPoints: number
+  dailyActions: DailyActions[]
+}
