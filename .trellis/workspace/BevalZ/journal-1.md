@@ -137,3 +137,36 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 5: 设置页 Tab 重构 + 服务商优化 + JSON 编辑器
+
+**Date**: 2026-06-05
+**Task**: 设置页 Tab 重构 + 服务商优化 + JSON 编辑器
+**Branch**: `main`
+
+### Summary
+
+3 Tab 布局（聊天/图片/高级），服务商重构（OpenAI compat 第一位+Anthropic compat+Grok/Qwen/Kimi 简化+自定义完整 endpoint），completions_endpoint 路由逻辑更新，AI 函数加 extra_headers 请求头注入，JSON 配置编辑器 Tab（只读/编辑/格式化/保存）。tsc+cargo check 双通过。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b4598b2` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
