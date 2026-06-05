@@ -74,6 +74,7 @@ interface ExploreStore {
   setRichContent: (html: string, text: string, url: string | null) => void
   parseFile: (filePath: string) => Promise<void>
   extract: () => Promise<void>
+  extractSelection: (selectedText: string) => Promise<void>
   save: () => Promise<void>
   updatePoint: (index: number, patch: Partial<ExtractedPoint>) => void
   removePoint: (index: number) => void
@@ -109,6 +110,16 @@ export const useExploreStore = create<ExploreStore>((set, get) => ({
     try {
       const points = await extractText(text)
       set({ points, extracting: false })
+    } catch (e) {
+      set({ extracting: false, error: errorMessage(e) })
+    }
+  },
+  extractSelection: async (selectedText) => {
+    if (!selectedText.trim()) return
+    set({ extracting: true, error: null })
+    try {
+      const newPoints = await extractText(selectedText)
+      set((s) => ({ points: [...s.points, ...newPoints], extracting: false }))
     } catch (e) {
       set({ extracting: false, error: errorMessage(e) })
     }
