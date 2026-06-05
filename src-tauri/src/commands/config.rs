@@ -15,6 +15,12 @@ const KEY_PROVIDER_KEY: &str = "provider_key";
 const KEY_CUSTOM_ENDPOINT: &str = "custom_endpoint";
 const KEY_CUSTOM_PROVIDER_NAME: &str = "custom_provider_name";
 const KEY_EXTRA_HEADERS: &str = "extra_headers";
+const KEY_SEARCH_ENABLED: &str = "search_enabled";
+const KEY_SEARCH_API_KEY: &str = "search_api_key";
+const KEY_SEARCH_MODEL: &str = "search_model";
+const KEY_SEARCH_BASE_URL: &str = "search_base_url";
+const KEY_SEARCH_PROVIDER_KEY: &str = "search_provider_key";
+const KEY_SEARCH_CUSTOM_ENDPOINT: &str = "search_custom_endpoint";
 const DEFAULT_MODEL: &str = "gpt-4o-mini";
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -30,6 +36,12 @@ pub struct AppConfig {
     pub custom_endpoint: String,
     pub custom_provider_name: String,
     pub extra_headers: String,
+    pub search_enabled: bool,
+    pub search_api_key: String,
+    pub search_model: String,
+    pub search_base_url: String,
+    pub search_provider_key: String,
+    pub search_custom_endpoint: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -106,6 +118,24 @@ pub fn get_config(app: tauri::AppHandle<Wry>) -> Result<AppConfig, String> {
         extra_headers: store.get(KEY_EXTRA_HEADERS)
             .and_then(|v| v.as_str().map(String::from))
             .unwrap_or_else(|| "{}".to_string()),
+        search_enabled: store.get(KEY_SEARCH_ENABLED)
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        search_api_key: store.get(KEY_SEARCH_API_KEY)
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_default(),
+        search_model: store.get(KEY_SEARCH_MODEL)
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_default(),
+        search_base_url: store.get(KEY_SEARCH_BASE_URL)
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_default(),
+        search_provider_key: store.get(KEY_SEARCH_PROVIDER_KEY)
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_else(|| "openai-compat".to_string()),
+        search_custom_endpoint: store.get(KEY_SEARCH_CUSTOM_ENDPOINT)
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_default(),
     })
 }
 
@@ -122,6 +152,12 @@ pub fn set_config(app: tauri::AppHandle<Wry>, config: AppConfig) -> Result<(), S
     store.set(KEY_CUSTOM_ENDPOINT, config.custom_endpoint.as_str());
     store.set(KEY_CUSTOM_PROVIDER_NAME, config.custom_provider_name.as_str());
     store.set(KEY_EXTRA_HEADERS, config.extra_headers.as_str());
+    store.set(KEY_SEARCH_ENABLED, config.search_enabled);
+    store.set(KEY_SEARCH_API_KEY, config.search_api_key.as_str());
+    store.set(KEY_SEARCH_MODEL, config.search_model.as_str());
+    store.set(KEY_SEARCH_BASE_URL, config.search_base_url.as_str());
+    store.set(KEY_SEARCH_PROVIDER_KEY, config.search_provider_key.as_str());
+    store.set(KEY_SEARCH_CUSTOM_ENDPOINT, config.search_custom_endpoint.as_str());
     store.save().map_err(|e| e.to_string())
 }
 

@@ -48,7 +48,56 @@ pub struct FrameworkRecommendation {
     pub reason: String,
 }
 
-/// Shared OpenAI JSON-object call. Returns the model's raw content string.
+/// Shared OpenAI chat (plain text) call. Returns the model's raw content string.
+async fn chat_text(api_key: &str, model: &str, base_url: &str, provider_key: &str, custom_endpoint: &str, system: &str, user: &str) -> anyhow::Result<String> {
+    if api_key.is_empty() {
+        anyhow::bail!("搜索模型未配置 API Key");
+    }
+    let endpoint = crate::commands::config::completions_endpoint(base_url, provider_key, custom_endpoint);
+    let body = serde_json::json!({
+        "model": model,
+        "messages": [
+            { "role": "system", "content": system },
+            { "role": "user", "content": user }
+        ],
+        "temperature": 0.3
+    });
+    let resp = reqwest::Client::new()
+        .post(&endpoint)
+        .bearer_auth(api_key)
+        .json(&body)
+        .send()
+        .await
+        .context("请求搜索模型失败")?;
+    let status = resp.status();
+    let raw = resp.text().await.context("读取搜索模型响应失败")?;
+    if !status.is_success() {
+        anyhow::bail!("搜索模型返回错误 ({status}): {raw}");
+    }
+    let parsed: ChatResponse = serde_json::from_str(&raw).context("解析搜索模型响应结构失败")?;
+    parsed.choices.into_iter().next().map(|c| c.message.content).context("搜索模型响应不含任何结果")
+}
+
+/// Fetch a short search context for a point using the search model.
+/// Returns empty string if search is disabled or fails non-fatally.
+pub async fn fetch_search_context(config: &crate::commands::config::AppConfig, point_content: &str) -> String {
+    if !config.search_enabled || config.search_api_key.is_empty() {
+        return String::new();
+    }
+    let system = "请针对以下观点，检索并返回最新的相关信息摘要（200字以内，纯文本，不含 JSON）：";
+    match chat_text(
+        &config.search_api_key,
+        &config.search_model,
+        &config.search_base_url,
+        &config.search_provider_key,
+        &config.search_custom_endpoint,
+        system,
+        point_content,
+    ).await {
+        Ok(s) => s,
+        Err(_) => String::new(), // non-fatal: search failure should not block deepen
+    }
+}
 async fn chat_json(api_key: &str, model: &str, base_url: &str, extra_headers: &str, system: &str, user: &str) -> anyhow::Result<String> {
     if api_key.is_empty() {
         anyhow::bail!("尚未配置 OpenAI API Key，请在设置页填写");
@@ -119,9 +168,15 @@ pub async fn deepen(
     extra_headers: &str,
     action: &str,
     point_content: &str,
+    search_context: &str,
 ) -> anyhow::Result<Vec<ExtractedPoint>> {
     let system = deepen_system_prompt(action)?;
-    let content = chat_json(api_key, model, base_url, extra_headers, system, point_content).await?;
+    let user = if search_context.is_empty() {
+        point_content.to_string()
+    } else {
+        format!("【参考信息】\n{search_context}\n\n【观点】\n{point_content}")
+    };
+    let content = chat_json(api_key, model, base_url, extra_headers, system, &user).await?;
     let payload: PointsPayload =
         serde_json::from_str(&content).context("模型返回的内容不是预期的 JSON 格式")?;
     Ok(payload.points)

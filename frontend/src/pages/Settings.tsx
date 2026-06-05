@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Eye, EyeOff, Check, RefreshCw, X, MessageSquare, Image, Settings2, Pencil, Type, Palette, Bot, ChevronRight } from 'lucide-react'
+import { Eye, EyeOff, Check, RefreshCw, X, MessageSquare, Image, Settings2, Pencil, Type, Palette, Bot, Search } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useConfigStore, useThemeStore, UI_FONTS, CODE_FONTS } from '@/store'
 import type { ThemeMode, UiFontKey, CodeFontKey, FontSize } from '@/store'
@@ -20,7 +20,7 @@ const PROVIDERS = [
 
 type ProviderKey = typeof PROVIDERS[number]['key']
 type TopTab = 'ai' | 'appearance'
-type AiSubTab = 'chat' | 'image' | 'advanced'
+type AiSubTab = 'chat' | 'image' | 'advanced' | 'search'
 
 function genId() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36)
@@ -77,6 +77,16 @@ export default function Settings() {
   const [imageApiKey, setImageApiKey] = useState('')
   const [imageModel, setImageModel] = useState('')
 
+  const [searchEnabled, setSearchEnabled] = useState(false)
+  const [searchProviderKey, setSearchProviderKey] = useState<ProviderKey>('openai-compat')
+  const [searchBaseUrl, setSearchBaseUrl] = useState('')
+  const [searchCustomEndpoint, setSearchCustomEndpoint] = useState('')
+  const [searchApiKey, setSearchApiKey] = useState('')
+  const [searchModel, setSearchModel] = useState('')
+  const [searchModels, setSearchModels] = useState<string[]>([])
+  const [searchFetching, setSearchFetching] = useState(false)
+  const [searchFetchErr, setSearchFetchErr] = useState<string | null>(null)
+
   const [jsonText, setJsonText] = useState('')
   const [jsonEditing, setJsonEditing] = useState(false)
   const [jsonError, setJsonError] = useState<string | null>(null)
@@ -99,6 +109,12 @@ export default function Settings() {
     setImageBaseUrl(config.imageBaseUrl)
     setImageApiKey(config.imageApiKey)
     setImageModel(config.imageModel)
+    setSearchEnabled(config.searchEnabled ?? false)
+    setSearchProviderKey((config.searchProviderKey as ProviderKey) || 'openai-compat')
+    setSearchBaseUrl(config.searchBaseUrl || '')
+    setSearchCustomEndpoint(config.searchCustomEndpoint || '')
+    setSearchApiKey(config.searchApiKey || '')
+    setSearchModel(config.searchModel || '')
     setJsonText(JSON.stringify({
       openaiApiKey: config.openaiApiKey,
       openaiModel: config.openaiModel,
@@ -121,6 +137,8 @@ export default function Settings() {
       imageBaseUrl, imageApiKey, imageModel,
       providerKey, customEndpoint, customProviderName,
       extraHeaders: config?.extraHeaders ?? '{}',
+      searchEnabled, searchApiKey, searchModel, searchBaseUrl,
+      searchProviderKey, searchCustomEndpoint,
     })
     if (selectedProfileId) {
       await saveProfiles(profiles.map(p =>
@@ -145,6 +163,8 @@ export default function Settings() {
         customEndpoint: parsed.customEndpoint ?? customEndpoint,
         customProviderName: parsed.customProviderName ?? customProviderName,
         extraHeaders: parsed.extraHeaders ? JSON.stringify(parsed.extraHeaders) : '{}',
+        searchEnabled, searchApiKey, searchModel, searchBaseUrl,
+        searchProviderKey, searchCustomEndpoint,
       })
       setJsonEditing(false)
       flash()
@@ -250,6 +270,7 @@ export default function Settings() {
             {([
               { id: 'chat', icon: <MessageSquare size={13} />, label: '聊天模型' },
               { id: 'image', icon: <Image size={13} />, label: '图片生成' },
+              { id: 'search', icon: <Search size={13} />, label: '搜索模型' },
               { id: 'advanced', icon: <Settings2 size={13} />, label: '高级配置' },
             ] as const).map(t => (
               <button key={t.id} onClick={() => setAiTab(t.id)}
@@ -393,6 +414,95 @@ export default function Settings() {
                     placeholder="gpt-image-1、imagen-3 等"
                     className="w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm outline-none placeholder:text-fg-faint focus:border-accent transition-colors" />
                 </Field>
+                <div className="pt-2"><SaveBtn onClick={handleSave} /></div>
+              </>
+            )}
+
+            {/* Search sub-tab */}
+            {aiTab === 'search' && (
+              <>
+                <div className="flex items-center justify-between rounded-xl border border-border bg-bg-elevated px-4 py-3">
+                  <div>
+                    <p className="text-sm font-medium text-fg">启用搜索模型</p>
+                    <p className="text-xs text-fg-muted mt-0.5">深挖时自动检索相关信息并注入上下文</p>
+                  </div>
+                  <button
+                    onClick={() => setSearchEnabled(e => !e)}
+                    className={cn('relative h-6 w-11 rounded-full transition-colors', searchEnabled ? 'bg-accent' : 'bg-border')}
+                  >
+                    <span className={cn('absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform', searchEnabled ? 'translate-x-5' : 'translate-x-0.5')} />
+                  </button>
+                </div>
+
+                {searchEnabled && (
+                  <>
+                    <Field label="服务商">
+                      <div className="flex flex-wrap gap-2 mt-1">
+                        {PROVIDERS.map(p => (
+                          <button key={p.key} onClick={() => {
+                            setSearchProviderKey(p.key)
+                            if (p.baseUrl) setSearchBaseUrl(p.baseUrl)
+                          }}
+                            className={cn('rounded-lg border px-3 py-1.5 text-xs font-medium transition-all',
+                              searchProviderKey === p.key ? 'border-accent bg-accent/10 text-accent shadow-sm' : 'border-border bg-bg-elevated text-fg-muted hover:border-fg-muted hover:text-fg')}>
+                            {p.label}
+                          </button>
+                        ))}
+                      </div>
+                    </Field>
+
+                    {searchProviderKey === 'custom' ? (
+                      <Field label="完整请求地址" hint="直接填写最终 endpoint">
+                        <input type="text" value={searchCustomEndpoint} onChange={e => setSearchCustomEndpoint(e.target.value)}
+                          placeholder="https://example.com/v1/chat/completions"
+                          className="w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm outline-none placeholder:text-fg-faint focus:border-accent transition-colors" />
+                      </Field>
+                    ) : (
+                      <Field label="Base URL">
+                        <input type="text" value={searchBaseUrl} onChange={e => setSearchBaseUrl(e.target.value)}
+                          placeholder="https://api.openai.com"
+                          className="w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm outline-none placeholder:text-fg-faint focus:border-accent transition-colors" />
+                      </Field>
+                    )}
+
+                    <Field label="API Key">
+                      <SecretInput value={searchApiKey} onChange={setSearchApiKey} placeholder="sk-..." />
+                    </Field>
+
+                    <Field label="模型">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span />
+                        <button onClick={async () => {
+                          setSearchFetching(true); setSearchFetchErr(null)
+                          try {
+                            const list = await fetchModels(searchApiKey, searchBaseUrl)
+                            setSearchModels(list)
+                            if (list.length > 0 && !list.includes(searchModel)) setSearchModel(list[0])
+                          } catch { setSearchFetchErr('获取失败，请检查 Key 和 Base URL') }
+                          finally { setSearchFetching(false) }
+                        }} disabled={searchFetching}
+                          className="flex items-center gap-1.5 text-xs text-fg-muted hover:text-fg disabled:opacity-50 transition-colors">
+                          <RefreshCw size={11} className={cn(searchFetching && 'animate-spin')} />
+                          {searchFetching ? '获取中…' : '获取可用模型'}
+                        </button>
+                      </div>
+                      <div className="space-y-2">
+                        {searchModels.length > 0 && (
+                          <select value={searchModels.includes(searchModel) ? searchModel : ''} onChange={e => { if (e.target.value) setSearchModel(e.target.value) }}
+                            className="w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm outline-none focus:border-accent">
+                            {!searchModels.includes(searchModel) && <option value="">— 自定义 —</option>}
+                            {searchModels.map(m => <option key={m} value={m}>{m}</option>)}
+                          </select>
+                        )}
+                        <input type="text" value={searchModel} onChange={e => setSearchModel(e.target.value)}
+                          placeholder="输入模型名"
+                          className="w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm outline-none placeholder:text-fg-faint focus:border-accent transition-colors" />
+                      </div>
+                      {searchFetchErr && <p className="mt-1 text-xs text-red-400">{searchFetchErr}</p>}
+                    </Field>
+                  </>
+                )}
+
                 <div className="pt-2"><SaveBtn onClick={handleSave} /></div>
               </>
             )}

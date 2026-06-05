@@ -39,6 +39,9 @@ pub async fn deepen_point(
 ) -> Result<Vec<StoredPoint>, String> {
     let config = crate::commands::config::get_config(app.clone())?;
 
+    // Optional: fetch search context before the main LLM call.
+    let search_context = explore::fetch_search_context(&config, &parent_content).await;
+
     // OpenAI call (async reqwest) — must NOT go on spawn_blocking.
     let generated = match action_type.as_str() {
         "explain" | "counter" | "followup" => explore::deepen(
@@ -48,6 +51,7 @@ pub async fn deepen_point(
             &config.extra_headers,
             &action_type,
             &parent_content,
+            &search_context,
         )
         .await
         .map_err(|e| e.to_string())?,

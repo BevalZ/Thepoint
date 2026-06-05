@@ -9,6 +9,12 @@ export interface AppConfig {
   customEndpoint: string
   customProviderName: string
   extraHeaders: string
+  searchEnabled: boolean
+  searchApiKey: string
+  searchModel: string
+  searchBaseUrl: string
+  searchProviderKey: string
+  searchCustomEndpoint: string
 }
 
 export interface ConfigProfile {
