@@ -60,6 +60,8 @@ export const fetchModels = (apiKey: string, baseUrl: string) =>
 
 export const getAnalytics = () => invoke<AnalyticsData>('get_analytics')
 
+export const getExploreSuggestions = () => invoke<string>('get_explore_suggestions')
+
 export const getProfiles = () => invoke<ConfigProfile[]>('get_profiles')
 
 export const setProfiles = (profiles: ConfigProfile[]) =>

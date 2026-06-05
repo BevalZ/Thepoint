@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
+import { Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { getAnalytics } from '@/api'
+import { getAnalytics, getExploreSuggestions } from '@/api'
 import type { AnalyticsData } from '@/api/types'
 import { HeatmapChart } from '@/components/HeatmapChart'
 
@@ -104,6 +105,45 @@ export default function Analytics() {
           <StatCard key={label} label={label} value={count} className="min-w-[100px]" />
         ))}
       </div>
+
+      <ExploreSuggestions />
+    </div>
+  )
+}
+
+function ExploreSuggestions() {
+  const [text, setText] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const generate = () => {
+    setLoading(true); setError(null)
+    getExploreSuggestions()
+      .then(setText)
+      .catch((e: unknown) => setError(String(e)))
+      .finally(() => setLoading(false))
+  }
+
+  return (
+    <div className="rounded-lg border border-border bg-bg-elevated p-5 space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-sm font-medium text-fg">探索建议</p>
+          <p className="text-xs text-fg-muted mt-0.5">基于你的使用习惯，由 AI 生成认知提升建议</p>
+        </div>
+        <button
+          onClick={generate}
+          disabled={loading}
+          className="flex items-center gap-1.5 rounded-lg border border-border bg-bg px-3 py-1.5 text-sm text-fg-muted hover:bg-bg-hover disabled:opacity-50 transition-colors"
+        >
+          {loading && <Loader2 size={13} className="animate-spin" />}
+          {loading ? '生成中…' : text ? '重新生成' : '生成建议'}
+        </button>
+      </div>
+      {error && <p className="text-xs text-red-400">{error}</p>}
+      {text && (
+        <p className="text-sm text-fg leading-relaxed whitespace-pre-wrap">{text}</p>
+      )}
     </div>
   )
 }
