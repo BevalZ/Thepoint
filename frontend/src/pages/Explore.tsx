@@ -19,6 +19,8 @@ export default function Explore() {
     parseFile,
     extract,
     save,
+    updatePoint,
+    removePoint,
   } = useExploreStore()
   const { config, loaded } = useConfigStore()
 
@@ -143,7 +145,13 @@ export default function Explore() {
             </div>
             <AnimatePresence>
               {points.map((point, i) => (
-                <PointCard key={i} point={point} index={i} />
+                <PointCard
+                  key={i}
+                  point={point}
+                  index={i}
+                  onEdit={(patch) => updatePoint(i, patch)}
+                  onRemove={() => removePoint(i)}
+                />
               ))}
             </AnimatePresence>
           </div>

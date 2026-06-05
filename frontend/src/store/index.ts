@@ -69,6 +69,8 @@ interface ExploreStore {
   parseFile: (filePath: string) => Promise<void>
   extract: () => Promise<void>
   save: () => Promise<void>
+  updatePoint: (index: number, patch: Partial<ExtractedPoint>) => void
+  removePoint: (index: number) => void
 }
 
 export const useExploreStore = create<ExploreStore>((set, get) => ({
@@ -102,6 +104,17 @@ export const useExploreStore = create<ExploreStore>((set, get) => ({
       set({ extracting: false, error: errorMessage(e) })
     }
   },
+  updatePoint: (index, patch) =>
+    set((s) => {
+      const points = [...s.points]
+      points[index] = { ...points[index], ...patch }
+      return { points, savedCount: null }
+    }),
+  removePoint: (index) =>
+    set((s) => ({
+      points: s.points.filter((_, i) => i !== index),
+      savedCount: null,
+    })),
   save: async () => {
     const { points, sourceName } = get()
     if (points.length === 0) return
