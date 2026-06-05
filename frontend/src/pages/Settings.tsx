@@ -20,7 +20,7 @@ const PROVIDERS = [
 
 type ProviderKey = typeof PROVIDERS[number]['key']
 type TopTab = 'ai' | 'appearance'
-type AiSubTab = 'chat' | 'image' | 'advanced' | 'search'
+type AiSubTab = 'chat' | 'image' | 'advanced' | 'search' | 'commentator'
 
 function genId() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36)
@@ -76,6 +76,7 @@ export default function Settings() {
   const [imageBaseUrl, setImageBaseUrl] = useState('')
   const [imageApiKey, setImageApiKey] = useState('')
   const [imageModel, setImageModel] = useState('')
+  const [imageProviderKey, setImageProviderKey] = useState<'openai-compatible' | 'gemini-image'>('openai-compatible')
 
   const [searchEnabled, setSearchEnabled] = useState(false)
   const [searchProviderKey, setSearchProviderKey] = useState<ProviderKey>('openai-compat')
@@ -86,6 +87,10 @@ export default function Settings() {
   const [searchModels, setSearchModels] = useState<string[]>([])
   const [searchFetching, setSearchFetching] = useState(false)
   const [searchFetchErr, setSearchFetchErr] = useState<string | null>(null)
+
+  const [commentatorName, setCommentatorName] = useState('鲁迅')
+  const [commentatorStyle, setCommentatorStyle] = useState('犀利讽刺，言简意赅，擅用反讽')
+  const [commentatorEmoji, setCommentatorEmoji] = useState('🧐')
 
   const [jsonText, setJsonText] = useState('')
   const [jsonEditing, setJsonEditing] = useState(false)
@@ -109,12 +114,16 @@ export default function Settings() {
     setImageBaseUrl(config.imageBaseUrl)
     setImageApiKey(config.imageApiKey)
     setImageModel(config.imageModel)
+    setImageProviderKey((config.imageProviderKey as 'openai-compatible' | 'gemini-image') || 'openai-compatible')
     setSearchEnabled(config.searchEnabled ?? false)
     setSearchProviderKey((config.searchProviderKey as ProviderKey) || 'openai-compat')
     setSearchBaseUrl(config.searchBaseUrl || '')
     setSearchCustomEndpoint(config.searchCustomEndpoint || '')
     setSearchApiKey(config.searchApiKey || '')
     setSearchModel(config.searchModel || '')
+    setCommentatorName(config.commentatorName || '鲁迅')
+    setCommentatorStyle(config.commentatorStyle || '犀利讽刺，言简意赅，擅用反讽')
+    setCommentatorEmoji(config.commentatorEmoji || '🧐')
     setJsonText(JSON.stringify({
       openaiApiKey: config.openaiApiKey,
       openaiModel: config.openaiModel,
@@ -135,10 +144,12 @@ export default function Settings() {
     await saveConfig({
       openaiApiKey: apiKey, openaiModel: model, openaiBaseUrl: baseUrl,
       imageBaseUrl, imageApiKey, imageModel,
+      imageProviderKey,
       providerKey, customEndpoint, customProviderName,
       extraHeaders: config?.extraHeaders ?? '{}',
       searchEnabled, searchApiKey, searchModel, searchBaseUrl,
       searchProviderKey, searchCustomEndpoint,
+      commentatorName, commentatorStyle, commentatorEmoji,
     })
     if (selectedProfileId) {
       await saveProfiles(profiles.map(p =>
@@ -159,12 +170,14 @@ export default function Settings() {
         imageBaseUrl: parsed.imageBaseUrl ?? imageBaseUrl,
         imageApiKey: parsed.imageApiKey ?? imageApiKey,
         imageModel: parsed.imageModel ?? imageModel,
+        imageProviderKey: parsed.imageProviderKey ?? imageProviderKey,
         providerKey: parsed.providerKey ?? providerKey,
         customEndpoint: parsed.customEndpoint ?? customEndpoint,
         customProviderName: parsed.customProviderName ?? customProviderName,
         extraHeaders: parsed.extraHeaders ? JSON.stringify(parsed.extraHeaders) : '{}',
         searchEnabled, searchApiKey, searchModel, searchBaseUrl,
         searchProviderKey, searchCustomEndpoint,
+        commentatorName, commentatorStyle, commentatorEmoji,
       })
       setJsonEditing(false)
       flash()
@@ -271,6 +284,7 @@ export default function Settings() {
               { id: 'chat', icon: <MessageSquare size={13} />, label: '聊天模型' },
               { id: 'image', icon: <Image size={13} />, label: '图片生成' },
               { id: 'search', icon: <Search size={13} />, label: '搜索模型' },
+              { id: 'commentator', icon: <Bot size={13} />, label: '评论员' },
               { id: 'advanced', icon: <Settings2 size={13} />, label: '高级配置' },
             ] as const).map(t => (
               <button key={t.id} onClick={() => setAiTab(t.id)}
@@ -401,9 +415,36 @@ export default function Settings() {
                 <p className="text-sm text-fg-muted rounded-xl bg-bg-elevated border border-border px-4 py-3">
                   为图片生成功能配置独立的服务接入信息，留空则复用聊天模型配置。
                 </p>
+                <Field label="服务商">
+                  <div className="flex gap-2 mt-1">
+                    {([['openai-compatible', 'OpenAI Compatible'], ['gemini-image', 'Gemini Imagen']] as const).map(([key, label]) => (
+                      <button key={key} onClick={() => setImageProviderKey(key)}
+                        className={cn('rounded-lg border px-3 py-1.5 text-xs font-medium transition-all',
+                          imageProviderKey === key ? 'border-accent bg-accent/10 text-accent' : 'border-border bg-bg-elevated text-fg-muted hover:border-fg-muted hover:text-fg')}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-1.5 text-xs text-fg-faint">
+                    {imageProviderKey === 'gemini-image'
+                      ? '端点: {base_url}/v1beta/models/{model}:generateContent?key={api_key}'
+                      : '端点: {base_url}/v1/images/generations'}
+                  </p>
+                </Field>
                 <Field label="Image Base URL">
+                  <div className="flex gap-2 mb-1.5">
+                    <button
+                      onClick={() => {
+                        setImageProviderKey('openai-compatible')
+                        setImageBaseUrl('https://narralucky.c0ffee.space')
+                        setImageModel('gpt-image-1')
+                      }}
+                      className="rounded border border-border bg-bg-elevated px-2.5 py-1 text-xs text-fg-muted hover:border-fg-muted hover:text-fg transition-colors">
+                      🎨 Narralucky
+                    </button>
+                  </div>
                   <input type="text" value={imageBaseUrl} onChange={e => setImageBaseUrl(e.target.value)}
-                    placeholder="留空则复用聊天模型地址"
+                    placeholder={imageProviderKey === 'gemini-image' ? 'https://api.nanobananai.com' : '留空则复用聊天模型地址'}
                     className="w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm outline-none placeholder:text-fg-faint focus:border-accent transition-colors" />
                 </Field>
                 <Field label="Image API Key">
@@ -411,7 +452,7 @@ export default function Settings() {
                 </Field>
                 <Field label="Image Model">
                   <input type="text" value={imageModel} onChange={e => setImageModel(e.target.value)}
-                    placeholder="gpt-image-1、imagen-3 等"
+                    placeholder={imageProviderKey === 'gemini-image' ? 'gemini-3-pro-image-preview' : 'dall-e-3'}
                     className="w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm outline-none placeholder:text-fg-faint focus:border-accent transition-colors" />
                 </Field>
                 <div className="pt-2"><SaveBtn onClick={handleSave} /></div>
@@ -503,6 +544,39 @@ export default function Settings() {
                   </>
                 )}
 
+                <div className="pt-2"><SaveBtn onClick={handleSave} /></div>
+              </>
+            )}
+
+            {/* Commentator sub-tab */}
+            {aiTab === 'commentator' && (
+              <>
+                <Field label="评论员名称">
+                  <input value={commentatorName} onChange={e => setCommentatorName(e.target.value)}
+                    placeholder="鲁迅" className="w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm outline-none placeholder:text-fg-faint focus:border-accent transition-colors" />
+                </Field>
+                <Field label="风格描述" hint="AI 将以此风格生成辣评">
+                  <input value={commentatorStyle} onChange={e => setCommentatorStyle(e.target.value)}
+                    placeholder="犀利讽刺，言简意赅，擅用反讽" className="w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm outline-none placeholder:text-fg-faint focus:border-accent transition-colors" />
+                </Field>
+                <Field label="头像 Emoji">
+                  <div className="flex flex-wrap gap-2">
+                    {['🧐','🤨','😤','🙃','🫠','👀','💀','🐉','🦊','🤖','📢','🎭'].map(e => (
+                      <button key={e} onClick={() => setCommentatorEmoji(e)}
+                        className={cn('rounded-xl border p-2 text-xl transition-all',
+                          commentatorEmoji === e ? 'border-accent bg-accent/10 scale-110' : 'border-border bg-bg-elevated hover:bg-bg-hover')}>
+                        {e}
+                      </button>
+                    ))}
+                  </div>
+                </Field>
+                <div className="rounded-xl border border-border bg-bg-elevated px-4 py-3 flex items-start gap-3">
+                  <span className="text-2xl">{commentatorEmoji}</span>
+                  <div>
+                    <p className="text-sm font-medium text-fg">{commentatorName || '评论员'}</p>
+                    <p className="text-xs text-fg-muted mt-0.5">{commentatorStyle || '（无风格描述）'}</p>
+                  </div>
+                </div>
                 <div className="pt-2"><SaveBtn onClick={handleSave} /></div>
               </>
             )}

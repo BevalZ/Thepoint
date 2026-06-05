@@ -1,6 +1,8 @@
 import { create } from 'zustand'
+import { listen } from '@tauri-apps/api/event'
 import type {
   AppConfig,
+  ChunkCard,
   ConfigProfile,
   DeepenAction,
   ExtractedPoint,
@@ -12,8 +14,7 @@ import {
   getConfig,
   setConfig,
   parseDocument,
-  extractText,
-  savePoints,
+  analyzeTextStreaming,
   listPoints,
   deletePoint,
   archivePoint,
@@ -25,7 +26,17 @@ import {
   findSimilar,
   getProfiles,
   setProfiles,
+  fetchUrl,
+  starPoint,
+  unstarPoint,
+  getStarredCount,
+  // TODO(gallery): re-enable when AI gallery feature is ready
+  // generateImage,
+  listGallery,
+  deleteGalleryItem,
+  retryDownload,
 } from '@/api'
+import type { GalleryItem } from '@/api/types'
 
 interface ConfigStore {
   config: AppConfig | null
@@ -64,89 +75,77 @@ interface ExploreStore {
   sourceName: string | null
   richHtml: string | null
   sourceUrl: string | null
-  points: ExtractedPoint[]
+  chunkCards: ChunkCard[]
+  analyzing: boolean
   parsing: boolean
-  extracting: boolean
-  saving: boolean
-  savedCount: number | null
   error: string | null
+  /** index → saved point id (set when user stars a chunk) */
+  savedChunkIds: Record<number, string>
   setText: (text: string) => void
   setRichContent: (html: string, text: string, url: string | null) => void
   parseFile: (filePath: string) => Promise<void>
-  extract: () => Promise<void>
-  extractSelection: (selectedText: string) => Promise<void>
-  save: () => Promise<void>
-  updatePoint: (index: number, patch: Partial<ExtractedPoint>) => void
-  removePoint: (index: number) => void
+  fetchUrlContent: (url: string) => Promise<void>
+  reset: () => void
 }
 
-export const useExploreStore = create<ExploreStore>((set, get) => ({
+async function autoAnalyze(set: (s: Partial<ExploreStore>) => void, content: string) {
+  if (!content.trim()) return
+  set({ analyzing: true, error: null, chunkCards: [] })
+  try {
+    const unlistenCard = await listen<ChunkCard>('chunk_card', (e) => {
+      useExploreStore.setState((s) => ({ chunkCards: [...s.chunkCards, e.payload] }))
+    })
+    const unlistenDone = await listen('chunk_cards_done', () => {
+      set({ analyzing: false })
+      unlistenCard()
+      unlistenDone()
+    })
+    await analyzeTextStreaming(content)
+  } catch (e) {
+    set({ analyzing: false, error: errorMessage(e) })
+  }
+}
+
+export const useExploreStore = create<ExploreStore>((set) => ({
   text: '',
   sourceName: null,
   richHtml: null,
   sourceUrl: null,
-  points: [],
+  chunkCards: [],
+  analyzing: false,
   parsing: false,
-  extracting: false,
-  saving: false,
-  savedCount: null,
   error: null,
+  savedChunkIds: {},
   setText: (text) => set({ text, richHtml: null, sourceUrl: null }),
-  setRichContent: (html, text, url) => set({ richHtml: html, text, sourceUrl: url, points: [], savedCount: null, error: null }),
+  setRichContent: (html, text, url) => {
+    set({ richHtml: html, text, sourceUrl: url, chunkCards: [], error: null })
+    autoAnalyze(set, text)
+  },
   parseFile: async (filePath) => {
-    set({ parsing: true, error: null, savedCount: null, richHtml: null, sourceUrl: null })
+    set({ parsing: true, error: null, chunkCards: [], richHtml: null, sourceUrl: null })
     try {
       const text = await parseDocument(filePath)
       const sourceName = filePath.split(/[\\/]/).pop() ?? filePath
-      set({ text, sourceName, points: [], parsing: false })
+      set({ text, sourceName, parsing: false })
+      await autoAnalyze(set, text)
     } catch (e) {
       set({ parsing: false, error: errorMessage(e) })
     }
   },
-  extract: async () => {
-    const text = get().text.trim()
-    if (!text) return
-    set({ extracting: true, error: null, savedCount: null })
+  fetchUrlContent: async (url) => {
+    set({ parsing: true, error: null, chunkCards: [] })
     try {
-      const points = await extractText(text)
-      set({ points, extracting: false })
+      const page = await fetchUrl(url)
+      const content = page.text
+      set({ richHtml: page.html, text: content, sourceName: page.title ?? url, sourceUrl: url, parsing: false })
+      await autoAnalyze(set, content)
     } catch (e) {
-      set({ extracting: false, error: errorMessage(e) })
+      set({ parsing: false, error: errorMessage(e) })
     }
   },
-  extractSelection: async (selectedText) => {
-    if (!selectedText.trim()) return
-    set({ extracting: true, error: null })
-    try {
-      const newPoints = await extractText(selectedText)
-      set((s) => ({ points: [...s.points, ...newPoints], extracting: false }))
-    } catch (e) {
-      set({ extracting: false, error: errorMessage(e) })
-    }
-  },
-  updatePoint: (index, patch) =>
-    set((s) => {
-      const points = [...s.points]
-      points[index] = { ...points[index], ...patch }
-      return { points, savedCount: null }
-    }),
-  removePoint: (index) =>
-    set((s) => ({
-      points: s.points.filter((_, i) => i !== index),
-      savedCount: null,
-    })),
-  save: async () => {
-    const { points, sourceName } = get()
-    if (points.length === 0) return
-    set({ saving: true, error: null, savedCount: null })
-    try {
-      const count = await savePoints(points, sourceName)
-      set({ saving: false, savedCount: count })
-    } catch (e) {
-      set({ saving: false, error: errorMessage(e) })
-    }
-  },
+  reset: () => set({ text: '', sourceName: null, richHtml: null, sourceUrl: null, chunkCards: [], analyzing: false, parsing: false, error: null, savedChunkIds: {} }),
 }))
+
 
 interface LibraryStore {
   points: StoredPoint[]
@@ -164,6 +163,19 @@ interface LibraryStore {
   deepen: (point: StoredPoint, action: DeepenAction, frameworkKey?: string) => Promise<void>
   findSimilarFor: (point: StoredPoint) => Promise<void>
   deletePoint: (id: string) => Promise<void>
+  archiveMany: (ids: string[]) => Promise<void>
+  deleteMany: (rootIds: string[]) => Promise<void>
+}
+
+/** Collect a set of point ids plus all their descendant ids from a flat list. */
+function collectSubtreeIds(points: StoredPoint[], rootIds: string[]): Set<string> {
+  const ids = new Set<string>()
+  const collect = (targetId: string) => {
+    ids.add(targetId)
+    for (const p of points) if (p.parentId === targetId) collect(p.id)
+  }
+  rootIds.forEach(collect)
+  return ids
 }
 
 export const useLibraryStore = create<LibraryStore>((set, get) => ({
@@ -249,15 +261,22 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
   },
   deletePoint: async (id) => {
     await deletePoint(id)
-    set((s) => {
-      const toRemove = new Set<string>()
-      const collect = (targetId: string) => {
-        toRemove.add(targetId)
-        s.points.filter(p => p.parentId === targetId).forEach(p => collect(p.id))
-      }
-      collect(id)
-      return { points: s.points.filter(p => !toRemove.has(p.id)) }
-    })
+    const toRemove = collectSubtreeIds(get().points, [id])
+    set((s) => ({ points: s.points.filter(p => !toRemove.has(p.id)) }))
+    await useStarStore.getState().init()
+  },
+  archiveMany: async (ids) => {
+    // Sequential to avoid SQLite write-lock contention; reuses single-point command.
+    for (const id of ids) await archivePoint(id)
+    const idSet = new Set(ids)
+    set((s) => ({ points: s.points.filter(p => !idSet.has(p.id)) }))
+  },
+  deleteMany: async (rootIds) => {
+    // delete_point cascades to descendants in DB; sequential to avoid write locks.
+    for (const id of rootIds) await deletePoint(id)
+    const toRemove = collectSubtreeIds(get().points, rootIds)
+    set((s) => ({ points: s.points.filter(p => !toRemove.has(p.id)) }))
+    await useStarStore.getState().init()
   },
 }))
 
@@ -308,6 +327,74 @@ function errorMessage(e: unknown): string {
   if (e instanceof Error) return e.message
   return '发生未知错误'
 }
+
+// ── Gallery store ────────────────────────────────────────────────────────────
+
+interface GalleryStore {
+  items: GalleryItem[]
+  generating: boolean
+  error: string | null
+  fetch: () => Promise<void>
+  generate: () => Promise<GalleryItem>
+  remove: (id: string) => Promise<void>
+  retry: (id: string) => Promise<void>
+}
+
+export const useGalleryStore = create<GalleryStore>((set) => ({
+  items: [],
+  generating: false,
+  error: null,
+  fetch: async () => {
+    const items = await listGallery()
+    set({ items })
+  },
+  generate: async () => {
+    // TODO(gallery): re-enable when AI gallery feature is ready
+    // set({ generating: true, error: null })
+    // try {
+    //   const item = await generateImage()
+    //   set((s) => ({ items: [item, ...s.items], generating: false }))
+    //   return item
+    // } catch (e) {
+    //   set({ generating: false, error: errorMessage(e) })
+    //   throw e
+    // }
+    throw new Error('gallery feature disabled')
+  },
+  remove: async (id) => {
+    await deleteGalleryItem(id)
+    set((s) => ({ items: s.items.filter(i => i.id !== id) }))
+  },
+  retry: async (id) => {
+    const item = await retryDownload(id)
+    set((s) => ({ items: s.items.map(i => i.id === id ? item : i) }))
+  },
+}))
+
+// ── Star store ───────────────────────────────────────────────────────────────
+
+interface StarStore {
+  count: number
+  init: () => Promise<void>
+  star: (pointId: string) => Promise<void>
+  unstar: (pointId: string) => Promise<void>
+}
+
+export const useStarStore = create<StarStore>((set) => ({
+  count: 0,
+  init: async () => {
+    const count = await getStarredCount()
+    set({ count })
+  },
+  star: async (pointId) => {
+    const count = await starPoint(pointId)
+    set({ count })
+  },
+  unstar: async (pointId) => {
+    const count = await unstarPoint(pointId)
+    set({ count })
+  },
+}))
 
 // ── Theme store ──────────────────────────────────────────────────────────────
 

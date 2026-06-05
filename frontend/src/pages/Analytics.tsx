@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
+import { AnimatePresence } from 'framer-motion'
 import ReactECharts from 'echarts-for-react'
 import { Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { getAnalytics, getExploreSuggestions } from '@/api'
+import { getAnalytics, getExploreSuggestions, listMarkedDates } from '@/api'
 import type { AnalyticsData } from '@/api/types'
 import { HeatmapChart } from '@/components/HeatmapChart'
+import { ExploreSuggestions, SuggestionDayList, SuggestionViewModal } from '@/pages/ExploreSuggestions'
 
 const RADAR_NAMES = ['深度指数', '反方关注度', '追问率', '解释偏好', '框架使用率']
 
@@ -53,11 +55,17 @@ export default function Analytics() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // Suggestion lifecycle state
+  const [markedDates, setMarkedDates] = useState<Set<string>>(new Set())
+  const [viewingDate, setViewingDate] = useState<string | null>(null)
+  const [viewingSuggestionId, setViewingSuggestionId] = useState<string | null>(null)
+
   useEffect(() => {
     getAnalytics()
       .then(setData)
       .catch((e: unknown) => setError(String(e)))
       .finally(() => setLoading(false))
+    listMarkedDates().then(dates => setMarkedDates(new Set(dates))).catch(() => {})
   }, [])
 
   if (loading) return <div className="p-8 text-fg-muted">加载中…</div>
@@ -80,16 +88,20 @@ export default function Analytics() {
           暂无数据，先去探索和深化吧！
         </div>
       ) : (
-        <div className="flex gap-4">
-          <div className="flex-1 rounded-lg border border-border bg-bg-elevated p-4">
+        <>
+          <div className="rounded-lg border border-border bg-bg-elevated p-4">
             <div className="mb-2 text-sm text-fg-muted">探索模式雷达</div>
             <ReactECharts option={radarOption(data)} style={{ height: 280 }} />
           </div>
-          <div className="flex-1 rounded-lg border border-border bg-bg-elevated p-4">
+          <div className="rounded-lg border border-border bg-bg-elevated p-4">
             <div className="mb-2 text-sm text-fg-muted">近 365 天深挖趋势</div>
-            <HeatmapChart dailyActions={data.dailyActions} />
+            <HeatmapChart
+              dailyActions={data.dailyActions}
+              markedDates={markedDates}
+              onCellClick={setViewingDate}
+            />
           </div>
-        </div>
+        </>
       )}
 
       <div className="flex flex-wrap gap-3">
@@ -106,12 +118,35 @@ export default function Analytics() {
         ))}
       </div>
 
-      <ExploreSuggestions />
+      <ExploreSuggestions onMarkedDatesChange={setMarkedDates} onCellClick={setViewingDate} />
+
+      {/* Day list popover */}
+      <AnimatePresence>
+        {viewingDate && (
+          <div className="relative">
+            <SuggestionDayList
+              date={viewingDate}
+              onPick={id => { setViewingDate(null); setViewingSuggestionId(id) }}
+              onClose={() => setViewingDate(null)}
+            />
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Suggestion viewer modal */}
+      <AnimatePresence>
+        {viewingSuggestionId && (
+          <SuggestionViewModal
+            id={viewingSuggestionId}
+            onClose={() => setViewingSuggestionId(null)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   )
 }
 
-function ExploreSuggestions() {
+function ExploreSuggestions_inline() {
   const [text, setText] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)

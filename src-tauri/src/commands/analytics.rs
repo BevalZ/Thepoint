@@ -44,7 +44,14 @@ pub async fn get_analytics(app: tauri::AppHandle<Wry>) -> Result<AnalyticsData, 
                     SUM(CASE WHEN action_type='framework' THEN 1 ELSE 0 END)
              FROM explore_actions",
             [],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
+            |r| Ok((
+                r.get(0)?,
+                r.get::<_, Option<i64>>(1)?.unwrap_or(0),
+                r.get::<_, Option<i64>>(2)?.unwrap_or(0),
+                r.get::<_, Option<i64>>(3)?.unwrap_or(0),
+                r.get::<_, Option<i64>>(4)?.unwrap_or(0),
+                r.get::<_, Option<i64>>(5)?.unwrap_or(0),
+            )),
         )?;
 
         let mut stmt = conn.prepare(
