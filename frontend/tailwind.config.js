@@ -6,22 +6,22 @@ export default {
     extend: {
       colors: {
         bg: {
-          DEFAULT: '#0a0a0c',
-          elevated: '#141417',
-          hover: '#1c1c21',
+          DEFAULT: 'var(--color-bg)',
+          elevated: 'var(--color-bg-elevated)',
+          hover: 'var(--color-bg-hover)',
         },
         border: {
-          DEFAULT: 'rgba(255,255,255,0.08)',
-          strong: 'rgba(255,255,255,0.14)',
+          DEFAULT: 'var(--color-border)',
+          strong: 'var(--color-border-strong)',
         },
         accent: {
-          DEFAULT: '#6366f1',
-          hover: '#7c7ff5',
+          DEFAULT: 'var(--color-accent)',
+          hover: 'var(--color-accent-hover)',
         },
         fg: {
-          DEFAULT: '#ededed',
-          muted: 'rgba(255,255,255,0.55)',
-          faint: 'rgba(255,255,255,0.35)',
+          DEFAULT: 'var(--color-fg)',
+          muted: 'var(--color-fg-muted)',
+          faint: 'var(--color-fg-faint)',
         },
       },
     },

@@ -4,7 +4,7 @@ import Settings from '@/pages/Settings'
 import Explore from '@/pages/Explore'
 import Library from '@/pages/Library'
 import Analytics from '@/pages/Analytics'
-import { useConfigStore } from '@/store'
+import { useConfigStore, useThemeStore } from '@/store'
 import { cn } from '@/lib/utils'
 
 type Page = 'explore' | 'library' | 'analytics' | 'settings'
@@ -19,6 +19,7 @@ const NAV: { id: Page; label: string; icon: typeof Compass }[] = [
 export default function App() {
   const [page, setPage] = useState<Page>('explore')
   const { loaded, fetchConfig } = useConfigStore()
+  useThemeStore() // initialize theme on app mount
 
   useEffect(() => {
     if (!loaded) fetchConfig()

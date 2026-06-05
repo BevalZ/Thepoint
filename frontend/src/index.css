@@ -3,11 +3,34 @@
 @tailwind utilities;
 
 @layer base {
-  html,
-  body,
-  #root {
-    height: 100%;
+  /* Dark theme (default) */
+  :root {
+    --color-bg:           #0a0a0c;
+    --color-bg-elevated:  #141417;
+    --color-bg-hover:     #1c1c21;
+    --color-border:       rgba(255,255,255,0.08);
+    --color-border-strong:rgba(255,255,255,0.14);
+    --color-accent:       #6366f1;
+    --color-accent-hover: #7c7ff5;
+    --color-fg:           #ededed;
+    --color-fg-muted:     rgba(255,255,255,0.55);
+    --color-fg-faint:     rgba(255,255,255,0.35);
   }
+
+  /* Light theme */
+  .light {
+    --color-bg:           #f8f8fb;
+    --color-bg-elevated:  #ffffff;
+    --color-bg-hover:     #ededf4;
+    --color-border:       rgba(0,0,0,0.09);
+    --color-border-strong:rgba(0,0,0,0.16);
+    --color-fg:           #111113;
+    --color-fg-muted:     rgba(0,0,0,0.50);
+    --color-fg-faint:     rgba(0,0,0,0.32);
+    --color-accent-hover: color-mix(in srgb, var(--color-accent) 80%, black);
+  }
+
+  html, body, #root { height: 100%; }
   body {
     @apply bg-bg text-fg antialiased;
     font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;

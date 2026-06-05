@@ -271,3 +271,59 @@ function errorMessage(e: unknown): string {
   if (e instanceof Error) return e.message
   return '发生未知错误'
 }
+
+// ── Theme store ──────────────────────────────────────────────────────────────
+
+export type ThemeMode = 'dark' | 'light' | 'system'
+
+const ACCENT_PRESETS = ['#6366f1','#ec4899','#f97316','#22c55e','#06b6d4','#a855f7']
+
+const LS_THEME  = 'app-theme-mode'
+const LS_ACCENT = 'app-accent-color'
+
+interface ThemeStore {
+  mode: ThemeMode
+  accent: string
+  accentPresets: string[]
+  setMode:   (mode: ThemeMode) => void
+  setAccent: (color: string)   => void
+}
+
+function resolveMode(mode: ThemeMode): 'light' | 'dark' {
+  if (mode !== 'system') return mode
+  return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+}
+
+function applyTheme(mode: ThemeMode, accent: string) {
+  const root = document.documentElement
+  if (resolveMode(mode) === 'light') root.classList.add('light')
+  else root.classList.remove('light')
+  root.style.setProperty('--color-accent', accent)
+}
+
+export const useThemeStore = create<ThemeStore>((set) => {
+  const mode   = (localStorage.getItem(LS_THEME)  ?? 'dark') as ThemeMode
+  const accent =  localStorage.getItem(LS_ACCENT) ?? '#6366f1'
+  applyTheme(mode, accent)
+
+  // follow system preference changes
+  window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => {
+    const s = useThemeStore.getState()
+    if (s.mode === 'system') applyTheme('system', s.accent)
+  })
+
+  return {
+    mode, accent,
+    accentPresets: ACCENT_PRESETS,
+    setMode: (mode) => {
+      localStorage.setItem(LS_THEME, mode)
+      set({ mode })
+      applyTheme(mode, useThemeStore.getState().accent)
+    },
+    setAccent: (accent) => {
+      localStorage.setItem(LS_ACCENT, accent)
+      set({ accent })
+      applyTheme(useThemeStore.getState().mode, accent)
+    },
+  }
+})

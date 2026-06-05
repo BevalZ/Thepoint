@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Eye, EyeOff, Check, RefreshCw, X, MessageSquare, Image, Settings2, Pencil, Type, Palette, Bot, ChevronRight } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { useConfigStore } from '@/store'
+import { useConfigStore, useThemeStore } from '@/store'
+import type { ThemeMode } from '@/store'
 import { fetchModels } from '@/api'
 import { cn } from '@/lib/utils'
 import type { ConfigProfile } from '@/api/types'
@@ -423,36 +424,79 @@ export default function Settings() {
         </div>
       )}
 
-      {/* Appearance tab (scaffold) */}
-      {topTab === 'appearance' && (
-        <div className="rounded-2xl border border-border bg-bg overflow-hidden">
-          {([
-            {
-              icon: <Type size={16} />,
-              label: '字体',
-              desc: '界面字体、代码字体、字号大小',
-              badge: '即将推出',
-            },
-            {
-              icon: <Palette size={16} />,
-              label: '配色主题',
-              desc: '浅色 / 深色 / 跟随系统，以及自定义强调色',
-              badge: '即将推出',
-            },
-          ]).map((item, i) => (
-            <div key={i} className={cn('flex items-center gap-4 px-6 py-4 cursor-default opacity-60',
-              i > 0 && 'border-t border-border')}>
-              <div className="rounded-xl bg-bg-elevated border border-border p-2.5 text-fg-muted">{item.icon}</div>
-              <div className="flex-1">
-                <div className="text-sm font-medium text-fg">{item.label}</div>
-                <div className="text-xs text-fg-muted mt-0.5">{item.desc}</div>
-              </div>
-              <span className="rounded-full border border-border bg-bg-elevated px-2.5 py-0.5 text-xs text-fg-faint">{item.badge}</span>
-              <ChevronRight size={15} className="text-fg-faint" />
-            </div>
+      {/* Appearance tab */}
+      {topTab === 'appearance' && <AppearancePanel />}
+    </div>
+  )
+}
+
+// ── Appearance panel ─────────────────────────────────────────────────────────
+
+const THEME_OPTIONS: { id: ThemeMode; label: string; desc: string }[] = [
+  { id: 'dark',   label: '深色', desc: '始终使用深色主题' },
+  { id: 'light',  label: '浅色', desc: '始终使用浅色主题' },
+  { id: 'system', label: '跟随系统', desc: '自动跟随操作系统设置' },
+]
+
+function AppearancePanel() {
+  const { mode, accent, accentPresets, setMode, setAccent } = useThemeStore()
+  const [customAccent, setCustomAccent] = useState(accent)
+
+  return (
+    <div className="space-y-6">
+      {/* Theme mode */}
+      <div className="rounded-2xl border border-border bg-bg overflow-hidden">
+        <div className="px-5 py-3 border-b border-border bg-bg-elevated/50">
+          <p className="text-sm font-medium text-fg">配色主题</p>
+        </div>
+        <div className="p-4 flex gap-3">
+          {THEME_OPTIONS.map(opt => (
+            <button key={opt.id} onClick={() => setMode(opt.id)}
+              className={cn('flex-1 rounded-xl border px-4 py-3 text-left transition-all',
+                mode === opt.id ? 'border-accent bg-accent/10 shadow-sm' : 'border-border bg-bg-elevated hover:bg-bg-hover')}>
+              <div className={cn('text-sm font-medium', mode === opt.id ? 'text-accent' : 'text-fg')}>{opt.label}</div>
+              <div className="text-xs text-fg-muted mt-0.5">{opt.desc}</div>
+            </button>
           ))}
         </div>
-      )}
+      </div>
+
+      {/* Accent color */}
+      <div className="rounded-2xl border border-border bg-bg overflow-hidden">
+        <div className="px-5 py-3 border-b border-border bg-bg-elevated/50">
+          <p className="text-sm font-medium text-fg">强调色</p>
+        </div>
+        <div className="p-5 space-y-4">
+          <div className="flex gap-3">
+            {accentPresets.map(color => (
+              <button key={color} onClick={() => { setAccent(color); setCustomAccent(color) }}
+                title={color}
+                className={cn('w-8 h-8 rounded-full border-2 transition-transform hover:scale-110',
+                  accent === color ? 'border-fg scale-110' : 'border-transparent')}
+                style={{ backgroundColor: color }} />
+            ))}
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full border border-border flex-shrink-0" style={{ backgroundColor: customAccent }} />
+            <input type="text" value={customAccent}
+              onChange={e => setCustomAccent(e.target.value)}
+              onBlur={() => { if (/^#[0-9a-fA-F]{6}$/.test(customAccent)) setAccent(customAccent) }}
+              onKeyDown={e => { if (e.key === 'Enter' && /^#[0-9a-fA-F]{6}$/.test(customAccent)) setAccent(customAccent) }}
+              placeholder="#6366f1"
+              className="w-32 rounded-lg border border-border bg-bg-elevated px-3 py-1.5 font-mono text-sm outline-none focus:border-accent transition-colors" />
+            <span className="text-xs text-fg-faint">输入 hex 后 Enter 或失焦应用</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Font — placeholder */}
+      <div className="rounded-2xl border border-border bg-bg overflow-hidden opacity-50 cursor-not-allowed">
+        <div className="px-5 py-3 border-b border-border bg-bg-elevated/50 flex items-center justify-between">
+          <p className="text-sm font-medium text-fg">字体</p>
+          <span className="text-xs text-fg-faint rounded-full border border-border px-2 py-0.5">即将推出</span>
+        </div>
+        <div className="px-5 py-4 text-sm text-fg-muted">界面字体、代码字体、字号大小</div>
+      </div>
     </div>
   )
 }
