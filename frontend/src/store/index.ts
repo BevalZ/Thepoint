@@ -278,15 +278,32 @@ export type ThemeMode = 'dark' | 'light' | 'system'
 
 const ACCENT_PRESETS = ['#6366f1','#ec4899','#f97316','#22c55e','#06b6d4','#a855f7']
 
-const LS_THEME  = 'app-theme-mode'
-const LS_ACCENT = 'app-accent-color'
+const LS_THEME     = 'app-theme-mode'
+const LS_ACCENT    = 'app-accent-color'
+const LS_UI_FONT   = 'app-ui-font'
+const LS_FONT_SIZE = 'app-font-size'
+
+export type FontSize = 'sm' | 'md' | 'lg'
+
+export const UI_FONTS = [
+  { key: 'noto',   label: 'Noto Serif SC', value: "'Noto Serif SC', system-ui, sans-serif" },
+  { key: 'monaco', label: 'Monaco',        value: "'Monaco', system-ui, sans-serif" },
+  { key: 'system', label: '系统默认',      value: "system-ui, -apple-system, sans-serif" },
+] as const
+export type UiFontKey = typeof UI_FONTS[number]['key']
+
+const FONT_SIZE_MAP: Record<FontSize, string> = { sm: '13px', md: '15px', lg: '17px' }
 
 interface ThemeStore {
   mode: ThemeMode
   accent: string
   accentPresets: string[]
-  setMode:   (mode: ThemeMode) => void
-  setAccent: (color: string)   => void
+  uiFont: UiFontKey
+  fontSize: FontSize
+  setMode:     (mode: ThemeMode)   => void
+  setAccent:   (color: string)     => void
+  setUiFont:   (key: UiFontKey)    => void
+  setFontSize: (size: FontSize)    => void
 }
 
 function resolveMode(mode: ThemeMode): 'light' | 'dark' {
@@ -294,36 +311,49 @@ function resolveMode(mode: ThemeMode): 'light' | 'dark' {
   return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
 }
 
-function applyTheme(mode: ThemeMode, accent: string) {
+function applyTheme(mode: ThemeMode, accent: string, uiFont: UiFontKey, fontSize: FontSize) {
   const root = document.documentElement
   if (resolveMode(mode) === 'light') root.classList.add('light')
   else root.classList.remove('light')
   root.style.setProperty('--color-accent', accent)
+  root.style.setProperty('--font-ui', UI_FONTS.find(f => f.key === uiFont)!.value)
+  root.style.setProperty('--font-size-base', FONT_SIZE_MAP[fontSize])
 }
 
 export const useThemeStore = create<ThemeStore>((set) => {
-  const mode   = (localStorage.getItem(LS_THEME)  ?? 'dark') as ThemeMode
-  const accent =  localStorage.getItem(LS_ACCENT) ?? '#6366f1'
-  applyTheme(mode, accent)
+  const mode     = (localStorage.getItem(LS_THEME)     ?? 'dark') as ThemeMode
+  const accent   =  localStorage.getItem(LS_ACCENT)    ?? '#6366f1'
+  const uiFont   = (localStorage.getItem(LS_UI_FONT)   ?? 'noto') as UiFontKey
+  const fontSize = (localStorage.getItem(LS_FONT_SIZE) ?? 'md')   as FontSize
+  applyTheme(mode, accent, uiFont, fontSize)
 
-  // follow system preference changes
   window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => {
     const s = useThemeStore.getState()
-    if (s.mode === 'system') applyTheme('system', s.accent)
+    if (s.mode === 'system') applyTheme('system', s.accent, s.uiFont, s.fontSize)
   })
 
   return {
-    mode, accent,
+    mode, accent, uiFont, fontSize,
     accentPresets: ACCENT_PRESETS,
     setMode: (mode) => {
-      localStorage.setItem(LS_THEME, mode)
-      set({ mode })
-      applyTheme(mode, useThemeStore.getState().accent)
+      localStorage.setItem(LS_THEME, mode); set({ mode })
+      const s = useThemeStore.getState()
+      applyTheme(mode, s.accent, s.uiFont, s.fontSize)
     },
     setAccent: (accent) => {
-      localStorage.setItem(LS_ACCENT, accent)
-      set({ accent })
-      applyTheme(useThemeStore.getState().mode, accent)
+      localStorage.setItem(LS_ACCENT, accent); set({ accent })
+      const s = useThemeStore.getState()
+      applyTheme(s.mode, accent, s.uiFont, s.fontSize)
+    },
+    setUiFont: (uiFont) => {
+      localStorage.setItem(LS_UI_FONT, uiFont); set({ uiFont })
+      const s = useThemeStore.getState()
+      applyTheme(s.mode, s.accent, uiFont, s.fontSize)
+    },
+    setFontSize: (fontSize) => {
+      localStorage.setItem(LS_FONT_SIZE, fontSize); set({ fontSize })
+      const s = useThemeStore.getState()
+      applyTheme(s.mode, s.accent, s.uiFont, fontSize)
     },
   }
 })

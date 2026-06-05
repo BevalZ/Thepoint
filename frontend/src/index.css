@@ -30,6 +30,8 @@
     --color-fg:           #ededed;
     --color-fg-muted:     rgba(255,255,255,0.55);
     --color-fg-faint:     rgba(255,255,255,0.35);
+    --font-ui:            'Noto Serif SC', system-ui, sans-serif;
+    --font-size-base:     15px;
   }
 
   /* Light theme */
@@ -48,7 +50,7 @@
   html, body, #root { height: 100%; }
   body {
     @apply bg-bg text-fg antialiased;
-    /* Monaco for Latin/ASCII, Noto Serif SC for CJK, system fonts as fallback */
-    font-family: 'Monaco', 'Noto Serif SC', system-ui, -apple-system, sans-serif;
+    font-family: var(--font-ui);
+    font-size: var(--font-size-base);
   }
 }

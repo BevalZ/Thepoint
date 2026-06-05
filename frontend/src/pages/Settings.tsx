@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Eye, EyeOff, Check, RefreshCw, X, MessageSquare, Image, Settings2, Pencil, Type, Palette, Bot, ChevronRight } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { useConfigStore, useThemeStore } from '@/store'
-import type { ThemeMode } from '@/store'
+import { useConfigStore, useThemeStore, UI_FONTS } from '@/store'
+import type { ThemeMode, UiFontKey, FontSize } from '@/store'
 import { fetchModels } from '@/api'
 import { cn } from '@/lib/utils'
 import type { ConfigProfile } from '@/api/types'
@@ -439,7 +439,7 @@ const THEME_OPTIONS: { id: ThemeMode; label: string; desc: string }[] = [
 ]
 
 function AppearancePanel() {
-  const { mode, accent, accentPresets, setMode, setAccent } = useThemeStore()
+  const { mode, accent, accentPresets, uiFont, fontSize, setMode, setAccent, setUiFont, setFontSize } = useThemeStore()
   const [customAccent, setCustomAccent] = useState(accent)
 
   return (
@@ -489,13 +489,42 @@ function AppearancePanel() {
         </div>
       </div>
 
-      {/* Font — placeholder */}
-      <div className="rounded-2xl border border-border bg-bg overflow-hidden opacity-50 cursor-not-allowed">
-        <div className="px-5 py-3 border-b border-border bg-bg-elevated/50 flex items-center justify-between">
+      {/* Font */}
+      <div className="rounded-2xl border border-border bg-bg overflow-hidden">
+        <div className="px-5 py-3 border-b border-border bg-bg-elevated/50">
           <p className="text-sm font-medium text-fg">字体</p>
-          <span className="text-xs text-fg-faint rounded-full border border-border px-2 py-0.5">即将推出</span>
         </div>
-        <div className="px-5 py-4 text-sm text-fg-muted">界面字体、代码字体、字号大小</div>
+        <div className="p-5 space-y-5">
+          {/* UI font */}
+          <div className="space-y-2">
+            <p className="text-xs text-fg-muted">界面字体</p>
+            <div className="flex gap-2">
+              {UI_FONTS.map(f => (
+                <button key={f.key} onClick={() => setUiFont(f.key as UiFontKey)}
+                  className={cn('flex-1 rounded-xl border px-3 py-2.5 text-left transition-all',
+                    uiFont === f.key ? 'border-accent bg-accent/10' : 'border-border bg-bg-elevated hover:bg-bg-hover')}>
+                  <div className={cn('text-sm font-medium', uiFont === f.key ? 'text-accent' : 'text-fg')}
+                    style={{ fontFamily: f.value }}>{f.label}</div>
+                  <div className="text-xs text-fg-faint mt-0.5" style={{ fontFamily: f.value }}>AaBbCc 你好世界</div>
+                </button>
+              ))}
+            </div>
+          </div>
+          {/* Font size */}
+          <div className="space-y-2">
+            <p className="text-xs text-fg-muted">字号</p>
+            <div className="flex gap-2">
+              {([['sm','小','13px'],['md','中','15px'],['lg','大','17px']] as [FontSize,string,string][]).map(([id, label, px]) => (
+                <button key={id} onClick={() => setFontSize(id)}
+                  className={cn('flex-1 rounded-xl border px-3 py-2.5 text-center transition-all',
+                    fontSize === id ? 'border-accent bg-accent/10' : 'border-border bg-bg-elevated hover:bg-bg-hover')}>
+                  <span className={cn('font-medium', fontSize === id ? 'text-accent' : 'text-fg')} style={{ fontSize: px }}>{label}</span>
+                  <div className="text-xs text-fg-faint mt-0.5">{px}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   )
