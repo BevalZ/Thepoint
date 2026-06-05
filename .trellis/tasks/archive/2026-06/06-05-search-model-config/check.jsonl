@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "检查 command 返回类型、注册、无 unwrap"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "搜索调用失败的错误传播方式"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "AppConfig 新字段在 Rust 和 TS 两侧必须对齐"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "invoke 不直接在组件中调用"}

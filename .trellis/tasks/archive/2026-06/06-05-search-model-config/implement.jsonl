@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "commands/ 文件组织，新增 search 配置字段的位置"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "config 存储用 tauri-plugin-store，非 SQLite"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "command 返回 Result<T, String> 的错误处理模式"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Settings 在 pages/，api 封装在 api/index.ts"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "config 字段变更需同步 useConfigStore"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Settings 子标签 UI 组件结构规范"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "AppConfig 类型扩展需同步 api/types.ts"}
