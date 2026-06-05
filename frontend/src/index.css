@@ -32,6 +32,7 @@
     --color-fg-faint:     rgba(255,255,255,0.35);
     --font-ui:            'Noto Serif SC', system-ui, sans-serif;
     --font-size-base:     15px;
+    --font-code:          'Monaco', ui-monospace, monospace;
   }
 
   /* Light theme */

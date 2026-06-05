@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Eye, EyeOff, Check, RefreshCw, X, MessageSquare, Image, Settings2, Pencil, Type, Palette, Bot, ChevronRight } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { useConfigStore, useThemeStore, UI_FONTS } from '@/store'
-import type { ThemeMode, UiFontKey, FontSize } from '@/store'
+import { useConfigStore, useThemeStore, UI_FONTS, CODE_FONTS } from '@/store'
+import type { ThemeMode, UiFontKey, CodeFontKey, FontSize } from '@/store'
 import { fetchModels } from '@/api'
 import { cn } from '@/lib/utils'
 import type { ConfigProfile } from '@/api/types'
@@ -439,7 +439,7 @@ const THEME_OPTIONS: { id: ThemeMode; label: string; desc: string }[] = [
 ]
 
 function AppearancePanel() {
-  const { mode, accent, accentPresets, uiFont, fontSize, setMode, setAccent, setUiFont, setFontSize } = useThemeStore()
+  const { mode, accent, accentPresets, uiFont, codeFont, fontSize, setMode, setAccent, setUiFont, setCodeFont, setFontSize } = useThemeStore()
   const [customAccent, setCustomAccent] = useState(accent)
 
   return (
@@ -506,6 +506,21 @@ function AppearancePanel() {
                   <div className={cn('text-sm font-medium', uiFont === f.key ? 'text-accent' : 'text-fg')}
                     style={{ fontFamily: f.value }}>{f.label}</div>
                   <div className="text-xs text-fg-faint mt-0.5" style={{ fontFamily: f.value }}>AaBbCc 你好世界</div>
+                </button>
+              ))}
+            </div>
+          </div>
+          {/* Code font */}
+          <div className="space-y-2">
+            <p className="text-xs text-fg-muted">代码字体</p>
+            <div className="flex gap-2">
+              {CODE_FONTS.map(f => (
+                <button key={f.key} onClick={() => setCodeFont(f.key as CodeFontKey)}
+                  className={cn('flex-1 rounded-xl border px-3 py-2.5 text-left transition-all',
+                    codeFont === f.key ? 'border-accent bg-accent/10' : 'border-border bg-bg-elevated hover:bg-bg-hover')}>
+                  <div className={cn('text-sm font-medium', codeFont === f.key ? 'text-accent' : 'text-fg')}
+                    style={{ fontFamily: f.value }}>{f.label}</div>
+                  <div className="text-xs text-fg-faint mt-0.5 font-mono" style={{ fontFamily: f.value }}>const x = 42</div>
                 </button>
               ))}
             </div>

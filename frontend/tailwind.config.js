@@ -24,6 +24,9 @@ export default {
           faint: 'var(--color-fg-faint)',
         },
       },
+      fontFamily: {
+        mono: ['var(--font-code)'],
+      },
     },
   },
   plugins: [require('tailwindcss-animate')],
