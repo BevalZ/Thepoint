@@ -1,0 +1,6 @@
+{"file": ".trellis/spec/backend/directory-structure.md", "reason": "新 command 在 commands/analytics.rs，表结构在 db/mod.rs"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "action_logs 表用 column_exists 守护，UUID/时间戳规范"}
+{"file": ".trellis/spec/backend/error-handling.md", "reason": "LLM 调用失败的错误处理"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "建议用 page-scoped useState，不入 store"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "ExploreSuggestions 组件结构"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "返回 string，避免 any"}
