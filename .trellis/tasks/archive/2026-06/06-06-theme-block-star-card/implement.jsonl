@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "ThemeBlock + StarButton + Drawer 组件规范"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "ExploreStore chunkCards 状态设计"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "ChunkCard 类型定义规范"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "analyze_chunk AI 函数质量要求"}
+{"file": ".trellis/tasks/06-06-theme-block-star-card/prd.md", "reason": "本任务完整需求说明"}
