@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 import type {
   AnalyticsData,
   AppConfig,
+  ConfigProfile,
   DeepenAction,
   ExtractedPoint,
   FrameworkRecommendation,
@@ -53,3 +54,8 @@ export const fetchModels = (apiKey: string, baseUrl: string) =>
   invoke<string[]>('fetch_models', { apiKey, baseUrl })
 
 export const getAnalytics = () => invoke<AnalyticsData>('get_analytics')
+
+export const getProfiles = () => invoke<ConfigProfile[]>('get_profiles')
+
+export const setProfiles = (profiles: ConfigProfile[]) =>
+  invoke<void>('set_profiles', { profiles })

@@ -2,6 +2,20 @@ export interface AppConfig {
   openaiApiKey: string
   openaiModel: string
   openaiBaseUrl: string
+  imageBaseUrl: string
+  imageApiKey: string
+  imageModel: string
+}
+
+export interface ConfigProfile {
+  id: string
+  name: string
+  baseUrl: string
+  apiKey: string
+  model: string
+  imageBaseUrl?: string
+  imageApiKey?: string
+  imageModel?: string
 }
 
 export interface ExtractedPoint {

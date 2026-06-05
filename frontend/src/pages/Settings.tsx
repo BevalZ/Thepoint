@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
-import { Eye, EyeOff, Check, RefreshCw, ChevronDown } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Eye, EyeOff, Check, RefreshCw, ChevronDown, ChevronRight, X } from 'lucide-react'
 import { motion } from 'framer-motion'
 import { useConfigStore } from '@/store'
 import { fetchModels } from '@/api'
 import { cn } from '@/lib/utils'
+import type { ConfigProfile } from '@/api/types'
 
 const PROVIDERS = [
   { label: 'OpenAI', baseUrl: 'https://api.openai.com' },
@@ -15,42 +16,65 @@ const PROVIDERS = [
   { label: '自定义', baseUrl: '' },
 ] as const
 
+function genId() {
+  return Math.random().toString(36).slice(2) + Date.now().toString(36)
+}
+
 export default function Settings() {
-  const { config, loaded, fetchConfig, saveConfig } = useConfigStore()
+  const { config, loaded, fetchConfig, saveConfig, profiles, loadProfiles, saveProfiles } = useConfigStore()
+
   const [apiKey, setApiKey] = useState('')
   const [model, setModel] = useState('gpt-4o-mini')
   const [baseUrl, setBaseUrl] = useState('')
+  const [imageBaseUrl, setImageBaseUrl] = useState('')
+  const [imageApiKey, setImageApiKey] = useState('')
+  const [imageModel, setImageModel] = useState('')
+
   const [showKey, setShowKey] = useState(false)
+  const [showImageKey, setShowImageKey] = useState(false)
+  const [imageExpanded, setImageExpanded] = useState(false)
   const [saved, setSaved] = useState(false)
+
   const [models, setModels] = useState<string[]>([])
   const [fetching, setFetching] = useState(false)
   const [fetchErr, setFetchErr] = useState<string | null>(null)
-  const [showSuggestions, setShowSuggestions] = useState(false)
-  const sugRef = useRef<HTMLDivElement>(null)
+
+  const [selectedProfileId, setSelectedProfileId] = useState('')
 
   useEffect(() => {
     if (!loaded) fetchConfig()
-  }, [loaded, fetchConfig])
+    loadProfiles()
+  }, [loaded, fetchConfig, loadProfiles])
 
   useEffect(() => {
     if (config) {
       setApiKey(config.openaiApiKey)
       setModel(config.openaiModel)
       setBaseUrl(config.openaiBaseUrl)
+      setImageBaseUrl(config.imageBaseUrl)
+      setImageApiKey(config.imageApiKey)
+      setImageModel(config.imageModel)
     }
   }, [config])
 
-  // close suggestions on outside click
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (sugRef.current && !sugRef.current.contains(e.target as Node)) setShowSuggestions(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [])
-
   const handleSave = async () => {
-    await saveConfig({ openaiApiKey: apiKey, openaiModel: model, openaiBaseUrl: baseUrl })
+    await saveConfig({
+      openaiApiKey: apiKey,
+      openaiModel: model,
+      openaiBaseUrl: baseUrl,
+      imageBaseUrl,
+      imageApiKey,
+      imageModel,
+    })
+    // update selected profile if one is active
+    if (selectedProfileId) {
+      const updated = profiles.map(p =>
+        p.id === selectedProfileId
+          ? { ...p, baseUrl, apiKey, model, imageBaseUrl, imageApiKey, imageModel }
+          : p
+      )
+      await saveProfiles(updated)
+    }
     setSaved(true)
     setTimeout(() => setSaved(false), 1800)
   }
@@ -68,9 +92,42 @@ export default function Settings() {
     }
   }
 
-  const filteredSuggestions = models.filter(m =>
-    m.toLowerCase().includes(model.toLowerCase())
-  )
+  const handleSelectProfile = (id: string) => {
+    setSelectedProfileId(id)
+    const p = profiles.find(pr => pr.id === id)
+    if (p) {
+      setBaseUrl(p.baseUrl)
+      setApiKey(p.apiKey)
+      setModel(p.model)
+      setImageBaseUrl(p.imageBaseUrl ?? '')
+      setImageApiKey(p.imageApiKey ?? '')
+      setImageModel(p.imageModel ?? '')
+    }
+  }
+
+  const handleSaveAsProfile = async () => {
+    const name = prompt('输入配置名称')?.trim()
+    if (!name) return
+    const newProfile: ConfigProfile = {
+      id: genId(),
+      name,
+      baseUrl,
+      apiKey,
+      model,
+      imageBaseUrl: imageBaseUrl || undefined,
+      imageApiKey: imageApiKey || undefined,
+      imageModel: imageModel || undefined,
+    }
+    const updated = [...profiles, newProfile]
+    await saveProfiles(updated)
+    setSelectedProfileId(newProfile.id)
+  }
+
+  const handleDeleteProfile = async (id: string) => {
+    const updated = profiles.filter(p => p.id !== id)
+    await saveProfiles(updated)
+    if (selectedProfileId === id) setSelectedProfileId('')
+  }
 
   const noKey = loaded && !config?.openaiApiKey
 
@@ -86,6 +143,35 @@ export default function Settings() {
       )}
 
       <div className="mt-8 space-y-6">
+
+        {/* Multi-profile management */}
+        {profiles.length > 0 && (
+          <div>
+            <label className="text-sm font-medium">已保存配置</label>
+            <div className="mt-2 flex flex-col gap-1">
+              {profiles.map(p => (
+                <div
+                  key={p.id}
+                  className={cn(
+                    'flex items-center justify-between rounded-md border px-3 py-2 text-sm cursor-pointer transition-colors',
+                    selectedProfileId === p.id
+                      ? 'border-accent bg-accent/10 text-accent'
+                      : 'border-border bg-bg-elevated text-fg hover:bg-bg-hover'
+                  )}
+                  onClick={() => handleSelectProfile(p.id)}
+                >
+                  <span>{p.name}</span>
+                  <button
+                    onClick={e => { e.stopPropagation(); handleDeleteProfile(p.id) }}
+                    className="ml-2 text-fg-muted hover:text-fg"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Provider presets */}
         <div>
@@ -141,7 +227,7 @@ export default function Settings() {
           </div>
         </div>
 
-        {/* Model — combo (text input + datalist / fetched dropdown) */}
+        {/* Model — native select when models loaded, plus text input */}
         <div>
           <div className="flex items-center justify-between">
             <label className="text-sm font-medium">模型</label>
@@ -155,39 +241,31 @@ export default function Settings() {
             </button>
           </div>
 
-          <div className="relative mt-2" ref={sugRef}>
+          <div className="mt-2 space-y-2">
+            {models.length > 0 && (
+              <div className="relative">
+                <select
+                  value={models.includes(model) ? model : ''}
+                  onChange={e => { if (e.target.value) setModel(e.target.value) }}
+                  className="w-full appearance-none rounded-md border border-border bg-bg-elevated px-3 py-2 pr-8 text-sm outline-none focus:border-accent"
+                >
+                  {!models.includes(model) && (
+                    <option value="">— 自定义 —</option>
+                  )}
+                  {models.map(m => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+                <ChevronDown size={14} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-fg-muted" />
+              </div>
+            )}
             <input
               type="text"
               value={model}
-              onChange={e => { setModel(e.target.value); setShowSuggestions(true) }}
-              onFocus={() => setShowSuggestions(true)}
-              placeholder="输入或选择模型名"
-              className="w-full rounded-md border border-border bg-bg-elevated px-3 py-2 pr-8 text-sm outline-none placeholder:text-fg-faint focus:border-accent"
+              onChange={e => setModel(e.target.value)}
+              placeholder="输入模型名"
+              className="w-full rounded-md border border-border bg-bg-elevated px-3 py-2 text-sm outline-none placeholder:text-fg-faint focus:border-accent"
             />
-            {models.length > 0 && (
-              <button
-                onClick={() => setShowSuggestions(s => !s)}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-fg-muted"
-              >
-                <ChevronDown size={14} />
-              </button>
-            )}
-            {showSuggestions && filteredSuggestions.length > 0 && (
-              <div className="absolute z-10 mt-1 max-h-52 w-full overflow-y-auto rounded-md border border-border bg-bg-elevated shadow-lg">
-                {filteredSuggestions.map(m => (
-                  <button
-                    key={m}
-                    onMouseDown={() => { setModel(m); setShowSuggestions(false) }}
-                    className={cn(
-                      'block w-full px-3 py-2 text-left text-sm transition-colors hover:bg-bg-hover',
-                      m === model ? 'text-accent' : 'text-fg'
-                    )}
-                  >
-                    {m}
-                  </button>
-                ))}
-              </div>
-            )}
           </div>
 
           {fetchErr && <p className="mt-1 text-xs text-red-400">{fetchErr}</p>}
@@ -196,17 +274,79 @@ export default function Settings() {
           )}
         </div>
 
-        <motion.button
-          whileTap={{ scale: 0.98 }}
-          onClick={handleSave}
-          className={cn(
-            'flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors',
-            saved ? 'bg-green-600 text-white' : 'bg-accent text-white hover:bg-accent-hover'
+        {/* Image model section (collapsible) */}
+        <div>
+          <button
+            onClick={() => setImageExpanded(s => !s)}
+            className="flex items-center gap-1.5 text-sm font-medium text-fg-muted hover:text-fg transition-colors"
+          >
+            {imageExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+            生图模型（可选）
+          </button>
+
+          {imageExpanded && (
+            <div className="mt-3 space-y-4">
+              <div>
+                <label className="text-sm font-medium">Image Base URL</label>
+                <input
+                  type="text"
+                  value={imageBaseUrl}
+                  onChange={e => setImageBaseUrl(e.target.value)}
+                  placeholder="留空则复用聊天模型地址"
+                  className="mt-2 w-full rounded-md border border-border bg-bg-elevated px-3 py-2 text-sm outline-none placeholder:text-fg-faint focus:border-accent"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">Image API Key</label>
+                <div className="mt-2 flex items-center gap-2">
+                  <input
+                    type={showImageKey ? 'text' : 'password'}
+                    value={imageApiKey}
+                    onChange={e => setImageApiKey(e.target.value)}
+                    placeholder="留空则复用聊天 Key"
+                    className="flex-1 rounded-md border border-border bg-bg-elevated px-3 py-2 text-sm outline-none placeholder:text-fg-faint focus:border-accent"
+                  />
+                  <button
+                    onClick={() => setShowImageKey(s => !s)}
+                    className="rounded-md border border-border bg-bg-elevated p-2 text-fg-muted hover:bg-bg-hover"
+                  >
+                    {showImageKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </div>
+              <div>
+                <label className="text-sm font-medium">Image Model</label>
+                <input
+                  type="text"
+                  value={imageModel}
+                  onChange={e => setImageModel(e.target.value)}
+                  placeholder="gpt-image-1、imagen-3 等"
+                  className="mt-2 w-full rounded-md border border-border bg-bg-elevated px-3 py-2 text-sm outline-none placeholder:text-fg-faint focus:border-accent"
+                />
+              </div>
+            </div>
           )}
-        >
-          {saved && <Check size={16} />}
-          {saved ? '已保存' : '保存'}
-        </motion.button>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <motion.button
+            whileTap={{ scale: 0.98 }}
+            onClick={handleSave}
+            className={cn(
+              'flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors',
+              saved ? 'bg-green-600 text-white' : 'bg-accent text-white hover:bg-accent-hover'
+            )}
+          >
+            {saved && <Check size={16} />}
+            {saved ? '已保存' : '保存'}
+          </motion.button>
+          <button
+            onClick={handleSaveAsProfile}
+            className="rounded-md border border-border bg-bg-elevated px-4 py-2 text-sm text-fg-muted hover:bg-bg-hover transition-colors"
+          >
+            保存为新配置
+          </button>
+        </div>
       </div>
     </div>
   )

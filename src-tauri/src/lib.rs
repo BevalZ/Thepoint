@@ -16,6 +16,8 @@ pub fn run() {
             commands::config::get_config,
             commands::config::set_config,
             commands::config::fetch_models,
+            commands::config::get_profiles,
+            commands::config::set_profiles,
             commands::extract::parse_document,
             commands::extract::extract_text,
             commands::library::save_points,
