@@ -62,6 +62,8 @@ export const useConfigStore = create<ConfigStore>((set) => ({
 interface ExploreStore {
   text: string
   sourceName: string | null
+  richHtml: string | null
+  sourceUrl: string | null
   points: ExtractedPoint[]
   parsing: boolean
   extracting: boolean
@@ -69,6 +71,7 @@ interface ExploreStore {
   savedCount: number | null
   error: string | null
   setText: (text: string) => void
+  setRichContent: (html: string, text: string, url: string | null) => void
   parseFile: (filePath: string) => Promise<void>
   extract: () => Promise<void>
   save: () => Promise<void>
@@ -79,15 +82,18 @@ interface ExploreStore {
 export const useExploreStore = create<ExploreStore>((set, get) => ({
   text: '',
   sourceName: null,
+  richHtml: null,
+  sourceUrl: null,
   points: [],
   parsing: false,
   extracting: false,
   saving: false,
   savedCount: null,
   error: null,
-  setText: (text) => set({ text }),
+  setText: (text) => set({ text, richHtml: null, sourceUrl: null }),
+  setRichContent: (html, text, url) => set({ richHtml: html, text, sourceUrl: url, points: [], savedCount: null, error: null }),
   parseFile: async (filePath) => {
-    set({ parsing: true, error: null, savedCount: null })
+    set({ parsing: true, error: null, savedCount: null, richHtml: null, sourceUrl: null })
     try {
       const text = await parseDocument(filePath)
       const sourceName = filePath.split(/[\\/]/).pop() ?? filePath
