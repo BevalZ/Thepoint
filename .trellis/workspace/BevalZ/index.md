@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 3
+- **Total Sessions**: 4
 - **Last Active**: 2026-06-05
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~106 | Active |
+| `journal-1.md` | ~139 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 4 | 2026-06-05 | Step 8: 行为统计图表（雷达图+折线图） | `7ab6b3e` | `main` |
 | 3 | 2026-06-05 | Step 7: 深挖动作 + 思维模型库 + 子 Point 树状层级 | `924dfa1` | `main` |
 | 2 | 2026-06-04 | Step 6: SQLite 持久化 + 知识库列表（MVP 完工） | `9795e7e` | `main` |
 | 1 | 2026-06-04 | Step 5: 探索页 UI 端到端打通 | `b2c6437` | `main` |

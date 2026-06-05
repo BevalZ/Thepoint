@@ -104,3 +104,36 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 4: Step 8: 行为统计图表（雷达图+折线图）
+
+**Date**: 2026-06-05
+**Task**: Step 8: 行为统计图表（雷达图+折线图）
+**Branch**: `main`
+
+### Summary
+
+基于 explore_actions 实现统计页：雷达图5维度（深度/反方/追问/解释/框架）+ 折线图近30日趋势 + 总览卡片 + 分类计数。ECharts暗色配色，空态友好。get_analytics 命令 SUM/COUNT 聚合+日期分组。tsc+cargo check 双通过。
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `7ab6b3e` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
