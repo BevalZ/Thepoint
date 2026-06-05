@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use rusqlite::{params, params_from_iter, Connection};
+use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, Wry};
 
@@ -79,6 +79,36 @@ pub fn init_db(conn: &Connection) -> Result<()> {
         [],
     )
     .context("failed to create parent index")?;
+
+    // FTS5 virtual table for full-text search over point content
+    conn.execute_batch(
+        "CREATE VIRTUAL TABLE IF NOT EXISTS points_fts
+             USING fts5(id UNINDEXED, content, tokenize='trigram');
+
+         -- Keep FTS in sync with the main table
+         CREATE TRIGGER IF NOT EXISTS points_fts_insert
+             AFTER INSERT ON points BEGIN
+                 INSERT INTO points_fts(id, content) VALUES (new.id, new.content);
+             END;
+         CREATE TRIGGER IF NOT EXISTS points_fts_update
+             AFTER UPDATE ON points BEGIN
+                 UPDATE points_fts SET content = new.content WHERE id = old.id;
+             END;
+         CREATE TRIGGER IF NOT EXISTS points_fts_delete
+             AFTER DELETE ON points BEGIN
+                 DELETE FROM points_fts WHERE id = old.id;
+             END;",
+    )
+    .context("failed to create FTS5 table/triggers")?;
+
+    // Backfill FTS for rows that pre-date the virtual table
+    conn.execute(
+        "INSERT OR IGNORE INTO points_fts(id, content)
+         SELECT id, content FROM points
+         WHERE id NOT IN (SELECT id FROM points_fts)",
+        [],
+    )
+    .context("failed to backfill FTS5")?;
 
     Ok(())
 }
@@ -159,8 +189,9 @@ pub fn save_child_points(
     Ok(written)
 }
 
-/// Rough keyword/LIKE similarity search over `content`, excluding the point
-/// itself and all of its descendants. MVP only — no embeddings.
+/// FTS5-powered similarity search over `content`, excluding the point itself
+/// and all of its descendants. Falls back gracefully to an empty result if the
+/// query string is blank.
 pub fn find_similar_points(
     conn: &Connection,
     point_id: &str,
@@ -171,44 +202,80 @@ pub fn find_similar_points(
         return Ok(Vec::new());
     }
 
-    // ?1 = point_id, then one bind per keyword pattern, then the limit.
-    let mut bind: Vec<String> = Vec::with_capacity(keywords.len() + 2);
-    bind.push(point_id.to_string());
-    let like_clauses: Vec<String> = keywords
+    // Build an OR query for FTS5: each keyword as a quoted phrase so special
+    // chars are treated literally.
+    let fts_query = keywords
         .iter()
-        .enumerate()
-        .map(|(i, kw)| {
-            bind.push(format!("%{kw}%"));
-            format!("content LIKE ?{}", i + 2)
-        })
-        .collect();
-    bind.push(limit.to_string());
-    let limit_idx = bind.len();
+        .map(|kw| format!("\"{}\"", kw.replace('"', " ")))
+        .collect::<Vec<_>>()
+        .join(" OR ");
 
-    let sql = format!(
-        "WITH RECURSIVE descendants(id) AS (
+    let sql = "WITH RECURSIVE descendants(id) AS (
             SELECT ?1
             UNION ALL
             SELECT p.id FROM points p JOIN descendants d ON p.parent_id = d.id
         )
-        SELECT id, content, tag_type, parent_id, source_doc_name, created_at
-        FROM points
-        WHERE id NOT IN (SELECT id FROM descendants)
-          AND ({})
-        ORDER BY created_at DESC
-        LIMIT ?{}",
-        like_clauses.join(" OR "),
-        limit_idx
-    );
+        SELECT p.id, p.content, p.tag_type, p.parent_id, p.source_doc_name, p.created_at
+        FROM points_fts f
+        JOIN points p ON p.id = f.id
+        WHERE points_fts MATCH ?2
+          AND p.id NOT IN (SELECT id FROM descendants)
+        ORDER BY rank
+        LIMIT ?3";
 
-    let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map(params_from_iter(bind.iter()), map_point_row)?;
+    let mut stmt = conn.prepare(sql)?;
+    let rows = stmt.query_map(params![point_id, fts_query, limit as i64], map_point_row)?;
 
     let mut out = Vec::new();
     for row in rows {
         out.push(row?);
     }
     Ok(out)
+}
+
+/// FTS5 keyword search over all points. Empty query returns empty vec.
+pub fn search_points(conn: &Connection, query: &str, limit: usize) -> Result<Vec<StoredPoint>> {
+    if query.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    let fts_query = query
+        .split_whitespace()
+        .map(|t| format!("\"{}\"", t.replace('"', " ")))
+        .collect::<Vec<_>>()
+        .join(" OR ");
+
+    let sql = "SELECT p.id, p.content, p.tag_type, p.parent_id, p.source_doc_name, p.created_at
+               FROM points_fts f
+               JOIN points p ON p.id = f.id
+               WHERE points_fts MATCH ?1
+               ORDER BY rank
+               LIMIT ?2";
+
+    let mut stmt = conn.prepare(sql)?;
+    let rows = stmt.query_map(params![fts_query, limit as i64], map_point_row)?;
+    let mut out = Vec::new();
+    for row in rows { out.push(row?); }
+    Ok(out)
+}
+
+/// Delete a point and all its descendants (recursive CTE), plus their explore_actions rows.
+pub fn delete_point(conn: &Connection, point_id: &str) -> Result<()> {
+    conn.execute_batch(&format!(
+        "WITH RECURSIVE descendants(id) AS (
+             SELECT '{pid}'
+             UNION ALL
+             SELECT p.id FROM points p JOIN descendants d ON p.parent_id = d.id
+         )
+         DELETE FROM explore_actions WHERE point_id IN (SELECT id FROM descendants);
+         WITH RECURSIVE descendants(id) AS (
+             SELECT '{pid}'
+             UNION ALL
+             SELECT p.id FROM points p JOIN descendants d ON p.parent_id = d.id
+         )
+         DELETE FROM points WHERE id IN (SELECT id FROM descendants);",
+        pid = point_id.replace('\'', "''")
+    ))
+    .context("failed to delete point and descendants")
 }
 
 /// Record a standalone explore action (used when no rows are written, e.g. similar search).

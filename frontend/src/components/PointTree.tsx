@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { ChevronRight, CornerDownRight } from 'lucide-react'
+import { ChevronRight, CornerDownRight, Trash2 } from 'lucide-react'
 import type { StoredPoint } from '@/api/types'
 import { useLibraryStore } from '@/store'
 import { cn } from '@/lib/utils'
@@ -68,11 +68,17 @@ interface TreeRowProps {
 
 function TreeRow({ node, depth, index }: TreeRowProps) {
   const { point, children } = node
-  const { expanded, toggleExpanded, similar } = useLibraryStore()
+  const { expanded, toggleExpanded, similar, deletePoint } = useLibraryStore()
   const hasChildren = children.length > 0
   const isOpen = expanded[point.id] ?? false
   const tagClass = (point.tagType && TAG_STYLES[point.tagType]) || TAG_FALLBACK
   const matches = similar[point.id] ?? []
+
+  const handleDelete = () => {
+    if (window.confirm('确认删除该节点及其所有子节点？')) {
+      deletePoint(point.id)
+    }
+  }
 
   return (
     <div>
@@ -80,9 +86,16 @@ function TreeRow({ node, depth, index }: TreeRowProps) {
         initial={{ opacity: 0, y: 4 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.18, delay: Math.min(index * 0.02, 0.2) }}
-        className="rounded-lg border border-border bg-bg-elevated p-4"
+        className="group relative rounded-lg border border-border bg-bg-elevated p-4"
       >
         <div className="flex items-start gap-2">
+          <button
+            onClick={handleDelete}
+            className="absolute right-3 top-3 opacity-0 group-hover:opacity-100 transition-opacity text-fg-faint hover:text-red-400"
+            aria-label="删除"
+          >
+            <Trash2 size={14} />
+          </button>
           {hasChildren ? (
             <button
               onClick={() => toggleExpanded(point.id)}

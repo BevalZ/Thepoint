@@ -28,6 +28,8 @@ export const savePoints = (
 
 export const listPoints = () => invoke<StoredPoint[]>('list_points')
 
+export const deletePoint = (pointId: string) => invoke<void>('delete_point', { pointId })
+
 export const listMentalModels = () =>
   invoke<MentalModel[]>('list_mental_models')
 
@@ -49,6 +51,9 @@ export const deepenPoint = (
 
 export const findSimilar = (pointId: string, content: string) =>
   invoke<StoredPoint[]>('find_similar', { pointId, content })
+
+export const searchPoints = (query: string) =>
+  invoke<StoredPoint[]>('search_points', { query })
 
 export const fetchModels = (apiKey: string, baseUrl: string) =>
   invoke<string[]>('fetch_models', { apiKey, baseUrl })

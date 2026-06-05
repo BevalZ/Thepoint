@@ -16,7 +16,7 @@ tauri-plugin-store = "2"
 tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.31", features = ["bundled-full"] }
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.12", features = ["json"] }
 lopdf = "0.34"

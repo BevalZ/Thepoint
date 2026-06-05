@@ -37,6 +37,32 @@ pub async fn save_points(
     .map_err(|e| e.to_string())
 }
 
+/// Delete a point and all its descendants.
+#[tauri::command]
+pub async fn delete_point(app: tauri::AppHandle<Wry>, point_id: String) -> Result<(), String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+        let conn = db::open_db(&path)?;
+        db::delete_point(&conn, &point_id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+/// Search points by keyword using FTS5.
+#[tauri::command]
+pub async fn search_points(app: tauri::AppHandle<Wry>, query: String) -> Result<Vec<StoredPoint>, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<StoredPoint>> {
+        let conn = db::open_db(&path)?;
+        db::search_points(&conn, &query, 50)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
 /// Load all stored points, newest first.
 #[tauri::command]
 pub async fn list_points(app: tauri::AppHandle<Wry>) -> Result<Vec<StoredPoint>, String> {

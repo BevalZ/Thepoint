@@ -22,6 +22,8 @@ pub fn run() {
             commands::extract::extract_text,
             commands::library::save_points,
             commands::library::list_points,
+            commands::library::search_points,
+            commands::library::delete_point,
             commands::explore::list_mental_models,
             commands::explore::recommend_frameworks,
             commands::explore::deepen_point,

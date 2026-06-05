@@ -15,6 +15,7 @@ import {
   extractText,
   savePoints,
   listPoints,
+  deletePoint,
   listMentalModels,
   recommendFrameworks,
   deepenPoint,
@@ -129,6 +130,7 @@ interface LibraryStore {
     frameworkKey?: string
   ) => Promise<void>
   findSimilarFor: (point: StoredPoint) => Promise<void>
+  deletePoint: (id: string) => Promise<void>
 }
 
 export const useLibraryStore = create<LibraryStore>((set, get) => ({
@@ -194,6 +196,18 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
         error: errorMessage(e),
       }))
     }
+  },
+  deletePoint: async (id) => {
+    await deletePoint(id)
+    set((s) => {
+      const toRemove = new Set<string>()
+      const collect = (targetId: string) => {
+        toRemove.add(targetId)
+        s.points.filter(p => p.parentId === targetId).forEach(p => collect(p.id))
+      }
+      collect(id)
+      return { points: s.points.filter(p => !toRemove.has(p.id)) }
+    })
   },
 }))
 
