@@ -40,6 +40,7 @@ export interface StoredPoint {
   parentId: string | null
   sourceDocName: string | null
   createdAt: string
+  archived: boolean
 }
 
 export interface MentalModel {

@@ -63,7 +63,46 @@ pub async fn search_points(app: tauri::AppHandle<Wry>, query: String) -> Result<
     .map_err(|e| e.to_string())
 }
 
-/// Load all stored points, newest first.
+/// Archive a point (hide from main library view).
+#[tauri::command]
+pub async fn archive_point(app: tauri::AppHandle<Wry>, point_id: String) -> Result<(), String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+        let conn = db::open_db(&path)?;
+        db::set_archived(&conn, &point_id, true)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+/// Restore an archived point back to the main library.
+#[tauri::command]
+pub async fn unarchive_point(app: tauri::AppHandle<Wry>, point_id: String) -> Result<(), String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+        let conn = db::open_db(&path)?;
+        db::set_archived(&conn, &point_id, false)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+/// Load all archived points, newest first.
+#[tauri::command]
+pub async fn list_archived_points(app: tauri::AppHandle<Wry>) -> Result<Vec<StoredPoint>, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<StoredPoint>> {
+        let conn = db::open_db(&path)?;
+        db::list_archived_points(&conn)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+/// Load all stored points (non-archived), newest first.
 #[tauri::command]
 pub async fn list_points(app: tauri::AppHandle<Wry>) -> Result<Vec<StoredPoint>, String> {
     let path = db::db_path(&app).map_err(|e| e.to_string())?;

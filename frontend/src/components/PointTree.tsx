@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { ChevronRight, CornerDownRight, Trash2 } from 'lucide-react'
+import { Archive, ChevronRight, CornerDownRight, Trash2 } from 'lucide-react'
 import type { StoredPoint } from '@/api/types'
 import { useLibraryStore } from '@/store'
 import { cn } from '@/lib/utils'
@@ -46,15 +46,16 @@ export function buildTree(points: StoredPoint[]): TreeNode[] {
 
 interface PointTreeProps {
   points: StoredPoint[]
+  onArchive?: (id: string) => void
   className?: string
 }
 
-export function PointTree({ points, className }: PointTreeProps) {
+export function PointTree({ points, onArchive, className }: PointTreeProps) {
   const roots = buildTree(points)
   return (
     <div className={cn('space-y-3', className)}>
       {roots.map((node, i) => (
-        <TreeRow key={node.point.id} node={node} depth={0} index={i} />
+        <TreeRow key={node.point.id} node={node} depth={0} index={i} onArchive={onArchive} />
       ))}
     </div>
   )
@@ -64,9 +65,10 @@ interface TreeRowProps {
   node: TreeNode
   depth: number
   index: number
+  onArchive?: (id: string) => void
 }
 
-function TreeRow({ node, depth, index }: TreeRowProps) {
+function TreeRow({ node, depth, index, onArchive }: TreeRowProps) {
   const { point, children } = node
   const { expanded, toggleExpanded, similar, deletePoint } = useLibraryStore()
   const hasChildren = children.length > 0
@@ -96,6 +98,15 @@ function TreeRow({ node, depth, index }: TreeRowProps) {
           >
             <Trash2 size={14} />
           </button>
+          {onArchive && !point.parentId && (
+            <button
+              onClick={() => onArchive(point.id)}
+              className="absolute right-9 top-3 opacity-0 group-hover:opacity-100 transition-opacity text-fg-faint hover:text-fg-muted"
+              aria-label="归档"
+            >
+              <Archive size={14} />
+            </button>
+          )}
           {hasChildren ? (
             <button
               onClick={() => toggleExpanded(point.id)}

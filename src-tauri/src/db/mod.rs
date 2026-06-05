@@ -19,6 +19,7 @@ pub struct StoredPoint {
     pub parent_id: Option<String>,
     pub source_doc_name: Option<String>,
     pub created_at: String,
+    pub archived: bool,
 }
 
 /// Resolve the SQLite file path inside the app data dir, creating the dir if needed.
@@ -60,6 +61,11 @@ pub fn init_db(conn: &Connection) -> Result<()> {
     if !column_exists(conn, "points", "parent_id")? {
         conn.execute("ALTER TABLE points ADD COLUMN parent_id TEXT", [])
             .context("failed to add parent_id column")?;
+    }
+
+    if !column_exists(conn, "points", "archived")? {
+        conn.execute("ALTER TABLE points ADD COLUMN archived INTEGER NOT NULL DEFAULT 0", [])
+            .context("failed to add archived column")?;
     }
 
     conn.execute(
@@ -126,11 +132,12 @@ fn column_exists(conn: &Connection, table: &str, column: &str) -> Result<bool> {
     Ok(false)
 }
 
-/// Read every stored point (newest first) including its parent link.
+/// Read every non-archived point (newest first) including its parent link.
 pub fn list_points(conn: &Connection) -> Result<Vec<StoredPoint>> {
     let mut stmt = conn.prepare(
-        "SELECT id, content, tag_type, parent_id, source_doc_name, created_at
+        "SELECT id, content, tag_type, parent_id, source_doc_name, created_at, archived
          FROM points
+         WHERE archived = 0
          ORDER BY created_at DESC",
     )?;
     let rows = stmt.query_map([], map_point_row)?;
@@ -170,6 +177,7 @@ pub fn save_child_points(
             parent_id: parent_id.map(str::to_string),
             source_doc_name: None,
             created_at: now.clone(),
+            archived: false,
         });
     }
 
@@ -215,7 +223,7 @@ pub fn find_similar_points(
             UNION ALL
             SELECT p.id FROM points p JOIN descendants d ON p.parent_id = d.id
         )
-        SELECT p.id, p.content, p.tag_type, p.parent_id, p.source_doc_name, p.created_at
+        SELECT p.id, p.content, p.tag_type, p.parent_id, p.source_doc_name, p.created_at, p.archived
         FROM points_fts f
         JOIN points p ON p.id = f.id
         WHERE points_fts MATCH ?2
@@ -244,7 +252,7 @@ pub fn search_points(conn: &Connection, query: &str, limit: usize) -> Result<Vec
         .collect::<Vec<_>>()
         .join(" OR ");
 
-    let sql = "SELECT p.id, p.content, p.tag_type, p.parent_id, p.source_doc_name, p.created_at
+    let sql = "SELECT p.id, p.content, p.tag_type, p.parent_id, p.source_doc_name, p.created_at, p.archived
                FROM points_fts f
                JOIN points p ON p.id = f.id
                WHERE points_fts MATCH ?1
@@ -332,6 +340,29 @@ pub fn extract_keywords(content: &str) -> Vec<String> {
     out
 }
 
+/// Read every archived point (newest first).
+pub fn list_archived_points(conn: &Connection) -> Result<Vec<StoredPoint>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, content, tag_type, parent_id, source_doc_name, created_at, archived
+         FROM points
+         WHERE archived = 1
+         ORDER BY created_at DESC",
+    )?;
+    let rows = stmt.query_map([], map_point_row)?;
+    let mut points = Vec::new();
+    for row in rows { points.push(row?); }
+    Ok(points)
+}
+
+/// Set the `archived` flag on a point (1 = archived, 0 = active).
+pub fn set_archived(conn: &Connection, point_id: &str, archived: bool) -> Result<()> {
+    conn.execute(
+        "UPDATE points SET archived = ?1 WHERE id = ?2",
+        params![archived as i64, point_id],
+    )?;
+    Ok(())
+}
+
 fn map_point_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredPoint> {
     Ok(StoredPoint {
         id: row.get(0)?,
@@ -340,5 +371,6 @@ fn map_point_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredPoint> {
         parent_id: row.get(3)?,
         source_doc_name: row.get(4)?,
         created_at: row.get(5)?,
+        archived: row.get::<_, i64>(6).unwrap_or(0) != 0,
     })
 }

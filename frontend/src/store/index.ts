@@ -16,6 +16,9 @@ import {
   savePoints,
   listPoints,
   deletePoint,
+  archivePoint,
+  unarchivePoint,
+  listArchivedPoints,
   listMentalModels,
   recommendFrameworks,
   deepenPoint,
@@ -130,24 +133,25 @@ export const useExploreStore = create<ExploreStore>((set, get) => ({
 
 interface LibraryStore {
   points: StoredPoint[]
+  archivedPoints: StoredPoint[]
   loading: boolean
   error: string | null
   deepening: Record<string, boolean>
   expanded: Record<string, boolean>
   similar: Record<string, StoredPoint[]>
   fetch: () => Promise<void>
+  fetchArchived: () => Promise<void>
+  archivePoint: (id: string) => Promise<void>
+  unarchivePoint: (id: string) => Promise<void>
   toggleExpanded: (pointId: string) => void
-  deepen: (
-    point: StoredPoint,
-    action: DeepenAction,
-    frameworkKey?: string
-  ) => Promise<void>
+  deepen: (point: StoredPoint, action: DeepenAction, frameworkKey?: string) => Promise<void>
   findSimilarFor: (point: StoredPoint) => Promise<void>
   deletePoint: (id: string) => Promise<void>
 }
 
 export const useLibraryStore = create<LibraryStore>((set, get) => ({
   points: [],
+  archivedPoints: [],
   loading: false,
   error: null,
   deepening: {},
@@ -161,6 +165,22 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
     } catch (e) {
       set({ loading: false, error: errorMessage(e) })
     }
+  },
+  fetchArchived: async () => {
+    try {
+      const archivedPoints = await listArchivedPoints()
+      set({ archivedPoints })
+    } catch (e) {
+      set({ error: errorMessage(e) })
+    }
+  },
+  archivePoint: async (id) => {
+    await archivePoint(id)
+    set((s) => ({ points: s.points.filter(p => p.id !== id) }))
+  },
+  unarchivePoint: async (id) => {
+    await unarchivePoint(id)
+    set((s) => ({ archivedPoints: s.archivedPoints.filter(p => p.id !== id) }))
   },
   toggleExpanded: (pointId) =>
     set((s) => ({

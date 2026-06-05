@@ -28,6 +28,10 @@ export const savePoints = (
 
 export const listPoints = () => invoke<StoredPoint[]>('list_points')
 
+export const archivePoint = (pointId: string) => invoke<void>('archive_point', { pointId })
+export const unarchivePoint = (pointId: string) => invoke<void>('unarchive_point', { pointId })
+export const listArchivedPoints = () => invoke<StoredPoint[]>('list_archived_points')
+
 export const deletePoint = (pointId: string) => invoke<void>('delete_point', { pointId })
 
 export const listMentalModels = () =>
