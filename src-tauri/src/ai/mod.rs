@@ -10,4 +10,6 @@ use serde::{Deserialize, Serialize};
 pub struct ExtractedPoint {
     pub content: String,
     pub tag_type: String,
+    #[serde(default)]
+    pub anchor: Option<String>,
 }

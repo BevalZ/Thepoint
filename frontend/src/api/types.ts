@@ -31,6 +31,7 @@ export interface ConfigProfile {
 export interface ExtractedPoint {
   content: string
   tagType: string
+  anchor?: string
 }
 
 export interface StoredPoint {

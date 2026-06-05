@@ -8,8 +8,9 @@ use super::ExtractedPoint;
 const SYSTEM_PROMPT: &str = "你是一个观点提取助手。请把用户提供的文档文本拆解为段落级的关键要点（Point）。\
 每个要点是一句话的核心主张、事实或疑问。请判断每个要点的类型，取值之一：\
 \"事实陈述\"、\"作者观点\"、\"待验证疑问\"。\
+同时，为每个要点提取 anchor：原文中对应的那句话或短语（15-80字，尽量精确，不要改写）。\
 请用文档的原始语言提取内容。\
-只返回 JSON 对象，格式为 {\"points\": [{\"content\": \"...\", \"tagType\": \"...\"}]}，不要包含其他文字。";
+只返回 JSON 对象，格式为 {\"points\": [{\"content\": \"...\", \"tagType\": \"...\", \"anchor\": \"...\"}]}，不要包含其他文字。";
 
 /// OpenAI chat completion response (minimal shape we care about).
 #[derive(Deserialize)]
