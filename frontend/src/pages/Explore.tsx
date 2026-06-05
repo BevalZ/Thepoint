@@ -32,7 +32,7 @@ export default function Explore() {
     const selected = await open({
       multiple: false,
       filters: [
-        { name: '文档', extensions: ['pdf', 'txt', 'md', 'markdown'] },
+        { name: '文档', extensions: ['txt', 'md', 'markdown', 'rst', 'csv', 'docx', 'odt', 'html', 'htm'] },
       ],
     })
     if (typeof selected === 'string') {

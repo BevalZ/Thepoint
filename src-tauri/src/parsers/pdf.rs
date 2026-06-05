@@ -1,6 +1,8 @@
 use std::path::Path;
 
 /// Extract text from a PDF using lopdf.
+/// Currently unused — PDF support is planned via MinerU → Markdown conversion.
+#[allow(dead_code)]
 pub fn parse(path: &Path) -> anyhow::Result<String> {
     let doc = lopdf::Document::load(path)?;
 

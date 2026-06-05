@@ -20,6 +20,9 @@ rusqlite = { version = "0.31", features = ["bundled-full"] }
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.12", features = ["json"] }
 lopdf = "0.34"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+scraper = "0.21"
+quick-xml = { version = "0.37", features = ["serialize"] }
 uuid = { version = "1", features = ["v4"] }
 anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }
