@@ -50,7 +50,7 @@ pub async fn get_analytics(app: tauri::AppHandle<Wry>) -> Result<AnalyticsData, 
         let mut stmt = conn.prepare(
             "SELECT substr(created_at, 1, 10) as date, COUNT(*) as count
              FROM explore_actions
-             WHERE created_at >= date('now', '-30 days')
+             WHERE created_at >= date('now', '-365 days')
              GROUP BY date
              ORDER BY date ASC",
         )?;

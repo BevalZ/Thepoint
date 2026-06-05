@@ -3,6 +3,7 @@ import ReactECharts from 'echarts-for-react'
 import { cn } from '@/lib/utils'
 import { getAnalytics } from '@/api'
 import type { AnalyticsData } from '@/api/types'
+import { HeatmapChart } from '@/components/HeatmapChart'
 
 const RADAR_NAMES = ['深度指数', '反方关注度', '追问率', '解释偏好', '框架使用率']
 
@@ -35,31 +36,6 @@ function radarOption(data: AnalyticsData) {
   }
 }
 
-function lineOption(data: AnalyticsData) {
-  return {
-    backgroundColor: 'transparent',
-    tooltip: { trigger: 'axis' },
-    xAxis: {
-      type: 'category',
-      data: data.dailyActions.map((d) => d.date),
-      axisLine: { lineStyle: { color: '#2a2a3a' } },
-      axisLabel: { color: '#a0a0b0', fontSize: 11 },
-    },
-    yAxis: {
-      type: 'value',
-      splitLine: { lineStyle: { color: '#2a2a3a' } },
-      axisLabel: { color: '#a0a0b0' },
-    },
-    series: [{
-      type: 'line',
-      data: data.dailyActions.map((d) => d.count),
-      smooth: true,
-      lineStyle: { color: '#6366f1' },
-      itemStyle: { color: '#6366f1' },
-      areaStyle: { color: 'rgba(99,102,241,0.1)' },
-    }],
-  }
-}
 
 interface StatCardProps { label: string; value: number; className?: string }
 function StatCard({ label, value, className }: StatCardProps) {
@@ -109,8 +85,8 @@ export default function Analytics() {
             <ReactECharts option={radarOption(data)} style={{ height: 280 }} />
           </div>
           <div className="flex-1 rounded-lg border border-border bg-bg-elevated p-4">
-            <div className="mb-2 text-sm text-fg-muted">近 30 天深挖趋势</div>
-            <ReactECharts option={lineOption(data)} style={{ height: 280 }} />
+            <div className="mb-2 text-sm text-fg-muted">近 365 天深挖趋势</div>
+            <HeatmapChart dailyActions={data.dailyActions} />
           </div>
         </div>
       )}
