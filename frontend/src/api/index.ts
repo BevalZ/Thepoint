@@ -49,6 +49,7 @@ export const deepenPoint = (
 export const findSimilar = (pointId: string, content: string) =>
   invoke<StoredPoint[]>('find_similar', { pointId, content })
 
-export const fetchModels = () => invoke<string[]>('fetch_models')
+export const fetchModels = (apiKey: string, baseUrl: string) =>
+  invoke<string[]>('fetch_models', { apiKey, baseUrl })
 
 export const getAnalytics = () => invoke<AnalyticsData>('get_analytics')

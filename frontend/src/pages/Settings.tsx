@@ -58,7 +58,7 @@ export default function Settings() {
   const handleFetchModels = async () => {
     setFetching(true); setFetchErr(null)
     try {
-      const list = await fetchModels()
+      const list = await fetchModels(apiKey, baseUrl)
       setModels(list)
       if (list.length > 0 && !list.includes(model)) setModel(list[0])
     } catch (e: unknown) {

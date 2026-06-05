@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use tauri::Wry;
 use tauri_plugin_store::StoreExt;
 
+
 const STORE_FILE: &str = "config.json";
 const KEY_API: &str = "openai_api_key";
 const KEY_MODEL: &str = "openai_model";
@@ -56,9 +57,8 @@ pub fn set_config(app: tauri::AppHandle<Wry>, config: AppConfig) -> Result<(), S
 
 /// Fetch available models from /v1/models.
 #[tauri::command]
-pub async fn fetch_models(app: tauri::AppHandle<Wry>) -> Result<Vec<String>, String> {
-    let config = get_config(app)?;
-    if config.openai_api_key.is_empty() {
+pub async fn fetch_models(api_key: String, base_url: String) -> Result<Vec<String>, String> {
+    if api_key.is_empty() {
         return Err("尚未配置 API Key".to_string());
     }
     #[derive(Deserialize)]
@@ -67,8 +67,8 @@ pub async fn fetch_models(app: tauri::AppHandle<Wry>) -> Result<Vec<String>, Str
     struct ModelsResp { data: Vec<ModelItem> }
 
     let resp = reqwest::Client::new()
-        .get(models_endpoint(&config.openai_base_url))
-        .bearer_auth(&config.openai_api_key)
+        .get(models_endpoint(&base_url))
+        .bearer_auth(&api_key)
         .send()
         .await
         .map_err(|e| e.to_string())?;
