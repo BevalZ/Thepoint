@@ -5,6 +5,7 @@ use tauri_plugin_store::StoreExt;
 const STORE_FILE: &str = "config.json";
 const KEY_API: &str = "openai_api_key";
 const KEY_MODEL: &str = "openai_model";
+const KEY_BASE_URL: &str = "openai_base_url";
 const DEFAULT_MODEL: &str = "gpt-4o-mini";
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -12,35 +13,73 @@ const DEFAULT_MODEL: &str = "gpt-4o-mini";
 pub struct AppConfig {
     pub openai_api_key: String,
     pub openai_model: String,
+    pub openai_base_url: String,
+}
+
+/// Normalise base URL → chat completions endpoint.
+pub fn completions_endpoint(base_url: &str) -> String {
+    let base = base_url.trim().trim_end_matches('/');
+    let base = if base.is_empty() { "https://api.openai.com" } else { base };
+    format!("{}/v1/chat/completions", base)
+}
+
+fn models_endpoint(base_url: &str) -> String {
+    let base = base_url.trim().trim_end_matches('/');
+    let base = if base.is_empty() { "https://api.openai.com" } else { base };
+    format!("{}/v1/models", base)
 }
 
 #[tauri::command]
 pub fn get_config(app: tauri::AppHandle<Wry>) -> Result<AppConfig, String> {
     let store = app.store(STORE_FILE).map_err(|e| e.to_string())?;
-
-    let openai_api_key = store
-        .get(KEY_API)
-        .and_then(|v| v.as_str().map(String::from))
-        .unwrap_or_default();
-
-    let openai_model = store
-        .get(KEY_MODEL)
-        .and_then(|v| v.as_str().map(String::from))
-        .unwrap_or_else(|| DEFAULT_MODEL.to_string());
-
     Ok(AppConfig {
-        openai_api_key,
-        openai_model,
+        openai_api_key: store.get(KEY_API)
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_default(),
+        openai_model: store.get(KEY_MODEL)
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_else(|| DEFAULT_MODEL.to_string()),
+        openai_base_url: store.get(KEY_BASE_URL)
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_default(),
     })
 }
 
 #[tauri::command]
 pub fn set_config(app: tauri::AppHandle<Wry>, config: AppConfig) -> Result<(), String> {
     let store = app.store(STORE_FILE).map_err(|e| e.to_string())?;
+    store.set(KEY_API, config.openai_api_key.as_str());
+    store.set(KEY_MODEL, config.openai_model.as_str());
+    store.set(KEY_BASE_URL, config.openai_base_url.as_str());
+    store.save().map_err(|e| e.to_string())
+}
 
-    store.set(KEY_API, config.openai_api_key);
-    store.set(KEY_MODEL, config.openai_model);
-    store.save().map_err(|e| e.to_string())?;
+/// Fetch available models from /v1/models.
+#[tauri::command]
+pub async fn fetch_models(app: tauri::AppHandle<Wry>) -> Result<Vec<String>, String> {
+    let config = get_config(app)?;
+    if config.openai_api_key.is_empty() {
+        return Err("尚未配置 API Key".to_string());
+    }
+    #[derive(Deserialize)]
+    struct ModelItem { id: String }
+    #[derive(Deserialize)]
+    struct ModelsResp { data: Vec<ModelItem> }
 
-    Ok(())
+    let resp = reqwest::Client::new()
+        .get(models_endpoint(&config.openai_base_url))
+        .bearer_auth(&config.openai_api_key)
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+    let status = resp.status();
+    let raw = resp.text().await.map_err(|e| e.to_string())?;
+    if !status.is_success() {
+        return Err(format!("获取模型列表失败 ({status}): {raw}"));
+    }
+    let parsed: ModelsResp = serde_json::from_str(&raw)
+        .map_err(|e| format!("解析模型列表失败: {e}"))?;
+    let mut ids: Vec<String> = parsed.data.into_iter().map(|m| m.id).collect();
+    ids.sort();
+    Ok(ids)
 }

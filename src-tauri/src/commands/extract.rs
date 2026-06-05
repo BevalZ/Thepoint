@@ -19,7 +19,7 @@ pub async fn extract_text(
     text: String,
 ) -> Result<Vec<ExtractedPoint>, String> {
     let config = crate::commands::config::get_config(app)?;
-    openai::extract_points(&config.openai_api_key, &config.openai_model, &text)
+    openai::extract_points(&config.openai_api_key, &config.openai_model, &config.openai_base_url, &text)
         .await
         .map_err(|e| e.to_string())
 }

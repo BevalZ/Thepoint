@@ -15,6 +15,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::config::get_config,
             commands::config::set_config,
+            commands::config::fetch_models,
             commands::extract::parse_document,
             commands::extract::extract_text,
             commands::library::save_points,

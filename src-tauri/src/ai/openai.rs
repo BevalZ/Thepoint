@@ -4,7 +4,6 @@ use serde_json::json;
 
 use super::ExtractedPoint;
 
-const ENDPOINT: &str = "https://api.openai.com/v1/chat/completions";
 
 const SYSTEM_PROMPT: &str = "你是一个观点提取助手。请把用户提供的文档文本拆解为段落级的关键要点（Point）。\
 每个要点是一句话的核心主张、事实或疑问。请判断每个要点的类型，取值之一：\
@@ -38,11 +37,13 @@ struct PointsPayload {
 pub async fn extract_points(
     api_key: &str,
     model: &str,
+    base_url: &str,
     text: &str,
 ) -> anyhow::Result<Vec<ExtractedPoint>> {
     if api_key.is_empty() {
         anyhow::bail!("尚未配置 OpenAI API Key，请在设置页填写");
     }
+    let endpoint = crate::commands::config::completions_endpoint(base_url);
 
     let body = json!({
         "model": model,
@@ -56,7 +57,7 @@ pub async fn extract_points(
 
     let client = reqwest::Client::new();
     let resp = client
-        .post(ENDPOINT)
+        .post(&endpoint)
         .bearer_auth(api_key)
         .json(&body)
         .send()

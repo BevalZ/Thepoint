@@ -1,6 +1,7 @@
 export interface AppConfig {
   openaiApiKey: string
   openaiModel: string
+  openaiBaseUrl: string
 }
 
 export interface ExtractedPoint {
