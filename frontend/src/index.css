@@ -1,3 +1,18 @@
+/* Font faces — bundled, no network required */
+@font-face {
+  font-family: 'Monaco';
+  src: url('/fonts/Monaco 400.ttf') format('truetype');
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Noto Serif SC';
+  src: url('/fonts/NotoSerifSC-VariableFont_wght.ttf') format('truetype');
+  font-weight: 100 900;
+  font-display: swap;
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -33,6 +48,7 @@
   html, body, #root { height: 100%; }
   body {
     @apply bg-bg text-fg antialiased;
-    font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    /* Monaco for Latin/ASCII, Noto Serif SC for CJK, system fonts as fallback */
+    font-family: 'Monaco', 'Noto Serif SC', system-ui, -apple-system, sans-serif;
   }
 }
