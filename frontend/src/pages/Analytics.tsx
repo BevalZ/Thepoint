@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { AnimatePresence } from 'framer-motion'
+import { AnimatePresence, motion, type Variants } from 'framer-motion'
 import ReactECharts from 'echarts-for-react'
 import { Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -41,12 +41,43 @@ function radarOption(data: AnalyticsData) {
 
 
 interface StatCardProps { label: string; value: number; className?: string }
+const STAT_CARD_VARIANTS: Variants = {
+  hover: {
+    y: -3,
+    scale: 1.012,
+    transition: { duration: 0.16, ease: 'easeOut' },
+  },
+  tap: {
+    scale: 0.995,
+    transition: { duration: 0.1, ease: 'easeOut' },
+  },
+}
+const STAT_SWEEP_VARIANTS: Variants = {
+  rest: { opacity: 0, x: 0 },
+  hover: {
+    opacity: [0, 0.5, 0],
+    x: 180,
+    transition: { duration: 0.42, ease: 'easeOut' },
+  },
+}
+
 function StatCard({ label, value, className }: StatCardProps) {
   return (
-    <div className={cn('rounded-lg border border-border bg-bg-elevated p-4', className)}>
-      <div className="text-2xl font-bold">{value}</div>
-      <div className="text-sm text-fg-muted">{label}</div>
-    </div>
+    <motion.div
+      variants={STAT_CARD_VARIANTS}
+      whileHover="hover"
+      whileTap="tap"
+      className={cn('relative isolate overflow-hidden rounded-lg border border-border bg-bg-elevated p-4 transition-colors hover:border-border-strong', className)}
+    >
+      <motion.span
+        aria-hidden
+        className="pointer-events-none absolute inset-y-1 -left-16 w-14 rounded-full bg-accent/15"
+        initial="rest"
+        variants={STAT_SWEEP_VARIANTS}
+      />
+      <div className="relative text-2xl font-bold">{value}</div>
+      <div className="relative text-sm text-fg-muted">{label}</div>
+    </motion.div>
   )
 }
 
