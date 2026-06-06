@@ -22,6 +22,7 @@ pub fn run() {
             commands::extract::extract_text,
             commands::extract::extract_text_streaming,
             commands::extract::fetch_url,
+            commands::extract::describe_image,
             commands::extract::analyze_text_streaming,
             commands::library::save_points,
             commands::library::list_points,

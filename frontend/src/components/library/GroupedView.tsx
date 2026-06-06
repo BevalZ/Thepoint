@@ -6,12 +6,20 @@ import { Archive, ChevronRight, FileText, Inbox, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 
 const NO_DOC = '（无来源）'
+const DIGEST_SOURCE_NAME = '知识研报'
+const DIGEST_TAG_TYPE = '研报摘要'
+
+function sourceKey(point: StoredPoint) {
+  if (point.sourceDocName?.trim()) return point.sourceDocName
+  if (point.tagType === DIGEST_TAG_TYPE) return DIGEST_SOURCE_NAME
+  return NO_DOC
+}
 
 function groupBySource(points: StoredPoint[]) {
   const map = new Map<string, StoredPoint[]>()
   for (const p of points) {
     if (p.parentId) continue
-    const key = p.sourceDocName ?? NO_DOC
+    const key = sourceKey(p)
     if (!map.has(key)) map.set(key, [])
     map.get(key)!.push(p)
   }

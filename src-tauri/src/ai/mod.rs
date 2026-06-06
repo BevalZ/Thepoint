@@ -24,6 +24,7 @@ pub struct Label {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ChunkCard {
+    pub index: usize,
     pub text: String,
     pub summary: String,
     pub hot_take: String,

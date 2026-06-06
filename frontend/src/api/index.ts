@@ -94,6 +94,9 @@ export const setProfiles = (profiles: ConfigProfile[]) =>
 export const fetchUrl = (url: string) =>
   invoke<{ html: string; text: string; title: string | null }>('fetch_url', { url })
 
+export const describeImage = (imageUrl: string) =>
+  invoke<string>('describe_image', { imageUrl })
+
 export const generateDigest = () => invoke<string>('generate_digest')
 
 // TODO(gallery): re-enable when AI gallery feature is ready

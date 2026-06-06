@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use tauri::Wry;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::ai::{openai, ExtractedPoint};
 
@@ -24,11 +24,12 @@ pub async fn fetch_url(url: String) -> Result<FetchedPage, String> {
         .await
         .map_err(|e| format!("请求失败: {e}"))?;
 
+    let final_url = resp.url().clone();
     let raw = resp.text().await.map_err(|e| e.to_string())?;
-    Ok(extract_page_content(&raw))
+    Ok(extract_page_content(&raw, &final_url))
 }
 
-fn extract_page_content(raw: &str) -> FetchedPage {
+fn extract_page_content(raw: &str, base_url: &reqwest::Url) -> FetchedPage {
     use scraper::{Html, Selector};
 
     let doc = Html::parse_document(raw);
@@ -51,6 +52,8 @@ fn extract_page_content(raw: &str) -> FetchedPage {
     // rebuild clean HTML: walk content elements, keep img tags
     let content_sel = Selector::parse("h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,img,figure,table,td,th")
         .expect("valid");
+    let img_sel = Selector::parse("img").expect("valid");
+    let caption_sel = Selector::parse("figcaption").expect("valid");
 
     let mut html_parts: Vec<String> = Vec::new();
     let mut text_lines: Vec<String> = Vec::new();
@@ -65,16 +68,31 @@ fn extract_page_content(raw: &str) -> FetchedPage {
             continue;
         }
         let tag = el.value().name();
-        if tag == "img" {
-            if let Some(src) = el.value().attr("src") {
+        if tag != "figure" && has_ancestor_tag(&el, "figure") {
+            continue;
+        }
+        if tag == "figure" {
+            if let Some(img) = el.select(&img_sel).next() {
+                if let Some(src) = image_src(&img) {
+                    let src = absolutize_src(&src, base_url);
+                    let alt = img.value().attr("alt").unwrap_or("");
+                    let caption = el.select(&caption_sel).next()
+                        .map(|c| c.text().collect::<String>().trim().to_string())
+                        .filter(|s| !s.is_empty());
+                    html_parts.push(image_html(&src, alt, caption.as_deref()));
+                }
+            }
+        } else if tag == "img" {
+            if let Some(src) = image_src(&el) {
+                let src = absolutize_src(&src, base_url);
                 let alt = el.value().attr("alt").unwrap_or("");
-                html_parts.push(format!(r#"<img src="{src}" alt="{alt}" />"#));
+                html_parts.push(image_html(&src, alt, None));
             }
         } else {
             let text: String = el.text().collect::<String>();
             let text = text.trim().to_string();
             if text.is_empty() { continue; }
-            html_parts.push(format!("<{tag}>{text}</{tag}>"));
+            html_parts.push(format!("<{tag}>{}</{tag}>", escape_html_text(&text)));
             text_lines.push(text);
         }
     }
@@ -84,6 +102,128 @@ fn extract_page_content(raw: &str) -> FetchedPage {
         text: text_lines.join("\n"),
         title,
     }
+}
+
+fn has_ancestor_tag(el: &scraper::ElementRef<'_>, tag_name: &str) -> bool {
+    el.ancestors().skip(1).any(|ancestor| {
+        ancestor
+            .value()
+            .as_element()
+            .map_or(false, |value| value.name() == tag_name)
+    })
+}
+
+fn image_src(el: &scraper::ElementRef<'_>) -> Option<String> {
+    ["src", "data-src", "data-original", "data-lazy-src"]
+        .iter()
+        .find_map(|name| el.value().attr(name))
+        .map(str::trim)
+        .filter(|src| !src.is_empty())
+        .map(ToString::to_string)
+}
+
+fn absolutize_src(src: &str, base_url: &reqwest::Url) -> String {
+    if src.starts_with("data:") {
+        return src.to_string();
+    }
+    base_url
+        .join(src)
+        .map(|url| url.to_string())
+        .unwrap_or_else(|_| src.to_string())
+}
+
+fn image_html(src: &str, alt: &str, caption: Option<&str>) -> String {
+    let src = escape_html_attr(src);
+    let alt = escape_html_attr(alt);
+    match caption.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(caption) => format!(
+            r#"<figure><img src="{src}" alt="{alt}" /><figcaption>{}</figcaption></figure>"#,
+            escape_html_text(caption)
+        ),
+        None => format!(r#"<img src="{src}" alt="{alt}" />"#),
+    }
+}
+
+fn escape_html_text(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+fn escape_html_attr(value: &str) -> String {
+    escape_html_text(value)
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
+#[tauri::command]
+pub async fn describe_image(app: tauri::AppHandle<Wry>, image_url: String) -> Result<String, String> {
+    #[derive(Deserialize)]
+    struct Resp { choices: Vec<Choice> }
+    #[derive(Deserialize)]
+    struct Choice { message: Msg }
+    #[derive(Deserialize)]
+    struct Msg { content: String }
+
+    let config = crate::commands::config::get_config(app)?;
+    if config.openai_api_key.is_empty() {
+        return Err("尚未配置 API Key".to_string());
+    }
+    if image_url.trim().is_empty() {
+        return Err("图片地址为空".to_string());
+    }
+
+    let endpoint = crate::commands::config::completions_endpoint(
+        &config.openai_base_url,
+        "openai-compat",
+        "",
+    );
+    let body = serde_json::json!({
+        "model": config.openai_model,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "请用中文用一到两句话描述这张图。只描述可见内容和它可能承载的信息，不要编造图中没有的文字或结论。直接输出图像说明。"
+                },
+                {
+                    "type": "image_url",
+                    "image_url": { "url": image_url }
+                }
+            ]
+        }],
+        "temperature": 0.2
+    });
+
+    let client = reqwest::Client::new();
+    let mut builder = client
+        .post(&endpoint)
+        .bearer_auth(&config.openai_api_key)
+        .json(&body);
+    if let Ok(map) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&config.extra_headers) {
+        for (k, v) in &map {
+            if let Some(s) = v.as_str() {
+                builder = builder.header(k.as_str(), s);
+            }
+        }
+    }
+
+    let resp = builder.send().await.map_err(|e| format!("图像说明请求失败: {e}"))?;
+    let status = resp.status();
+    let raw = resp.text().await.map_err(|e| e.to_string())?;
+    if !status.is_success() {
+        return Err(format!("图像说明失败 ({status}): {raw}"));
+    }
+    let parsed: Resp = serde_json::from_str(&raw)
+        .map_err(|e| format!("图像说明响应解析失败: {e}"))?;
+    Ok(parsed
+        .choices
+        .into_iter()
+        .next()
+        .map(|choice| choice.message.content.trim().to_string())
+        .unwrap_or_default())
 }
 
 /// Extract points in streaming mode: splits text into chunks, emits each chunk's points as they complete.
@@ -162,7 +302,7 @@ pub async fn analyze_text_streaming(
     ).await.map_err(|e| e.to_string())?;
 
     let mut handles = Vec::new();
-    for chunk in chunks {
+    for (index, chunk) in chunks.into_iter().enumerate() {
         let (api_key, model, base_url, headers, name, style) = (
             config.openai_api_key.clone(), config.openai_model.clone(),
             config.openai_base_url.clone(), config.extra_headers.clone(),
@@ -170,7 +310,8 @@ pub async fn analyze_text_streaming(
         );
         let app = app.clone();
         handles.push(tokio::spawn(async move {
-            if let Ok(card) = openai::analyze_chunk(&api_key, &model, &base_url, &headers, &chunk, &name, &style).await {
+            if let Ok(mut card) = openai::analyze_chunk(&api_key, &model, &base_url, &headers, &chunk, &name, &style).await {
+                card.index = index;
                 let _ = app.emit("chunk_card", &card);
             }
         }));

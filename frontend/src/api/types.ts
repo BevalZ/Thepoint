@@ -69,6 +69,7 @@ export interface Label {
 }
 
 export interface ChunkCard {
+  index: number
   text: string
   summary: string
   hotTake: string
@@ -83,6 +84,19 @@ export interface GalleryItem {
   generatedAt: string
   downloadStatus: string
   pointIds: string[]
+}
+
+export interface ExploreHistoryItem {
+  id: string
+  sourceName: string | null
+  sourceUrl: string | null
+  text: string
+  richHtml: string | null
+  chunkCards: ChunkCard[]
+  previewImage: string | null
+  createdAt: string
+  updatedAt: string
+  archived: boolean
 }
 
 export interface DailyActions {

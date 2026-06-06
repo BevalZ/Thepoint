@@ -6,6 +6,7 @@ import type {
   ConfigProfile,
   DeepenAction,
   ExtractedPoint,
+  ExploreHistoryItem,
   FrameworkRecommendation,
   MentalModel,
   StoredPoint,
@@ -88,15 +89,77 @@ interface ExploreStore {
   reset: () => void
 }
 
+const LS_EXPLORE_HISTORY = 'explore-analysis-history-v1'
+const MAX_ACTIVE_EXPLORE_HISTORY = 48
+
+function loadExploreHistoryItems(): ExploreHistoryItem[] {
+  try {
+    const raw = localStorage.getItem(LS_EXPLORE_HISTORY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter(isExploreHistoryItem)
+  } catch {
+    return []
+  }
+}
+
+function isExploreHistoryItem(item: unknown): item is ExploreHistoryItem {
+  if (!item || typeof item !== 'object') return false
+  const value = item as Partial<ExploreHistoryItem>
+  return typeof value.id === 'string'
+    && typeof value.text === 'string'
+    && Array.isArray(value.chunkCards)
+    && typeof value.createdAt === 'string'
+    && typeof value.updatedAt === 'string'
+    && typeof value.archived === 'boolean'
+}
+
+function persistExploreHistoryItems(items: ExploreHistoryItem[]) {
+  try {
+    localStorage.setItem(LS_EXPLORE_HISTORY, JSON.stringify(items))
+  } catch {
+    // Keep the UI responsive even when storage quota is full.
+  }
+}
+
+function compactExploreHistory(items: ExploreHistoryItem[]): ExploreHistoryItem[] {
+  const archived = items.filter((item) => item.archived)
+  const active = items
+    .filter((item) => !item.archived)
+    .slice(0, MAX_ACTIVE_EXPLORE_HISTORY)
+  return [...active, ...archived]
+}
+
+function newHistoryId(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID()
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+}
+
+function firstImageFromHtml(html: string | null): string | null {
+  if (!html || typeof DOMParser === 'undefined') return null
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  return doc.querySelector('img[src]')?.getAttribute('src') ?? null
+}
+
 async function autoAnalyze(set: (s: Partial<ExploreStore>) => void, content: string) {
   if (!content.trim()) return
   set({ analyzing: true, error: null, chunkCards: [] })
   try {
     const unlistenCard = await listen<ChunkCard>('chunk_card', (e) => {
-      useExploreStore.setState((s) => ({ chunkCards: [...s.chunkCards, e.payload] }))
+      useExploreStore.setState((s) => {
+        const next = [
+          ...s.chunkCards.filter((card) => card.index !== e.payload.index),
+          e.payload,
+        ].sort((a, b) => a.index - b.index)
+        return { chunkCards: next }
+      })
     })
     const unlistenDone = await listen('chunk_cards_done', () => {
       set({ analyzing: false })
+      window.queueMicrotask(() => useExploreHistoryStore.getState().saveCurrent())
       unlistenCard()
       unlistenDone()
     })
@@ -116,9 +179,12 @@ export const useExploreStore = create<ExploreStore>((set) => ({
   parsing: false,
   error: null,
   savedChunkIds: {},
-  setText: (text) => set({ text, richHtml: null, sourceUrl: null }),
+  setText: (text) => {
+    set({ text, sourceName: '粘贴文本', richHtml: null, sourceUrl: null, chunkCards: [], error: null })
+    autoAnalyze(set, text)
+  },
   setRichContent: (html, text, url) => {
-    set({ richHtml: html, text, sourceUrl: url, chunkCards: [], error: null })
+    set({ richHtml: html, text, sourceName: url ?? '粘贴网页内容', sourceUrl: url, chunkCards: [], error: null })
     autoAnalyze(set, text)
   },
   parseFile: async (filePath) => {
@@ -144,6 +210,74 @@ export const useExploreStore = create<ExploreStore>((set) => ({
     }
   },
   reset: () => set({ text: '', sourceName: null, richHtml: null, sourceUrl: null, chunkCards: [], analyzing: false, parsing: false, error: null, savedChunkIds: {} }),
+}))
+
+interface ExploreHistoryStore {
+  items: ExploreHistoryItem[]
+  saveCurrent: () => void
+  remove: (id: string) => void
+  archive: (id: string) => void
+  unarchive: (id: string) => void
+  activate: (id: string) => ExploreHistoryItem | null
+}
+
+export const useExploreHistoryStore = create<ExploreHistoryStore>((set, get) => ({
+  items: loadExploreHistoryItems(),
+  saveCurrent: () => {
+    const current = useExploreStore.getState()
+    if (!current.text.trim() || current.chunkCards.length === 0) return
+    const now = new Date().toISOString()
+    const item: ExploreHistoryItem = {
+      id: newHistoryId(),
+      sourceName: current.sourceName,
+      sourceUrl: current.sourceUrl,
+      text: current.text,
+      richHtml: current.richHtml,
+      chunkCards: [...current.chunkCards].sort((a, b) => a.index - b.index),
+      previewImage: firstImageFromHtml(current.richHtml),
+      createdAt: now,
+      updatedAt: now,
+      archived: false,
+    }
+    const next = compactExploreHistory([item, ...get().items])
+    persistExploreHistoryItems(next)
+    set({ items: next })
+  },
+  remove: (id) => {
+    const next = get().items.filter((item) => item.id !== id)
+    persistExploreHistoryItems(next)
+    set({ items: next })
+  },
+  archive: (id) => {
+    const next = get().items.map((item) =>
+      item.id === id ? { ...item, archived: true, updatedAt: new Date().toISOString() } : item
+    )
+    persistExploreHistoryItems(next)
+    set({ items: next })
+  },
+  unarchive: (id) => {
+    const next = compactExploreHistory(get().items.map((item) =>
+      item.id === id ? { ...item, archived: false, updatedAt: new Date().toISOString() } : item
+    ))
+    persistExploreHistoryItems(next)
+    set({ items: next })
+  },
+  activate: (id) => {
+    const item = get().items.find((entry) => entry.id === id) ?? null
+    if (!item) return null
+    useExploreStore.setState({
+      text: item.text,
+      sourceName: item.sourceName,
+      richHtml: item.richHtml,
+      sourceUrl: item.sourceUrl,
+      chunkCards: item.chunkCards,
+      analyzing: false,
+      parsing: false,
+      error: null,
+      savedChunkIds: {},
+    })
+    return item
+  },
 }))
 
 

@@ -4,6 +4,8 @@ import { X, Copy, Download, BookmarkPlus, Check, Loader2 } from 'lucide-react'
 import { savePoints } from '@/api'
 import { Markdown } from '@/components/Markdown'
 
+export const DIGEST_SOURCE_NAME = '知识研报'
+
 interface Props {
   content: string
   onClose: () => void
@@ -34,7 +36,7 @@ export function DigestModal({ content, onClose }: Props) {
     if (archived || archiving) return
     setArchiving(true)
     try {
-      await savePoints([{ content, tagType: '研报摘要' }])
+      await savePoints([{ content, tagType: '研报摘要' }], DIGEST_SOURCE_NAME)
       setArchived(true)
     } finally {
       setArchiving(false)
