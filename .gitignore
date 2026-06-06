@@ -9,6 +9,9 @@ frontend/dist/
 # OS
 .DS_Store
 Thumbs.db
+*.log
+*.log.err
+*.zip
 
 # IDE
 .vscode/
