@@ -10,6 +10,7 @@ const KEY_BASE_URL: &str = "openai_base_url";
 const KEY_IMAGE_BASE_URL: &str = "image_base_url";
 const KEY_IMAGE_API_KEY: &str = "image_api_key";
 const KEY_IMAGE_MODEL: &str = "image_model";
+const KEY_IMAGE_PROVIDER_KEY: &str = "image_provider_key";
 const KEY_PROFILES: &str = "config_profiles";
 const KEY_PROVIDER_KEY: &str = "provider_key";
 const KEY_CUSTOM_ENDPOINT: &str = "custom_endpoint";
@@ -21,6 +22,9 @@ const KEY_SEARCH_MODEL: &str = "search_model";
 const KEY_SEARCH_BASE_URL: &str = "search_base_url";
 const KEY_SEARCH_PROVIDER_KEY: &str = "search_provider_key";
 const KEY_SEARCH_CUSTOM_ENDPOINT: &str = "search_custom_endpoint";
+const KEY_COMMENTATOR_NAME: &str = "commentator_name";
+const KEY_COMMENTATOR_STYLE: &str = "commentator_style";
+const KEY_COMMENTATOR_EMOJI: &str = "commentator_emoji";
 const DEFAULT_MODEL: &str = "gpt-4o-mini";
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -32,6 +36,7 @@ pub struct AppConfig {
     pub image_base_url: String,
     pub image_api_key: String,
     pub image_model: String,
+    pub image_provider_key: String,
     pub provider_key: String,
     pub custom_endpoint: String,
     pub custom_provider_name: String,
@@ -42,6 +47,9 @@ pub struct AppConfig {
     pub search_base_url: String,
     pub search_provider_key: String,
     pub search_custom_endpoint: String,
+    pub commentator_name: String,
+    pub commentator_style: String,
+    pub commentator_emoji: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -106,6 +114,9 @@ pub fn get_config(app: tauri::AppHandle<Wry>) -> Result<AppConfig, String> {
         image_model: store.get(KEY_IMAGE_MODEL)
             .and_then(|v| v.as_str().map(String::from))
             .unwrap_or_default(),
+        image_provider_key: store.get(KEY_IMAGE_PROVIDER_KEY)
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_else(|| "openai-compatible".to_string()),
         provider_key: store.get(KEY_PROVIDER_KEY)
             .and_then(|v| v.as_str().map(String::from))
             .unwrap_or_else(|| "openai-compat".to_string()),
@@ -136,6 +147,15 @@ pub fn get_config(app: tauri::AppHandle<Wry>) -> Result<AppConfig, String> {
         search_custom_endpoint: store.get(KEY_SEARCH_CUSTOM_ENDPOINT)
             .and_then(|v| v.as_str().map(String::from))
             .unwrap_or_default(),
+        commentator_name: store.get(KEY_COMMENTATOR_NAME)
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_else(|| "鲁迅".to_string()),
+        commentator_style: store.get(KEY_COMMENTATOR_STYLE)
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_else(|| "犀利讽刺，言简意赅，擅用反讽".to_string()),
+        commentator_emoji: store.get(KEY_COMMENTATOR_EMOJI)
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_else(|| "🧐".to_string()),
     })
 }
 
@@ -148,6 +168,7 @@ pub fn set_config(app: tauri::AppHandle<Wry>, config: AppConfig) -> Result<(), S
     store.set(KEY_IMAGE_BASE_URL, config.image_base_url.as_str());
     store.set(KEY_IMAGE_API_KEY, config.image_api_key.as_str());
     store.set(KEY_IMAGE_MODEL, config.image_model.as_str());
+    store.set(KEY_IMAGE_PROVIDER_KEY, config.image_provider_key.as_str());
     store.set(KEY_PROVIDER_KEY, config.provider_key.as_str());
     store.set(KEY_CUSTOM_ENDPOINT, config.custom_endpoint.as_str());
     store.set(KEY_CUSTOM_PROVIDER_NAME, config.custom_provider_name.as_str());
@@ -158,6 +179,9 @@ pub fn set_config(app: tauri::AppHandle<Wry>, config: AppConfig) -> Result<(), S
     store.set(KEY_SEARCH_BASE_URL, config.search_base_url.as_str());
     store.set(KEY_SEARCH_PROVIDER_KEY, config.search_provider_key.as_str());
     store.set(KEY_SEARCH_CUSTOM_ENDPOINT, config.search_custom_endpoint.as_str());
+    store.set(KEY_COMMENTATOR_NAME, config.commentator_name.as_str());
+    store.set(KEY_COMMENTATOR_STYLE, config.commentator_style.as_str());
+    store.set(KEY_COMMENTATOR_EMOJI, config.commentator_emoji.as_str());
     store.save().map_err(|e| e.to_string())
 }
 

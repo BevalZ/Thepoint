@@ -2,13 +2,17 @@ use anyhow::Context;
 use serde::Deserialize;
 use serde_json::json;
 
-use super::ExtractedPoint;
+use super::{ChunkCard, ExtractedPoint, Label};
 
-
-const SYSTEM_PROMPT: &str = "你是一个观点提取助手。请把用户提供的文档文本拆解为段落级的关键要点（Point）。\
-每个要点是一句话的核心主张、事实或疑问。请判断每个要点的类型，取值之一：\
-\"事实陈述\"、\"作者观点\"、\"待验证疑问\"。\
-同时，为每个要点提取 anchor：原文中对应的那句话或短语（15-80字，尽量精确，不要改写）。\
+const SYSTEM_PROMPT: &str = "你是一个观点提取助手。请先判断文本的阅读难度，再按以下规则控制提取密度：\
+【难度判断与密度规则】\
+- 高中水平（通俗科普、新闻、大众读物）：每 200-400 字提取 1 个 point，每自然段至多 1 个；\
+- 大学水平（学术入门、专业教材、技术博客）：每 100-200 字提取 1 个 point，每自然段至多 1 个；\
+- 研究生及以上（论文、专业综述、高密度技术文档）：每 50-100 字提取 1 个 point；\
+- 科技类工具介绍/章节（API 文档、功能列表、产品介绍栏目）：整个栏目/小节提取 1 个 point，不逐条列举。\
+宁少勿多：只提取真正有信息量的核心主张，跳过过渡句、举例说明、重复表述。\
+每个 point 是一句话的核心主张、事实或疑问，类型取值之一：\"事实陈述\"、\"作者观点\"、\"待验证疑问\"。\
+同时为每个 point 提取 anchor：原文中对应的那句话或短语（15-80字，尽量精确，不要改写）。\
 请用文档的原始语言提取内容。\
 只返回 JSON 对象，格式为 {\"points\": [{\"content\": \"...\", \"tagType\": \"...\", \"anchor\": \"...\"}]}，不要包含其他文字。";
 
@@ -32,6 +36,91 @@ struct Message {
 #[derive(Deserialize)]
 struct PointsPayload {
     points: Vec<ExtractedPoint>,
+}
+
+const CHUNK_SYSTEM: &str = "你是一个文本分块助手。请将用户提供的文本按主题边界分割为若干块，每块约 1000 字。\
+只返回 JSON 对象，格式为 {\"chunks\": [\"块1文本\", \"块2文本\", ...]}，不要包含其他文字。";
+
+const CHUNK_EXTRACT_SYSTEM: &str = "你是一个观点提取助手。请从给定文本中提取 1-2 个最核心的观点。\
+每个 point 是一句话的核心主张、事实或疑问，类型取值之一：\"事实陈述\"、\"作者观点\"、\"待验证疑问\"。\
+同时为每个 point 提取 anchor：原文中对应的那句话或短语（15-80字，尽量精确，不要改写）。\
+只返回 JSON 对象，格式为 {\"points\": [{\"content\": \"...\", \"tagType\": \"...\", \"anchor\": \"...\"}]}，不要包含其他文字。";
+
+/// Split text into thematic chunks (~1000 chars each) via LLM.
+pub async fn split_chunks(
+    api_key: &str,
+    model: &str,
+    base_url: &str,
+    extra_headers: &str,
+    text: &str,
+) -> anyhow::Result<Vec<String>> {
+    #[derive(serde::Deserialize)]
+    struct Payload { chunks: Vec<String> }
+
+    // If text is short enough, skip the split step
+    if text.chars().count() <= 1200 {
+        return Ok(vec![text.to_string()]);
+    }
+
+    let endpoint = crate::commands::config::completions_endpoint(base_url, "openai-compat", "");
+    let body = serde_json::json!({
+        "model": model,
+        "messages": [
+            { "role": "system", "content": CHUNK_SYSTEM },
+            { "role": "user", "content": text }
+        ],
+        "response_format": { "type": "json_object" },
+        "temperature": 0.1
+    });
+    let client = reqwest::Client::new();
+    let mut builder = client.post(&endpoint).bearer_auth(api_key).json(&body);
+    if let Ok(map) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(extra_headers) {
+        for (k, v) in &map {
+            if let Some(s) = v.as_str() { builder = builder.header(k.as_str(), s); }
+        }
+    }
+    let resp = builder.send().await.context("分块请求失败")?;
+    let raw = resp.text().await?;
+    let parsed: ChatResponse = serde_json::from_str(&raw).context("分块响应解析失败")?;
+    let content = parsed.choices.into_iter().next().map(|c| c.message.content).context("分块响应为空")?;
+    let payload: Payload = serde_json::from_str(&content).context("分块 JSON 解析失败")?;
+    Ok(payload.chunks)
+}
+
+/// Extract 1-2 points from a single chunk.
+pub async fn extract_chunk(
+    api_key: &str,
+    model: &str,
+    base_url: &str,
+    extra_headers: &str,
+    chunk: &str,
+) -> anyhow::Result<Vec<ExtractedPoint>> {
+    let endpoint = crate::commands::config::completions_endpoint(base_url, "openai-compat", "");
+    let body = serde_json::json!({
+        "model": model,
+        "messages": [
+            { "role": "system", "content": CHUNK_EXTRACT_SYSTEM },
+            { "role": "user", "content": chunk }
+        ],
+        "response_format": { "type": "json_object" },
+        "temperature": 0.2
+    });
+    let client = reqwest::Client::new();
+    let mut builder = client.post(&endpoint).bearer_auth(api_key).json(&body);
+    if let Ok(map) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(extra_headers) {
+        for (k, v) in &map {
+            if let Some(s) = v.as_str() { builder = builder.header(k.as_str(), s); }
+        }
+    }
+    let resp = builder.send().await.context("块提取请求失败")?;
+    let status = resp.status();
+    let raw = resp.text().await?;
+    if !status.is_success() { anyhow::bail!("块提取失败 ({status}): {raw}"); }
+    let parsed: ChatResponse = serde_json::from_str(&raw).context("块提取响应解析失败")?;
+    let content = parsed.choices.into_iter().next().map(|c| c.message.content).context("块提取响应为空")?;
+    #[derive(serde::Deserialize)] struct Payload { points: Vec<ExtractedPoint> }
+    let payload: Payload = serde_json::from_str(&content).context("块提取 JSON 解析失败")?;
+    Ok(payload.points)
 }
 
 /// Call OpenAI to extract points from document text.
@@ -94,4 +183,49 @@ pub async fn extract_points(
         serde_json::from_str(content).context("模型返回的内容不是预期的 JSON 格式")?;
 
     Ok(payload.points)
+}
+
+const ANALYZE_SYSTEM: &str = "你是一个文本分析助手。请对给定的文本主题块完成以下三项分析，只返回 JSON 对象：\
+1. summary: 一句话总结（20-60字，用原文语言）\
+2. hot_take: 以指定评论员风格生成的辣评（50-100字，用原文语言）\
+3. labels: 信息分类标签数组，每项含 category（五大类之一）和 sub（最匹配子类）\
+五大类及子类：\
+事实[硬事实,历史事实,统计事实,科学共识,案例事实,制度事实,元事实,法律事实,技术/参数事实,存在事实]\
+观点[价值判断,个人偏好,建议与呼吁,预测,信念与信仰,假说与推测,分类/定义性判断,比较性评价,审美判断,解释性观点]\
+中间混淆形态[推断性陈述,选择性事实,预测伪装成事实,价值判断伪装,匿名权威,情绪化标签,预设伪装成事实,因果归因伪装,整体断言伪装]\
+规范性/分析性[道德/法律规范,逻辑/数学真理,定义约定,语法规则,同义反复,先验真理]\
+修辞性[隐喻,类比,夸张,反问,反讽/讽刺,委婉表达,思想实验]\
+格式：{\"summary\":\"...\",\"hot_take\":\"...\",\"labels\":[{\"category\":\"...\",\"sub\":\"...\"}]}";
+
+/// Analyze a chunk: summary + hot_take (in commentator's style) + info-type labels.
+pub async fn analyze_chunk(
+    api_key: &str, model: &str, base_url: &str, extra_headers: &str,
+    chunk: &str, commentator_name: &str, commentator_style: &str,
+) -> anyhow::Result<ChunkCard> {
+    #[derive(Deserialize)] struct Payload { summary: String, hot_take: String, labels: Vec<Label> }
+
+    let system = format!(
+        "{}\n\n评论员：名称「{}」，风格「{}」。hot_take 必须完全符合该风格。",
+        ANALYZE_SYSTEM, commentator_name, commentator_style
+    );
+    let endpoint = crate::commands::config::completions_endpoint(base_url, "openai-compat", "");
+    let body = json!({
+        "model": model,
+        "messages": [{ "role": "system", "content": system }, { "role": "user", "content": chunk }],
+        "response_format": { "type": "json_object" },
+        "temperature": 0.5
+    });
+    let client = reqwest::Client::new();
+    let mut builder = client.post(&endpoint).bearer_auth(api_key).json(&body);
+    if let Ok(map) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(extra_headers) {
+        for (k, v) in &map { if let Some(s) = v.as_str() { builder = builder.header(k.as_str(), s); } }
+    }
+    let resp = builder.send().await.context("分析块请求失败")?;
+    let status = resp.status();
+    let raw = resp.text().await?;
+    if !status.is_success() { anyhow::bail!("分析块失败 ({status}): {raw}"); }
+    let parsed: ChatResponse = serde_json::from_str(&raw).context("分析块响应解析失败")?;
+    let content = parsed.choices.into_iter().next().map(|c| c.message.content).context("分析块响应为空")?;
+    let p: Payload = serde_json::from_str(&content).context("分析块 JSON 解析失败")?;
+    Ok(ChunkCard { text: chunk.to_string(), summary: p.summary, hot_take: p.hot_take, labels: p.labels })
 }

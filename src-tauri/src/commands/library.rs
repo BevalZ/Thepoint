@@ -4,22 +4,22 @@ use tauri::Wry;
 use crate::ai::ExtractedPoint;
 use crate::db::{self, StoredPoint};
 
-/// Persist a batch of extracted points into the local library. Returns rows written.
+/// Persist a batch of extracted points into the local library. Returns generated IDs.
 #[tauri::command]
 pub async fn save_points(
     app: tauri::AppHandle<Wry>,
     points: Vec<ExtractedPoint>,
     source_doc_name: Option<String>,
-) -> Result<usize, String> {
+) -> Result<Vec<String>, String> {
     let path = db::db_path(&app).map_err(|e| e.to_string())?;
 
-    tokio::task::spawn_blocking(move || -> anyhow::Result<usize> {
+    tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<String>> {
         let mut conn = Connection::open(&path)?;
         db::init_db(&conn)?;
 
         let tx = conn.transaction()?;
         let now = chrono::Utc::now().to_rfc3339();
-        let mut written = 0usize;
+        let mut ids = Vec::with_capacity(points.len());
         for point in &points {
             let id = uuid::Uuid::new_v4().to_string();
             tx.execute(
@@ -27,10 +27,10 @@ pub async fn save_points(
                  VALUES (?1, ?2, ?3, NULL, ?4, ?5)",
                 rusqlite::params![id, point.content, point.tag_type, source_doc_name, now],
             )?;
-            written += 1;
+            ids.push(id);
         }
         tx.commit()?;
-        Ok(written)
+        Ok(ids)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -96,6 +96,45 @@ pub async fn list_archived_points(app: tauri::AppHandle<Wry>) -> Result<Vec<Stor
     tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<StoredPoint>> {
         let conn = db::open_db(&path)?;
         db::list_archived_points(&conn)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+/// Star a point; returns new global starred count.
+#[tauri::command]
+pub async fn star_point(app: tauri::AppHandle<Wry>, point_id: String) -> Result<u32, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<u32> {
+        let conn = db::open_db(&path)?;
+        db::set_starred(&conn, &point_id, true)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+/// Unstar a point; returns new global starred count.
+#[tauri::command]
+pub async fn unstar_point(app: tauri::AppHandle<Wry>, point_id: String) -> Result<u32, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<u32> {
+        let conn = db::open_db(&path)?;
+        db::set_starred(&conn, &point_id, false)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+/// Return total starred count (for initializing the ring on startup).
+#[tauri::command]
+pub async fn get_starred_count(app: tauri::AppHandle<Wry>) -> Result<u32, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<u32> {
+        let conn = db::open_db(&path)?;
+        db::starred_count(&conn)
     })
     .await
     .map_err(|e| e.to_string())?

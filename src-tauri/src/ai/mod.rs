@@ -13,3 +13,19 @@ pub struct ExtractedPoint {
     #[serde(default)]
     pub anchor: Option<String>,
 }
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Label {
+    pub category: String,
+    pub sub: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ChunkCard {
+    pub text: String,
+    pub summary: String,
+    pub hot_take: String,
+    pub labels: Vec<Label>,
+}
