@@ -1,15 +1,52 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { open } from '@tauri-apps/plugin-dialog'
-import { Loader2, Upload, FileText, Star, X, Link, AlertCircle } from 'lucide-react'
-import { useConfigStore, useExploreStore, useStarStore } from '@/store'
+import { Archive, ArchiveRestore, Images, Loader2, Upload, FileText, Star, X, Link, AlertCircle, RotateCcw, Trash2 } from 'lucide-react'
+import { useConfigStore, useExploreHistoryStore, useExploreStore, useStarStore } from '@/store'
 import { cn } from '@/lib/utils'
 import { useStarFly } from '@/hooks/useStarFly'
-import { savePoints } from '@/api'
-import type { ChunkCard } from '@/api/types'
+import { describeImage, savePoints } from '@/api'
+import type { AppConfig, ChunkCard, ExploreHistoryItem } from '@/api/types'
 
 const URL_RE = /^https?:\/\/[^\s]+$/
 const SUPPORTED_EXTS = ['txt','md','markdown','rst','csv','docx','odt','html','htm']
+const BLOCK_PREVIEW_LIMIT = 320
+const STAGE_GAP = 150
+const STAGE_WINDOW = 3
+const STAGE_ADVANCE_MS = 720
+const STAGE_CATCHUP_MS = 260
+const RESULT_REVEAL_START_MS = 180
+const RESULT_REVEAL_MS = 180
+const ORBIT_DOTS = [
+  'rotate-0',
+  'rotate-[36deg]',
+  'rotate-[72deg]',
+  'rotate-[108deg]',
+  'rotate-[144deg]',
+  'rotate-180',
+  'rotate-[216deg]',
+  'rotate-[252deg]',
+  'rotate-[288deg]',
+  'rotate-[324deg]',
+]
+const STATUS_DOTS = Array.from({ length: 5 }, (_, index) => index)
+const STAR_BURST = [
+  { x: -24, y: -16, rotate: -28, size: 7 },
+  { x: 18, y: -22, rotate: 22, size: 6 },
+  { x: 28, y: 2, rotate: 44, size: 5 },
+  { x: -18, y: 18, rotate: -46, size: 5 },
+  { x: 4, y: 27, rotate: 12, size: 6 },
+]
+
+type SourceBlock =
+  | { type: 'text'; text: string }
+  | { type: 'image'; src: string; alt: string; caption: string | null }
+
+type SourceResultItem =
+  | { block: Extract<SourceBlock, { type: 'text' }>; index: number; card: ChunkCard | null; valuable: boolean }
+  | { block: Extract<SourceBlock, { type: 'image' }>; index: number; card: null; valuable: false }
 
 function processWebHtml(html: string): { richHtml: string; text: string; url: string | null } {
   const parser = new DOMParser()
@@ -20,6 +57,258 @@ function processWebHtml(html: string): { richHtml: string; text: string; url: st
   if (!url) url = doc.querySelector('meta[property="og:url"]')?.getAttribute('content') ?? null
   doc.querySelectorAll('script,style,nav,footer,aside,noscript,iframe').forEach(el => el.remove())
   return { richHtml: doc.body?.innerHTML ?? html, text: (doc.body?.innerText ?? '').trim(), url }
+}
+
+function splitIntoInfoBlocks(text: string): string[] {
+  const cleaned = text.replace(/\r\n/g, '\n').trim()
+  if (!cleaned) return []
+
+  const units = cleaned
+    .split(/\n+/)
+    .flatMap((part) => splitLongInfoPart(part))
+    .filter(Boolean)
+
+  const blocks: string[] = []
+  let current = ''
+
+  const flush = () => {
+    if (current) {
+      blocks.push(current)
+      current = ''
+    }
+  }
+
+  for (const part of units.length > 0 ? units : splitLongInfoPart(cleaned)) {
+    if (shouldKeepStandaloneBlock(part)) {
+      flush()
+      blocks.push(part)
+      continue
+    }
+
+    const next = current ? `${current} ${part}` : part
+    if (next.length > BLOCK_PREVIEW_LIMIT && current) {
+      flush()
+      current = part
+    } else {
+      current = next
+    }
+  }
+
+  flush()
+  return blocks
+}
+
+function splitLongInfoPart(part: string): string[] {
+  const normalized = part.replace(/\s+/g, ' ').trim()
+  if (!normalized) return []
+
+  const sentenceParts = normalized.match(/[^。！？!?；;.!?]+[。！？!?；;.!?]?/g) ?? [normalized]
+  const chunks: string[] = []
+
+  for (const sentence of sentenceParts) {
+    const trimmed = sentence.trim()
+    if (!trimmed) continue
+    if (trimmed.length <= BLOCK_PREVIEW_LIMIT) {
+      chunks.push(trimmed)
+      continue
+    }
+
+    for (let start = 0; start < trimmed.length; start += BLOCK_PREVIEW_LIMIT) {
+      chunks.push(trimmed.slice(start, start + BLOCK_PREVIEW_LIMIT))
+    }
+  }
+
+  return chunks
+}
+
+function normalizedText(text: string): string {
+  return text.replace(/\s+/g, ' ').trim()
+}
+
+function isMetadataTextBlock(normalized: string): boolean {
+  if (/^(作者|撰文|来源|发布|日期|时间|编辑|译者|摄影|图|图注|标题|by|source|date|updated|published)\s*[：:]/i.test(normalized)) return true
+  if (/^\d{4}[-年]\d{1,2}([-/月]\d{1,2})?/.test(normalized)) return true
+  return false
+}
+
+function hasAnalysisSignalText(normalized: string): boolean {
+  return /(为什么|因为|但是|然而|所以|因此|如果|意味着|说明|反映|问题|观点|趋势|影响|矛盾|选择|价值|事实|判断|because|however|therefore|implies|impact|trend|problem|argument|evidence)/i.test(normalized)
+}
+
+function hasNumbersAndContextText(normalized: string): boolean {
+  return /\d/.test(normalized) && normalized.length >= 42
+}
+
+function looksLikeHeadingText(normalized: string): boolean {
+  if (!normalized) return false
+  if (hasAnalysisSignalText(normalized) || hasNumbersAndContextText(normalized)) return false
+  if (/^#{1,6}\s+/.test(normalized)) return true
+  if (/^[一二三四五六七八九十\d]+[、.]\s*\S{1,40}$/.test(normalized)) return true
+  if (normalized.length > 72) return false
+  if (/[。！？!?；;]/.test(normalized)) return false
+  if (/[,，]\s*\S{12,}/.test(normalized)) return false
+  return true
+}
+
+function shouldKeepStandaloneBlock(text: string): boolean {
+  const normalized = normalizedText(text)
+  return !isValuableTextBlock(normalized) || looksLikeHeadingText(normalized)
+}
+
+function isValuableTextBlock(text: string): boolean {
+  const normalized = normalizedText(text)
+  if (!normalized) return false
+  if (isMetadataTextBlock(normalized)) return false
+  if (looksLikeHeadingText(normalized)) return false
+  if (normalized.length < 28) return false
+
+  const sentenceMarks = (normalized.match(/[。！？!?；;]/g) ?? []).length
+  const hasAnalysisSignals = hasAnalysisSignalText(normalized)
+  const hasNumbersAndContext = hasNumbersAndContextText(normalized)
+
+  return normalized.length >= 80 || sentenceMarks >= 2 || hasAnalysisSignals || hasNumbersAndContext
+}
+
+function parseSourceBlocks(richHtml: string | null, fallbackText: string, baseUrl: string | null): SourceBlock[] {
+  if (!richHtml) {
+    return splitIntoInfoBlocks(fallbackText).map((text) => ({ type: 'text', text }))
+  }
+
+  const parser = new DOMParser()
+  const doc = parser.parseFromString(richHtml, 'text/html')
+  const blocks: SourceBlock[] = []
+  const handledImages = new WeakSet<Element>()
+  const blockTags = new Set([
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+    'p', 'li', 'blockquote', 'pre', 'td', 'th',
+  ])
+
+  const pushText = (text: string) => {
+    for (const part of splitIntoInfoBlocks(text)) {
+      blocks.push({ type: 'text', text: part })
+    }
+  }
+
+  const pushImage = (img: HTMLImageElement, caption: string | null) => {
+    if (handledImages.has(img)) return
+    const rawSrc = img.getAttribute('src')?.trim()
+    if (!rawSrc) return
+    handledImages.add(img)
+    blocks.push({
+      type: 'image',
+      src: resolveImageSrc(rawSrc, baseUrl),
+      alt: img.getAttribute('alt')?.trim() ?? '',
+      caption: caption ?? meaningfulCaption(img.getAttribute('alt')),
+    })
+  }
+
+  const visit = (node: Node) => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = node.textContent?.trim()
+      if (text) pushText(text)
+      return
+    }
+    if (!(node instanceof Element)) return
+
+    const tag = node.tagName.toLowerCase()
+    if (tag === 'script' || tag === 'style' || tag === 'noscript') return
+    if (tag === 'figure') {
+      const img = node.querySelector('img')
+      if (img instanceof HTMLImageElement) {
+        pushImage(img, meaningfulCaption(node.querySelector('figcaption')?.textContent))
+      }
+      return
+    }
+    if (tag === 'img' && node instanceof HTMLImageElement) {
+      pushImage(node, null)
+      return
+    }
+    if (tag === 'figcaption') return
+
+    if (blockTags.has(tag)) {
+      if (node.querySelector('img,figure')) {
+        node.childNodes.forEach(visit)
+        return
+      }
+      const text = node.textContent?.trim()
+      if (text) pushText(text)
+      return
+    }
+
+    node.childNodes.forEach(visit)
+  }
+
+  doc.body.childNodes.forEach(visit)
+  return blocks.length > 0
+    ? blocks
+    : splitIntoInfoBlocks(fallbackText).map((text) => ({ type: 'text', text }))
+}
+
+function meaningfulCaption(value: string | null | undefined): string | null {
+  const text = value?.replace(/\s+/g, ' ').trim()
+  if (!text) return null
+  const lower = text.toLowerCase()
+  if (lower === 'image' || lower === 'img' || lower === 'photo' || lower === 'picture') return null
+  if (/^\.(png|jpe?g|webp|gif|svg)$/i.test(lower)) return null
+  return text
+}
+
+function resolveImageSrc(src: string, baseUrl: string | null): string {
+  if (!baseUrl || src.startsWith('data:')) return src
+  try {
+    return new URL(src, baseUrl).toString()
+  } catch {
+    return src
+  }
+}
+
+function previewText(block: SourceBlock): string {
+  if (block.type === 'text') {
+    return block.text.length > BLOCK_PREVIEW_LIMIT
+      ? `${block.text.slice(0, BLOCK_PREVIEW_LIMIT)}...`
+      : block.text
+  }
+  return block.caption ?? block.alt ?? '图片'
+}
+
+function isRemoteImageSrc(src: string): boolean {
+  return /^https?:\/\//i.test(src) || /^data:image\//i.test(src)
+}
+
+function supportsMultimodal(config: AppConfig | null): boolean {
+  if (!config) return false
+  const model = config.openaiModel.toLowerCase()
+  const provider = config.providerKey.toLowerCase()
+  return [
+    'gpt-5',
+    'gpt-4o',
+    'gpt-4.1',
+    'vision',
+    'gemini',
+    'claude-3',
+    'sonnet',
+    'opus',
+    'haiku',
+    'qwen-vl',
+    'qwen2-vl',
+    'qwen2.5-vl',
+    'glm-4v',
+    'kimi-vl',
+    'doubao',
+    'llava',
+    'vl',
+  ].some((token) => model.includes(token) || provider.includes(token))
+}
+
+function formatHistoryDate(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }
 
 // ── Drawer ─────────────────────────────────────────────────────────────────
@@ -74,71 +363,701 @@ function ChunkDrawer({ card, commentatorEmoji, commentatorName, onClose }: {
             </div>
           </div>
         )}
-        <div>
-          <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-fg-faint">原文</p>
-          <p className="text-xs leading-relaxed text-fg-muted whitespace-pre-wrap">{card.text}</p>
-        </div>
       </div>
     </motion.div>
   )
 }
 
+function MarkdownContent({ content }: { content: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        h1: ({ children }) => <h1 className="mb-3 text-lg font-semibold leading-snug text-fg">{children}</h1>,
+        h2: ({ children }) => <h2 className="mb-2 mt-4 text-base font-semibold leading-snug text-fg first:mt-0">{children}</h2>,
+        h3: ({ children }) => <h3 className="mb-2 mt-3 text-sm font-semibold leading-snug text-fg first:mt-0">{children}</h3>,
+        h4: ({ children }) => <h4 className="mb-1.5 mt-3 text-sm font-medium leading-snug text-fg first:mt-0">{children}</h4>,
+        p: ({ children }) => <p className="my-2 first:mt-0 last:mb-0">{children}</p>,
+        strong: ({ children }) => <strong className="font-semibold text-fg">{children}</strong>,
+        em: ({ children }) => <em className="text-fg-muted">{children}</em>,
+        ul: ({ children }) => <ul className="my-2 list-disc space-y-1 pl-5">{children}</ul>,
+        ol: ({ children }) => <ol className="my-2 list-decimal space-y-1 pl-5">{children}</ol>,
+        li: ({ children }) => <li className="pl-1">{children}</li>,
+        blockquote: ({ children }) => (
+          <blockquote className="my-3 border-l-2 border-accent/50 pl-3 text-fg-muted">
+            {children}
+          </blockquote>
+        ),
+        a: ({ children, href }) => (
+          <a
+            href={href}
+            target="_blank"
+            rel="noreferrer"
+            className="text-accent underline decoration-accent/30 underline-offset-4 hover:text-accent-hover"
+          >
+            {children}
+          </a>
+        ),
+        code: ({ children, className }) => (
+          <code className={cn('rounded border border-border bg-bg px-1 py-0.5 font-mono text-[0.92em] text-fg', className)}>
+            {children}
+          </code>
+        ),
+        pre: ({ children }) => (
+          <pre className="my-3 overflow-x-auto rounded-lg border border-border bg-bg p-3 font-mono text-xs leading-relaxed text-fg-muted">
+            {children}
+          </pre>
+        ),
+        table: ({ children }) => (
+          <div className="my-3 overflow-x-auto rounded-lg border border-border">
+            <table className="w-full border-collapse text-left text-xs">{children}</table>
+          </div>
+        ),
+        thead: ({ children }) => <thead className="bg-bg-hover text-fg">{children}</thead>,
+        tbody: ({ children }) => <tbody className="divide-y divide-border">{children}</tbody>,
+        tr: ({ children }) => <tr className="align-top">{children}</tr>,
+        th: ({ children }) => <th className="whitespace-nowrap px-3 py-2 font-semibold text-fg">{children}</th>,
+        td: ({ children }) => <td className="px-3 py-2 text-fg-muted">{children}</td>,
+        hr: () => <hr className="my-4 border-border" />,
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  )
+}
+
 // ── ThemeBlock ──────────────────────────────────────────────────────────────
-function ThemeBlock({ card, index, starred, onOpen, onToggleStar }: {
+function ThemeBlock({ card, index, starred, onOpen, onToggleStar, displayText, muted = false }: {
   card: ChunkCard
   index: number
   starred: boolean
-  onOpen: () => void
-  onToggleStar: (el: HTMLButtonElement) => void
+  onOpen?: () => void
+  onToggleStar?: (el: HTMLButtonElement) => void
+  displayText?: string
+  muted?: boolean
 }) {
   const starRef = useRef<HTMLButtonElement>(null)
   return (
     <motion.div
-      initial={{ opacity: 0, x: 40 }}
-      animate={{ opacity: 1, x: 0 }}
-      transition={{ delay: index * 0.08, type: 'spring', stiffness: 200, damping: 22 }}
+      initial={{ opacity: 0, y: 58, scale: 0.96 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ type: 'spring', stiffness: 250, damping: 24 }}
       className="group relative flex items-start gap-3"
     >
-      <div className="flex-1 rounded-xl border border-border bg-bg-elevated px-5 py-4 text-sm leading-relaxed text-fg">
-        {card.text}
-      </div>
-      <motion.button
-        ref={starRef}
-        initial={{ scale: 0 }}
-        animate={{ scale: 1 }}
-        transition={{ delay: index * 0.08 + 0.15, type: 'spring', stiffness: 400, damping: 15 }}
-        onClick={onOpen}
-        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); starRef.current && onToggleStar(starRef.current) }}
-        className={cn(
-          'mt-3 shrink-0 rounded-full p-1.5 transition-colors',
-          starred ? 'text-amber-400 bg-amber-400/15' : 'text-amber-400/50 hover:text-amber-400 hover:bg-amber-400/10'
+      <div className={cn(
+        'relative flex-1 overflow-hidden rounded-xl border border-border px-5 py-4 text-sm leading-relaxed',
+        muted ? 'bg-bg/70 text-fg-muted' : 'bg-bg-elevated text-fg'
+      )}>
+        {!muted && (
+          <motion.span
+            aria-hidden
+            className="pointer-events-none absolute inset-y-0 -left-28 w-20 bg-accent/20"
+            initial={{ x: 0, skewX: -18 }}
+            animate={{ x: 720, skewX: -18 }}
+            transition={{ duration: 0.62, ease: 'easeOut', delay: 0.08 }}
+          />
         )}
-        title={starred ? '右键取消采集' : '左键查看分析 / 右键采集'}
-      >
-        <Star size={18} fill={starred ? 'currentColor' : 'none'} />
-      </motion.button>
+        <div className="relative">
+          <MarkdownContent content={displayText ?? card.text} />
+        </div>
+      </div>
+      {onOpen && onToggleStar && (
+        <motion.button
+          ref={starRef}
+          initial={{ scale: 0 }}
+          animate={{ scale: 1 }}
+          transition={{ delay: 0.16, type: 'spring', stiffness: 400, damping: 15 }}
+          onClick={onOpen}
+          onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); starRef.current && onToggleStar(starRef.current) }}
+          className={cn(
+            'mt-3 shrink-0 rounded-full p-1.5 transition-colors',
+            starred ? 'text-amber-400 bg-amber-400/15' : 'text-amber-400/50 hover:text-amber-400 hover:bg-amber-400/10'
+          )}
+          title={starred ? '右键取消采集' : '左键查看分析 / 右键采集'}
+        >
+          <Star size={18} fill={starred ? 'currentColor' : 'none'} />
+        </motion.button>
+      )}
+    </motion.div>
+  )
+}
+
+function SourceImageBlock({ block, active, shouldDescribe, descriptions, setDescriptions }: {
+  block: Extract<SourceBlock, { type: 'image' }>
+  active: boolean
+  shouldDescribe: boolean
+  descriptions: Record<string, string | null | undefined>
+  setDescriptions: Dispatch<SetStateAction<Record<string, string | null | undefined>>>
+}) {
+  const caption = block.caption ?? meaningfulCaption(block.alt)
+  const generated = descriptions[block.src]
+  const canDescribe = shouldDescribe && !caption && isRemoteImageSrc(block.src)
+
+  useEffect(() => {
+    if (!active || !canDescribe || block.src in descriptions) return
+    setDescriptions((current) => ({ ...current, [block.src]: undefined }))
+    describeImage(block.src)
+      .then((text) => {
+        setDescriptions((current) => ({ ...current, [block.src]: text.trim() || null }))
+      })
+      .catch(() => {
+        setDescriptions((current) => ({ ...current, [block.src]: null }))
+      })
+  }, [active, block.src, canDescribe, descriptions, setDescriptions])
+
+  const visibleCaption = caption ?? (generated && generated.length > 0 ? generated : null)
+
+  return (
+    <div className="relative">
+      <div className="overflow-hidden rounded-xl border border-border bg-bg">
+        <img
+          src={block.src}
+          alt={block.alt || caption || '原文图片'}
+          className="max-h-64 w-full object-contain"
+          loading="lazy"
+        />
+      </div>
+      {visibleCaption && (
+        <p className="mt-2 text-xs leading-relaxed text-fg-muted">{visibleCaption}</p>
+      )}
+      {canDescribe && generated === undefined && (
+        <div className="mt-2 flex items-center gap-1.5 text-xs text-accent">
+          <Loader2 size={11} className="animate-spin" />
+          生成图像说明…
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ProcessingStage({ blocks, completedIndexes, parsing, analyzing, shouldDescribeImages, imageDescriptions, setImageDescriptions, isValuableBlock }: {
+  blocks: SourceBlock[]
+  completedIndexes: Set<number>
+  parsing: boolean
+  analyzing: boolean
+  shouldDescribeImages: boolean
+  imageDescriptions: Record<string, string | null | undefined>
+  setImageDescriptions: Dispatch<SetStateAction<Record<string, string | null | undefined>>>
+  isValuableBlock: (index: number) => boolean
+}) {
+  const hasBlocks = blocks.length > 0
+  const firstPendingIndex = hasBlocks
+    ? blocks.findIndex((_, index) => !completedIndexes.has(index))
+    : -1
+  const activeIndex = firstPendingIndex >= 0 ? firstPendingIndex : Math.max(blocks.length - 1, 0)
+  const visibleIndexes = hasBlocks
+    ? blocks
+        .map((_, index) => index)
+        .filter((index) => index <= activeIndex && activeIndex - index <= STAGE_WINDOW)
+    : []
+
+  return (
+    <div className="relative flex-1 overflow-hidden px-6">
+      <div className="pointer-events-none absolute left-0 right-0 top-1/2 h-px bg-border" />
+      <div className="pointer-events-none absolute inset-0">
+        <motion.div
+          className="absolute left-1/2 top-1/2 h-72 w-72 -translate-x-1/2 -translate-y-1/2 rounded-full border border-accent/15"
+          animate={{ rotate: 360 }}
+          transition={{ duration: 18, repeat: Infinity, ease: 'linear' }}
+        >
+          {ORBIT_DOTS.map((dot) => (
+            <span key={dot} className={cn('absolute left-1/2 top-1/2 h-0 w-0', dot)}>
+              <span className="block h-1.5 w-1.5 translate-x-36 rounded-full bg-accent/50" />
+            </span>
+          ))}
+        </motion.div>
+        <motion.div
+          className="absolute left-1/2 top-1/2 h-96 w-96 -translate-x-1/2 -translate-y-1/2 rounded-full border border-border"
+          animate={{ rotate: -360 }}
+          transition={{ duration: 26, repeat: Infinity, ease: 'linear' }}
+        />
+      </div>
+
+      {!hasBlocks ? (
+        <div className="flex h-full items-center justify-center">
+          <div className="flex items-center gap-2 rounded-full border border-border bg-bg-elevated px-4 py-2 text-sm text-fg-muted">
+            <Loader2 size={14} className="animate-spin text-accent" />
+            {parsing ? '解析文本中…' : '准备信息块…'}
+          </div>
+        </div>
+      ) : (
+        <div className="absolute inset-0">
+          <AnimatePresence initial={false}>
+            {visibleIndexes.map((index) => {
+              const done = completedIndexes.has(index)
+              const active = analyzing && index === activeIndex
+              const pending = !done && !active
+              const offset = index - activeIndex
+              const block = blocks[index]
+              const preview = previewText(block)
+              const valuable = block.type === 'text' && isValuableBlock(index)
+              const statusText = done
+                ? block.type === 'image' ? '已插入' : valuable ? '已提取' : '已保留'
+                : active
+                  ? block.type === 'image' ? '处理中' : valuable ? '提取中' : '保留原文'
+                  : '等待中'
+
+              return (
+                <div key={index} className="absolute left-1/2 top-1/2 w-full max-w-2xl -translate-x-1/2 -translate-y-1/2">
+                  <motion.div
+                    layout
+                    initial={{ opacity: 0, y: offset * STAGE_GAP + 24, scale: 0.94 }}
+                    animate={{
+                      opacity: active ? 1 : done ? 0.62 : 0.32,
+                      y: offset * STAGE_GAP,
+                      scale: active ? 1 : 0.92,
+                      filter: pending ? 'blur(1px)' : 'blur(0px)',
+                    }}
+                    exit={{ opacity: 0, y: offset * STAGE_GAP - 24, scale: 0.9 }}
+                    transition={{ type: 'spring', stiffness: 240, damping: 28 }}
+                    className={cn(
+                      'relative isolate overflow-hidden rounded-2xl border px-5 py-4 shadow-2xl',
+                      active ? 'border-accent/60 bg-bg-elevated text-fg' : 'border-border bg-bg-elevated/70 text-fg-muted',
+                      done && valuable && 'border-amber-400/25 bg-amber-400/5',
+                      done && !valuable && 'border-border bg-bg/80'
+                    )}
+                  >
+                    {active && (
+                      <>
+                        <div aria-hidden className="pointer-events-none absolute inset-0 bg-[linear-gradient(transparent_0,transparent_22px,var(--color-border)_23px)] bg-[length:100%_24px] opacity-20" />
+                        <motion.div
+                          aria-hidden
+                          className="pointer-events-none absolute inset-y-0 -left-40 w-36 bg-accent/45"
+                          animate={{ x: [0, 900] }}
+                          transition={{ duration: 0.72, repeat: Infinity, ease: 'easeInOut' }}
+                        />
+                        <motion.div
+                          aria-hidden
+                          className="pointer-events-none absolute inset-y-0 -left-24 w-10 bg-white/25"
+                          animate={{ x: [0, 900] }}
+                          transition={{ duration: 0.72, repeat: Infinity, ease: 'easeInOut' }}
+                        />
+                        <motion.div
+                          aria-hidden
+                          className="pointer-events-none absolute inset-0 rounded-2xl border border-accent/70"
+                          animate={{ opacity: [0.25, 1, 0.25], scale: [1, 1.012, 1] }}
+                          transition={{ duration: 0.9, repeat: Infinity, ease: 'easeInOut' }}
+                        />
+                        <motion.div
+                          aria-hidden
+                          className="pointer-events-none absolute left-0 top-0 h-px w-full bg-accent"
+                          animate={{ y: [0, 220], opacity: [0, 1, 0] }}
+                          transition={{ duration: 0.95, repeat: Infinity, ease: 'easeInOut' }}
+                        />
+                        <motion.div
+                          aria-hidden
+                          className="pointer-events-none absolute bottom-0 left-0 h-0.5 bg-accent"
+                          animate={{ width: ['0%', '100%', '0%'], x: ['0%', '0%', '100%'] }}
+                          transition={{ duration: 1.25, repeat: Infinity, ease: 'easeInOut' }}
+                        />
+                        <div aria-hidden className="pointer-events-none absolute left-3 top-3 h-4 w-4 border-l border-t border-accent/80" />
+                        <div aria-hidden className="pointer-events-none absolute right-3 top-3 h-4 w-4 border-r border-t border-accent/80" />
+                        <div aria-hidden className="pointer-events-none absolute bottom-3 left-3 h-4 w-4 border-b border-l border-accent/80" />
+                        <div aria-hidden className="pointer-events-none absolute bottom-3 right-3 h-4 w-4 border-b border-r border-accent/80" />
+                      </>
+                    )}
+
+                    <div className="relative flex items-start gap-3">
+                      <div className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border bg-bg text-xs font-medium text-fg-muted">
+                        {index + 1}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="mb-2 flex items-center gap-2 text-xs text-fg-faint">
+                          <span>{statusText}</span>
+                          {active && valuable && <Loader2 size={11} className="animate-spin text-accent" />}
+                          {active && valuable && (
+                            <span className="flex items-center gap-1">
+                              {STATUS_DOTS.map((dot) => (
+                                <motion.span
+                                  key={dot}
+                                  className="h-1 w-1 rounded-full bg-accent"
+                                  animate={{ opacity: [0.2, 1, 0.2], y: [0, -3, 0] }}
+                                  transition={{ duration: 0.62, delay: dot * 0.08, repeat: Infinity, ease: 'easeInOut' }}
+                                />
+                              ))}
+                            </span>
+                          )}
+                        </div>
+                        {block.type === 'image' ? (
+                          <SourceImageBlock
+                            block={block}
+                            active={active}
+                            shouldDescribe={shouldDescribeImages}
+                            descriptions={imageDescriptions}
+                            setDescriptions={setImageDescriptions}
+                          />
+                        ) : (
+                          <p className="relative text-sm leading-relaxed">
+                            {preview}
+                            {active && (
+                              <motion.span
+                                aria-hidden
+                                className="pointer-events-none absolute inset-0 bg-bg-elevated"
+                                animate={{ x: ['0%', '105%'] }}
+                                transition={{ duration: 1.2, repeat: Infinity, repeatDelay: 0.2, ease: 'easeInOut' }}
+                              />
+                            )}
+                          </p>
+                        )}
+                      </div>
+                      <AnimatePresence>
+                        {done && valuable && (
+                          <div className="relative mt-1 shrink-0">
+                            <motion.span
+                              aria-hidden
+                              initial={{ opacity: 0.8, scale: 0.2 }}
+                              animate={{ opacity: 0, scale: 2.2 }}
+                              transition={{ duration: 0.45, ease: 'easeOut' }}
+                              className="absolute inset-0 rounded-full border border-amber-400/70"
+                            />
+                            {STAR_BURST.map((spark) => (
+                              <motion.span
+                                key={`${spark.x}-${spark.y}`}
+                                aria-hidden
+                                initial={{ opacity: 0.9, x: 0, y: 0, scale: 0.2, rotate: 0 }}
+                                animate={{ opacity: 0, x: spark.x, y: spark.y, scale: 1, rotate: spark.rotate }}
+                                transition={{ duration: 0.58, ease: 'easeOut' }}
+                                className="absolute left-2 top-2 text-amber-300"
+                              >
+                                <Star size={spark.size} fill="currentColor" />
+                              </motion.span>
+                            ))}
+                            <motion.div
+                              initial={{ opacity: 0, scale: 0, rotate: -60 }}
+                              animate={{ opacity: 1, scale: 1, rotate: 0 }}
+                              exit={{ opacity: 0, scale: 0 }}
+                              transition={{ type: 'spring', stiffness: 520, damping: 16 }}
+                              className="relative rounded-full bg-amber-400/15 p-1.5 text-amber-400"
+                            >
+                              <Star size={17} fill="currentColor" />
+                            </motion.div>
+                          </div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  </motion.div>
+                </div>
+              )
+            })}
+          </AnimatePresence>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function SourceImageResultBlock({ block, index, shouldDescribeImages, imageDescriptions, setImageDescriptions }: {
+  block: Extract<SourceBlock, { type: 'image' }>
+  index: number
+  shouldDescribeImages: boolean
+  imageDescriptions: Record<string, string | null | undefined>
+  setImageDescriptions: Dispatch<SetStateAction<Record<string, string | null | undefined>>>
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 58, scale: 0.96 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ type: 'spring', stiffness: 250, damping: 24, delay: index * 0.02 }}
+      className="group relative flex items-start gap-3"
+    >
+      <div className="relative flex-1 overflow-hidden rounded-xl border border-border bg-bg-elevated px-5 py-4">
+        <motion.span
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 -left-28 w-20 bg-accent/20"
+          initial={{ x: 0, skewX: -18 }}
+          animate={{ x: 720, skewX: -18 }}
+          transition={{ duration: 0.62, ease: 'easeOut', delay: 0.08 }}
+        />
+        <SourceImageBlock
+          block={block}
+          active
+          shouldDescribe={shouldDescribeImages}
+          descriptions={imageDescriptions}
+          setDescriptions={setImageDescriptions}
+        />
+      </div>
+    </motion.div>
+  )
+}
+
+function HistoryStackPreview({ item }: { item: ExploreHistoryItem }) {
+  const textBlocks = splitIntoInfoBlocks(item.text).slice(0, 3)
+  return (
+    <div className="relative h-32">
+      {[0, 1, 2].map((offset) => (
+        <div
+          key={offset}
+          className={cn(
+            'absolute inset-x-0 h-24 overflow-hidden rounded-lg border border-border bg-bg-elevated shadow-lg',
+            offset === 0 ? 'top-0' : offset === 1 ? 'top-3 left-2 right-[-0.5rem]' : 'top-6 left-4 right-[-1rem]'
+          )}
+          style={{ zIndex: 3 - offset, opacity: 1 - offset * 0.2 }}
+        >
+          {offset === 0 && item.previewImage ? (
+            <img src={item.previewImage} alt="" className="h-full w-full object-cover" loading="lazy" />
+          ) : (
+            <div className="p-3">
+              <div className="mb-2 h-1.5 w-16 rounded-full bg-accent/50" />
+              <p className="line-clamp-4 text-[11px] leading-relaxed text-fg-muted">
+                {textBlocks[offset] ?? item.sourceName ?? '分析记录'}
+              </p>
+            </div>
+          )}
+        </div>
+      ))}
+      <div className="absolute bottom-0 right-0 z-10 rounded-full border border-border bg-bg px-2 py-0.5 text-[10px] text-fg-muted">
+        {item.chunkCards.length} 块
+      </div>
+    </div>
+  )
+}
+
+function HistoryTile({ item, onActivate, onArchive, onUnarchive, onDelete }: {
+  item: ExploreHistoryItem
+  onActivate: () => void
+  onArchive: () => void
+  onUnarchive: () => void
+  onDelete: () => void
+}) {
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 10, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: -8, scale: 0.98 }}
+      className="group relative overflow-hidden rounded-xl border border-border bg-bg p-3"
+    >
+      <button onClick={onActivate} className="block w-full text-left">
+        <HistoryStackPreview item={item} />
+        <div className="mt-3 min-w-0">
+          <p className="truncate text-xs font-medium text-fg">{item.sourceName ?? '未命名分析'}</p>
+          <p className="mt-1 truncate text-[11px] text-fg-faint">{item.sourceUrl ?? formatHistoryDate(item.createdAt)}</p>
+        </div>
+      </button>
+      <div className="mt-3 flex items-center gap-1.5 opacity-70 transition-opacity group-hover:opacity-100">
+        <button
+          onClick={onActivate}
+          className="rounded-md border border-border px-2 py-1 text-[11px] text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg"
+          title="重新激活"
+        >
+          <RotateCcw size={12} className="inline" />
+        </button>
+        {item.archived ? (
+          <button
+            onClick={onUnarchive}
+            className="rounded-md border border-border px-2 py-1 text-[11px] text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg"
+            title="取消存档"
+          >
+            <ArchiveRestore size={12} className="inline" />
+          </button>
+        ) : (
+          <button
+            onClick={onArchive}
+            className="rounded-md border border-border px-2 py-1 text-[11px] text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg"
+            title="存档"
+          >
+            <Archive size={12} className="inline" />
+          </button>
+        )}
+        <button
+          onClick={onDelete}
+          className="ml-auto rounded-md border border-border px-2 py-1 text-[11px] text-fg-muted transition-colors hover:border-red-500/40 hover:bg-red-500/10 hover:text-red-300"
+          title="删除"
+        >
+          <Trash2 size={12} className="inline" />
+        </button>
+      </div>
+    </motion.div>
+  )
+}
+
+function HistoryDrawer({ items, onClose, onActivate, onArchive, onUnarchive, onDelete }: {
+  items: ExploreHistoryItem[]
+  onClose: () => void
+  onActivate: (id: string) => void
+  onArchive: (id: string) => void
+  onUnarchive: (id: string) => void
+  onDelete: (id: string) => void
+}) {
+  const activeItems = items.filter((item) => !item.archived)
+  const archivedItems = items.filter((item) => item.archived)
+
+  return (
+    <motion.div
+      initial={{ x: '100%', opacity: 0 }}
+      animate={{ x: 0, opacity: 1 }}
+      exit={{ x: '100%', opacity: 0 }}
+      transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+      className="fixed right-0 top-0 z-50 flex h-full w-[430px] flex-col border-l border-border bg-bg-elevated shadow-2xl"
+    >
+      <div className="flex items-center justify-between border-b border-border px-5 py-4">
+        <div>
+          <p className="text-sm font-medium text-fg">分析缩略图</p>
+          <p className="mt-0.5 text-xs text-fg-faint">当前记录与存档文件</p>
+        </div>
+        <button onClick={onClose} className="rounded-md p-1 text-fg-muted transition-colors hover:bg-bg-hover">
+          <X size={16} />
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto px-5 py-4 [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none' }}>
+        {items.length === 0 ? (
+          <div className="flex h-full items-center justify-center text-center text-sm text-fg-faint">
+            <div>
+              <Images size={30} className="mx-auto mb-2 opacity-40" />
+              <p>暂无分析记录</p>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-6">
+            <section>
+              <div className="mb-3 flex items-center justify-between text-xs text-fg-faint">
+                <span>当前</span>
+                <span>{activeItems.length}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <AnimatePresence mode="popLayout">
+                  {activeItems.map((item) => (
+                    <HistoryTile
+                      key={item.id}
+                      item={item}
+                      onActivate={() => onActivate(item.id)}
+                      onArchive={() => onArchive(item.id)}
+                      onUnarchive={() => onUnarchive(item.id)}
+                      onDelete={() => onDelete(item.id)}
+                    />
+                  ))}
+                </AnimatePresence>
+              </div>
+            </section>
+            <section>
+              <div className="mb-3 flex items-center justify-between text-xs text-fg-faint">
+                <span>存档</span>
+                <span>{archivedItems.length}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <AnimatePresence mode="popLayout">
+                  {archivedItems.map((item) => (
+                    <HistoryTile
+                      key={item.id}
+                      item={item}
+                      onActivate={() => onActivate(item.id)}
+                      onArchive={() => onArchive(item.id)}
+                      onUnarchive={() => onUnarchive(item.id)}
+                      onDelete={() => onDelete(item.id)}
+                    />
+                  ))}
+                </AnimatePresence>
+              </div>
+            </section>
+          </div>
+        )}
+      </div>
     </motion.div>
   )
 }
 
 // ── Main ────────────────────────────────────────────────────────────────────
 export default function Explore() {
-  const { chunkCards, analyzing, parsing, error, sourceName, sourceUrl, setRichContent, parseFile, fetchUrlContent, reset } = useExploreStore()
+  const { text, richHtml, chunkCards, analyzing, parsing, error, sourceName, sourceUrl, setText, setRichContent, parseFile, fetchUrlContent, reset } = useExploreStore()
+  const history = useExploreHistoryStore()
   const { config, loaded } = useConfigStore()
   const { star, unstar } = useStarStore()
   const fly = useStarFly()
 
   const [dragging, setDragging] = useState(false)
   const [activeCard, setActiveCard] = useState<ChunkCard | null>(null)
+  const [stageCompletedCount, setStageCompletedCount] = useState(0)
+  const [revealedCount, setRevealedCount] = useState(0)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [imageDescriptions, setImageDescriptions] = useState<Record<string, string | null | undefined>>({})
   // index → saved point id (once a chunk has been saved+starred)
   const [savedIds, setSavedIds] = useState<Record<number, string>>({})
 
   const busy = analyzing || parsing
-  const hasContent = chunkCards.length > 0 || busy
+  const sourceBlocks = useMemo(() => parseSourceBlocks(richHtml, text, sourceUrl), [richHtml, text, sourceUrl])
+  const hasContent = text.trim().length > 0 || sourceBlocks.length > 0 || chunkCards.length > 0 || busy
+  const hasSourceBlocks = sourceBlocks.length > 0
+  const valuableSourceIndexes = useMemo(() => new Set(
+    sourceBlocks
+      .map((block, index) => block.type === 'text' && isValuableTextBlock(block.text) ? index : -1)
+      .filter((index) => index >= 0)
+  ), [sourceBlocks])
+  const isValuableSourceBlock = useCallback((index: number) => valuableSourceIndexes.has(index), [valuableSourceIndexes])
+  const sourceResultItems = useMemo<SourceResultItem[]>(() => {
+    let textIndex = 0
+    return sourceBlocks.map((block, index) => {
+      if (block.type === 'text') {
+        const valuable = isValuableTextBlock(block.text)
+        const card = valuable ? chunkCards[textIndex] ?? null : null
+        if (valuable) textIndex += 1
+        return { block, index, card, valuable }
+      }
+      return { block, index, card: null, valuable: false }
+    })
+  }, [chunkCards, sourceBlocks])
+  const stageTargetCount = sourceBlocks.length > 0 ? sourceBlocks.length : chunkCards.length
+  const completedIndexes = useMemo(
+    () => new Set(Array.from(
+      { length: Math.min(stageCompletedCount, sourceBlocks.length) },
+      (_, index) => index
+    )),
+    [stageCompletedCount, sourceBlocks.length]
+  )
+  const stageDone = !busy && (stageTargetCount === 0 || stageCompletedCount >= stageTargetCount)
+  const showProcessing = busy || (stageTargetCount > 0 && !stageDone)
+  const resultTargetCount = hasSourceBlocks ? sourceResultItems.length : chunkCards.length
+  const visibleCards = stageDone && !hasSourceBlocks ? chunkCards.slice(0, Math.min(revealedCount, chunkCards.length)) : []
+  const visibleSourceItems = stageDone && hasSourceBlocks
+    ? sourceResultItems.slice(0, Math.min(revealedCount, sourceResultItems.length))
+    : []
   const commentatorEmoji = config?.commentatorEmoji ?? '🧐'
   const commentatorName = config?.commentatorName ?? '鲁迅'
+  const shouldDescribeImages = supportsMultimodal(config)
 
-  useEffect(() => { if (analyzing) { setActiveCard(null); setSavedIds({}) } }, [analyzing])
+  useEffect(() => {
+    if (analyzing || parsing) {
+      setActiveCard(null)
+      setSavedIds({})
+      setImageDescriptions({})
+      setStageCompletedCount(0)
+      setRevealedCount(0)
+    }
+  }, [analyzing, parsing])
+
+  useEffect(() => {
+    if (stageTargetCount === 0) {
+      setStageCompletedCount(0)
+      return
+    }
+    if (stageCompletedCount >= stageTargetCount) return
+
+    const timer = window.setTimeout(() => {
+      setStageCompletedCount((count) => Math.min(count + 1, stageTargetCount))
+    }, busy ? STAGE_ADVANCE_MS : STAGE_CATCHUP_MS)
+
+    return () => window.clearTimeout(timer)
+  }, [busy, stageCompletedCount, stageTargetCount])
+
+  useEffect(() => {
+    if (showProcessing) {
+      setRevealedCount(0)
+      return
+    }
+    if (resultTargetCount === 0) {
+      setRevealedCount(0)
+      return
+    }
+
+    setRevealedCount(0)
+    const timers = Array.from({ length: resultTargetCount }, (_, index) =>
+      window.setTimeout(
+        () => setRevealedCount((count) => Math.max(count, index + 1)),
+        RESULT_REVEAL_START_MS + index * RESULT_REVEAL_MS
+      )
+    )
+
+    return () => timers.forEach((timer) => window.clearTimeout(timer))
+  }, [showProcessing, resultTargetCount])
 
   const handleToggleStar = useCallback(async (index: number, card: ChunkCard, el: HTMLButtonElement) => {
     const existing = savedIds[index]
@@ -166,6 +1085,23 @@ export default function Explore() {
   const handlePick = async () => {
     const selected = await open({ multiple: false, filters: [{ name: '文档', extensions: SUPPORTED_EXTS }] })
     if (typeof selected === 'string') await parseFile(selected)
+  }
+
+  const handleChangeFile = () => {
+    reset()
+    setActiveCard(null)
+    setHistoryOpen(false)
+    setStageCompletedCount(0)
+    setRevealedCount(0)
+    setImageDescriptions({})
+  }
+
+  const handleActivateHistory = (id: string) => {
+    history.activate(id)
+    setHistoryOpen(false)
+    setActiveCard(null)
+    setStageCompletedCount(Number.MAX_SAFE_INTEGER)
+    setRevealedCount(Number.MAX_SAFE_INTEGER)
   }
 
   // ── Drag & drop ──────────────────────────────────────────────────────────
@@ -201,15 +1137,29 @@ export default function Explore() {
         e.preventDefault()
         const { richHtml, text, url } = processWebHtml(html)
         setRichContent(richHtml, text, url)
+        return
+      }
+      if (plain.length > 0) {
+        e.preventDefault()
+        setText(plain)
       }
     }
     document.addEventListener('paste', handlePaste)
     return () => document.removeEventListener('paste', handlePaste)
-  }, [fetchUrlContent, setRichContent])
+  }, [fetchUrlContent, setRichContent, setText])
 
   return (
     <div className="relative flex h-full overflow-hidden">
       <div className={cn('flex h-full flex-1 flex-col transition-all duration-300', activeCard ? 'mr-[360px]' : '')}>
+        {!hasContent && (
+          <button
+            onClick={() => setHistoryOpen(true)}
+            className="absolute right-6 top-5 z-10 inline-flex items-center gap-1.5 rounded-md border border-border bg-bg-elevated px-2.5 py-1.5 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg"
+          >
+            <Images size={13} />
+            缩略图
+          </button>
+        )}
 
         {!hasContent && (
           <div className="flex flex-1 items-center justify-center px-8">
@@ -253,7 +1203,10 @@ export default function Explore() {
                       <Link size={11} />{sourceUrl}
                     </a>
                   )}
-                  <button onClick={handlePick} className="ml-auto rounded border border-border px-2 py-0.5 hover:bg-bg-hover transition-colors">
+                  <button onClick={() => setHistoryOpen(true)} className="ml-auto rounded border border-border px-2 py-0.5 hover:bg-bg-hover transition-colors">
+                    <Images size={11} className="inline mr-1" />缩略图
+                  </button>
+                  <button onClick={handleChangeFile} className="rounded border border-border px-2 py-0.5 hover:bg-bg-hover transition-colors">
                     <FileText size={11} className="inline mr-1" />换文件
                   </button>
                   <button onClick={reset} className="rounded border border-border px-2 py-0.5 hover:bg-bg-hover transition-colors">清空</button>
@@ -267,32 +1220,103 @@ export default function Explore() {
               </div>
             )}
 
-            <div className="flex-1 overflow-y-auto px-6 py-5 [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none' }}>
-              <div className="mx-auto max-w-2xl space-y-4 pb-10">
-                <AnimatePresence>
-                  {chunkCards.map((card, i) => (
-                    <ThemeBlock
-                      key={i}
-                      card={card}
-                      index={i}
-                      starred={i in savedIds}
-                      onOpen={() => setActiveCard(card)}
-                      onToggleStar={(el) => handleToggleStar(i, card, el)}
-                    />
-                  ))}
-                </AnimatePresence>
-                {analyzing && chunkCards.length > 0 && (
-                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-2 text-xs text-fg-faint">
-                    <Loader2 size={12} className="animate-spin" />分析中…
-                  </motion.div>
-                )}
+            {showProcessing ? (
+              <ProcessingStage
+                blocks={sourceBlocks}
+                completedIndexes={completedIndexes}
+                parsing={parsing}
+                analyzing={showProcessing && !parsing}
+                shouldDescribeImages={shouldDescribeImages}
+                imageDescriptions={imageDescriptions}
+                setImageDescriptions={setImageDescriptions}
+                isValuableBlock={isValuableSourceBlock}
+              />
+            ) : (
+              <div className="flex-1 overflow-y-auto px-6 py-5 [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none' }}>
+                <div className="mx-auto max-w-2xl space-y-4 pb-10">
+                  {resultTargetCount > 0 && (hasSourceBlocks ? visibleSourceItems.length === 0 : visibleCards.length === 0) && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 12 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      className="mx-auto mt-24 flex w-fit items-center gap-2 rounded-full border border-border bg-bg-elevated px-4 py-2 text-sm text-fg-muted"
+                    >
+                      <Loader2 size={14} className="animate-spin text-accent" />
+                      整理生成结果…
+                    </motion.div>
+                  )}
+                  <AnimatePresence mode="popLayout">
+                    {hasSourceBlocks ? (
+                      visibleSourceItems.map((item) => {
+                        if (item.block.type === 'image') {
+                          return (
+                            <SourceImageResultBlock
+                              key={`source-${item.index}`}
+                              block={item.block}
+                              index={item.index}
+                              shouldDescribeImages={shouldDescribeImages}
+                              imageDescriptions={imageDescriptions}
+                              setImageDescriptions={setImageDescriptions}
+                            />
+                          )
+                        }
+
+                        const analysisCard = item.card
+                        const card = analysisCard ?? {
+                          index: -item.index - 1,
+                          text: item.block.text,
+                          summary: item.block.text,
+                          hotTake: '',
+                          labels: [],
+                        }
+                        return (
+                          <ThemeBlock
+                            key={`source-${item.index}`}
+                            card={card}
+                            index={item.index}
+                            displayText={item.block.text}
+                            muted={!analysisCard}
+                            starred={analysisCard ? analysisCard.index in savedIds : false}
+                            onOpen={analysisCard ? () => setActiveCard(analysisCard) : undefined}
+                            onToggleStar={analysisCard ? (el) => handleToggleStar(analysisCard.index, analysisCard, el) : undefined}
+                          />
+                        )
+                      })
+                    ) : (
+                      visibleCards.map((card, i) => (
+                        <ThemeBlock
+                          key={card.index}
+                          card={card}
+                          index={i}
+                          starred={card.index in savedIds}
+                          onOpen={() => setActiveCard(card)}
+                          onToggleStar={(el) => handleToggleStar(card.index, card, el)}
+                        />
+                      ))
+                    )}
+                  </AnimatePresence>
+                </div>
               </div>
-            </div>
+            )}
           </>
         )}
       </div>
 
       <AnimatePresence>
+        {historyOpen && (
+          <>
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 z-40 bg-black/20" onClick={() => setHistoryOpen(false)} />
+            <HistoryDrawer
+              items={history.items}
+              onClose={() => setHistoryOpen(false)}
+              onActivate={handleActivateHistory}
+              onArchive={history.archive}
+              onUnarchive={history.unarchive}
+              onDelete={history.remove}
+            />
+          </>
+        )}
         {activeCard && (
           <>
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}

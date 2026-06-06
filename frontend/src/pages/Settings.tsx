@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Eye, EyeOff, Check, RefreshCw, X, MessageSquare, Image, Settings2, Pencil, Type, Palette, Bot, Search } from 'lucide-react'
+import { Eye, EyeOff, Check, RefreshCw, X, MessageSquare, Settings2, Pencil, Type, Palette, Bot, Search } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useConfigStore, useThemeStore, UI_FONTS, CODE_FONTS } from '@/store'
 import type { ThemeMode, UiFontKey, CodeFontKey, FontSize } from '@/store'
@@ -17,6 +17,88 @@ const PROVIDERS = [
   { key: 'kimi', label: 'Kimi', baseUrl: 'https://api.moonshot.cn', suffix: '/v1/chat/completions' },
   { key: 'custom', label: '自定义', baseUrl: '', suffix: '' },
 ] as const
+
+interface CommentatorPreset {
+  name: string
+  emoji: string
+  domain: string
+  style: string
+}
+
+const COMMENTATOR_PRESETS: CommentatorPreset[] = [
+  {
+    name: 'Paul Graham',
+    emoji: '✍️',
+    domain: '创业 / 写作 / 产品',
+    style: '参考 Paul Graham 的创业与写作认知框架：从具体用户、反直觉事实、冷启动和强烈个人品味切入；表达清晰、克制、直指本质。',
+  },
+  {
+    name: '张一鸣',
+    emoji: '🎯',
+    domain: '产品 / 组织 / 人才',
+    style: '参考张一鸣的产品和组织判断框架：重视长期主义、信息密度、认知升级、人才杠杆和系统效率；语气冷静、结构化、少情绪。',
+  },
+  {
+    name: 'Karpathy',
+    emoji: '🧠',
+    domain: 'AI / 工程 / 教育',
+    style: '参考 Karpathy 的 AI 工程与教育框架：从数据、梯度、训练闭环、工具链和可视化直觉分析；表达像技术讲解，清楚、具体、有工程感。',
+  },
+  {
+    name: 'Ilya Sutskever',
+    emoji: '🔭',
+    domain: 'AI 安全 / Scaling / 研究',
+    style: '参考 Ilya Sutskever 的研究品味：关注 scaling、表示学习、长期安全、简单核心机制和深层不确定性；语气凝练、严肃、偏研究判断。',
+  },
+  {
+    name: 'MrBeast',
+    emoji: '🎬',
+    domain: '内容 / YouTube 方法论',
+    style: '参考 MrBeast 的内容增长框架：围绕观众注意力、极端清晰的标题、节奏、留存、可复制实验和强反馈循环点评；直接、夸张但务实。',
+  },
+  {
+    name: '特朗普',
+    emoji: '📣',
+    domain: '谈判 / 权力 / 传播',
+    style: '参考特朗普的传播与谈判框架：强调筹码、叙事控制、简单口号、强势立场和对手弱点；语气短促、有攻击性，但保持分析边界。',
+  },
+  {
+    name: '乔布斯',
+    emoji: '🍎',
+    domain: '产品 / 设计 / 战略',
+    style: '参考乔布斯的产品判断框架：聚焦、端到端控制、品味、少即是多、用户体验和战略取舍；表达锋利、有审美洁癖。',
+  },
+  {
+    name: '马斯克',
+    emoji: '🚀',
+    domain: '工程 / 成本 / 第一性原理',
+    style: '参考马斯克的第一性原理框架：先问物理极限和成本极限，再拆掉流程、压缩路径、快速实验；语气强硬、工程化、追问约束。',
+  },
+  {
+    name: '芒格',
+    emoji: '🧩',
+    domain: '投资 / 多元思维 / 逆向',
+    style: '参考芒格的多元思维模型：逆向思考、激励机制、能力圈、误判心理学和长期复利；语气老练、讽刺、偏风险提示。',
+  },
+  {
+    name: '费曼',
+    emoji: '🔬',
+    domain: '学习 / 教学 / 科学思维',
+    style: '参考费曼的科学解释框架：把复杂概念拆成直觉图像、可检验问题和简单实验；语气好奇、犀利、拒绝术语堆砌。',
+  },
+  {
+    name: 'Naval',
+    emoji: '🌊',
+    domain: '财富 / 杠杆 / 人生哲学',
+    style: '参考 Naval 的财富和人生框架：关注特定知识、杠杆、长期复利、自由、欲望与幸福；表达短句化、哲思化、像推文但不空泛。',
+  },
+  {
+    name: '塔勒布',
+    emoji: '⚡',
+    domain: '风险 / 反脆弱 / 不确定性',
+    style: '参考塔勒布的不确定性框架：识别脆弱性、尾部风险、皮肤在游戏中、反脆弱和叙事谬误；语气尖锐、怀疑、反权威。',
+  },
+]
 
 type ProviderKey = typeof PROVIDERS[number]['key']
 type TopTab = 'ai' | 'appearance'
@@ -239,6 +321,12 @@ export default function Settings() {
   const noKey = loaded && !config?.openaiApiKey
   const currentProvider = PROVIDERS.find(p => p.key === providerKey)
 
+  const handleSelectCommentatorPreset = (preset: CommentatorPreset) => {
+    setCommentatorName(preset.name)
+    setCommentatorStyle(preset.style)
+    setCommentatorEmoji(preset.emoji)
+  }
+
   const SaveBtn = ({ onClick }: { onClick: () => void }) => (
     <motion.button whileTap={{ scale: 0.97 }} onClick={onClick}
       className={cn('flex items-center gap-2 rounded-lg px-5 py-2 text-sm font-medium transition-colors',
@@ -282,7 +370,6 @@ export default function Settings() {
           <div className="flex border-b border-border bg-bg-elevated/50">
             {([
               { id: 'chat', icon: <MessageSquare size={13} />, label: '聊天模型' },
-              { id: 'image', icon: <Image size={13} />, label: '图片生成' },
               { id: 'search', icon: <Search size={13} />, label: '搜索模型' },
               { id: 'commentator', icon: <Bot size={13} />, label: '评论员' },
               { id: 'advanced', icon: <Settings2 size={13} />, label: '高级配置' },
@@ -469,9 +556,10 @@ export default function Settings() {
                   </div>
                   <button
                     onClick={() => setSearchEnabled(e => !e)}
+                    aria-pressed={searchEnabled}
                     className={cn('relative h-6 w-11 rounded-full transition-colors', searchEnabled ? 'bg-accent' : 'bg-border')}
                   >
-                    <span className={cn('absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform', searchEnabled ? 'translate-x-5' : 'translate-x-0.5')} />
+                    <span className={cn('absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform', searchEnabled ? 'translate-x-5' : 'translate-x-0')} />
                   </button>
                 </div>
 
@@ -551,6 +639,31 @@ export default function Settings() {
             {/* Commentator sub-tab */}
             {aiTab === 'commentator' && (
               <>
+                <Field label="Nuwa 人物 Skill 预设" hint="来自 nuwa-skill README 的已蒸馏人物列表，选择后可继续手动微调。">
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    {COMMENTATOR_PRESETS.map(preset => {
+                      const selected = commentatorName === preset.name
+                      return (
+                        <motion.button
+                          key={preset.name}
+                          type="button"
+                          whileTap={{ scale: 0.98 }}
+                          onClick={() => handleSelectCommentatorPreset(preset)}
+                          className={cn(
+                            'flex min-h-[64px] items-start gap-2 rounded-lg border px-3 py-2 text-left transition-colors',
+                            selected ? 'border-accent bg-accent/10 text-fg' : 'border-border bg-bg-elevated text-fg-muted hover:bg-bg-hover hover:text-fg'
+                          )}
+                        >
+                          <span className="mt-0.5 text-lg">{preset.emoji}</span>
+                          <span className="min-w-0">
+                            <span className="block truncate text-xs font-medium">{preset.name}</span>
+                            <span className="mt-0.5 block text-[11px] leading-snug text-fg-faint">{preset.domain}</span>
+                          </span>
+                        </motion.button>
+                      )
+                    })}
+                  </div>
+                </Field>
                 <Field label="评论员名称">
                   <input value={commentatorName} onChange={e => setCommentatorName(e.target.value)}
                     placeholder="鲁迅" className="w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm outline-none placeholder:text-fg-faint focus:border-accent transition-colors" />
