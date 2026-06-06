@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend layer entry point for verification"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Check component and animation conventions"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Check build-quality and forbidden-pattern requirements"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "Check TypeScript safety expectations"}

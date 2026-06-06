@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/frontend/index.md", "reason": "Frontend layer entry point for UI work"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Component, styling, and Framer Motion conventions"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Frontend quality rules and forbidden patterns"}
+{"file": ".trellis/spec/frontend/type-safety.md", "reason": "TypeScript safety expectations for new components"}
+{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "Placement rules for reusable frontend components"}
