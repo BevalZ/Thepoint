@@ -16,9 +16,27 @@ export interface AppConfig {
   searchBaseUrl: string
   searchProviderKey: string
   searchCustomEndpoint: string
+  factCheckLanguage: string
+  annotationUnderlineColor: string
+  annotationWavyColor: string
+  annotationHighlightColor: string
   commentatorName: string
   commentatorStyle: string
   commentatorEmoji: string
+  commentatorProfiles: CommentatorProfile[]
+  customMentalModels: MentalModel[]
+}
+
+export interface CommentatorProfile {
+  id: string
+  name: string
+  emoji: string
+  domain: string
+  style: string
+  bio?: string | null
+  sourceKind: 'builtin' | 'github' | 'manual' | string
+  sourceName?: string | null
+  sourceUrl?: string | null
 }
 
 export interface ConfigProfile {
@@ -44,6 +62,7 @@ export interface StoredPoint {
   tagType: string | null
   parentId: string | null
   sourceDocName: string | null
+  sourceExcerpt: string | null
   createdAt: string
   archived: boolean
   starred: boolean
@@ -53,6 +72,7 @@ export interface MentalModel {
   key: string
   name: string
   description: string
+  promptLens?: string
 }
 
 export interface FrameworkRecommendation {
@@ -73,7 +93,39 @@ export interface ChunkCard {
   text: string
   summary: string
   hotTake: string
+  commentatorName?: string | null
+  commentatorEmoji?: string | null
   labels: Label[]
+}
+
+export interface FactCheckSource {
+  title: string
+  url: string
+  snippet: string
+}
+
+export interface FactCheckResult {
+  claim: string
+  answer: string
+  context: string
+  extra: string[]
+  sources: FactCheckSource[]
+}
+
+export type RelatedRelation = 'same_view' | 'opposite_view' | 'similar_case' | 'evidence' | 'duplicate'
+
+export interface RelatedCandidateInput {
+  id: string
+  content: string
+  tagType?: string | null
+  sourceDocName?: string | null
+}
+
+export interface RelatedClassification {
+  id: string
+  relation: RelatedRelation
+  reason: string
+  confidence: number
 }
 
 export interface GalleryItem {
@@ -84,6 +136,19 @@ export interface GalleryItem {
   generatedAt: string
   downloadStatus: string
   pointIds: string[]
+  sourcePoints: GallerySourcePoint[]
+}
+
+export interface GallerySourcePoint {
+  id: string
+  content: string
+  sourceDocName?: string | null
+}
+
+export interface GalleryPromptPreview {
+  prompt: string
+  pointIds: string[]
+  sourcePoints: GallerySourcePoint[]
 }
 
 export interface FileMetadata {
@@ -105,6 +170,9 @@ export interface ExploreSourceMetadata {
   createdAt: string | null
   modifiedAt: string | null
   characterCount: number
+  author?: string | null
+  publishedAt?: string | null
+  readingTime?: string | null
 }
 
 export interface ExploreHistoryItem {

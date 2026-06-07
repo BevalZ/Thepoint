@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { motion, useReducedMotion } from 'framer-motion'
 import { cn } from '@/lib/utils'
-import { playSound, preloadSound } from '@/lib/sounds'
 
 const OPENING_TEXT = 'Your point is great!'
 const CLAIM_TEXT = "Now it's mine"
@@ -37,8 +36,6 @@ const PARTICLES: Particle[] = Array.from({ length: 58 }, (_, id) => {
     duration: 0.7 + (id % 6) * 0.04,
   }
 })
-
-let startupSoundPlayed = false
 
 function buildScramble(tick: number): string {
   const length = Math.max(OPENING_TEXT.length, CLAIM_TEXT.length)
@@ -185,15 +182,6 @@ export function StartupSplash({ onComplete, className }: StartupSplashProps) {
   const [burstText, setBurstText] = useState(OPENING_TEXT)
 
   useEffect(() => {
-    preloadSound('startupClaim')
-  }, [])
-
-  useEffect(() => {
-    if (!startupSoundPlayed) {
-      startupSoundPlayed = true
-      playSound('startupClaim')
-    }
-
     if (prefersReducedMotion) {
       setPhase('claim')
       const completeTimer = window.setTimeout(onComplete, 900)

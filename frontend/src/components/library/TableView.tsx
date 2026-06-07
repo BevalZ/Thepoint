@@ -1,5 +1,6 @@
 import type { StoredPoint } from '@/api/types'
 import { Archive } from 'lucide-react'
+import { SourceExcerptButton } from '@/components/SourceExcerptButton'
 
 interface Props { points: StoredPoint[]; onArchive: (id: string) => void }
 
@@ -25,9 +26,15 @@ export function TableView({ points, onArchive }: Props) {
               <td className="py-2 pr-4 text-fg-faint text-xs">{p.tagType ?? '—'}</td>
               <td className="py-2 pr-4 text-fg-faint text-xs whitespace-nowrap">{p.createdAt.slice(0, 10)}</td>
               <td className="py-2">
+                <div className="flex items-center gap-1">
+                <SourceExcerptButton
+                  point={p}
+                  className="p-1 rounded text-fg-faint hover:text-accent transition-colors"
+                />
                 <button onClick={() => onArchive(p.id)} className="p-1 rounded text-fg-faint hover:text-fg-muted transition-colors" title="归档">
                   <Archive size={13} />
                 </button>
+                </div>
               </td>
             </tr>
           ))}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Image, RefreshCw, Trash2, X, ChevronDown, ChevronRight } from 'lucide-react'
+import { FileText, Image, RefreshCw, Trash2, X, ChevronDown, ChevronRight } from 'lucide-react'
 import { useGalleryStore } from '@/store'
 import { cn } from '@/lib/utils'
 import type { GalleryItem } from '@/api/types'
@@ -37,6 +37,12 @@ function Tile({ item, onDelete, onClick }: { item: GalleryItem; onDelete: () => 
         className="absolute top-1.5 right-1.5 rounded-full bg-black/60 p-1 opacity-0 group-hover:opacity-100 transition-opacity text-white hover:bg-red-600">
         <Trash2 size={12} />
       </button>
+      {item.sourcePoints.length > 0 && (
+        <span className="absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 rounded-full bg-black/60 px-2 py-0.5 text-[10px] text-white/85">
+          <FileText size={10} />
+          {item.sourcePoints.length}
+        </span>
+      )}
     </div>
   )
 }
@@ -113,7 +119,26 @@ function Lightbox({ item, onClose, onDelete }: { item: GalleryItem; onClose: () 
             </>
           )}
         </div>
-        <p className="mt-3 text-xs text-white/60 text-center line-clamp-2">{item.prompt}</p>
+        <div className="mt-3 rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white/75">
+          <p className="text-xs leading-relaxed">{item.prompt}</p>
+          {item.sourcePoints.length > 0 && (
+            <div className="mt-3 border-t border-white/10 pt-3">
+              <div className="mb-2 flex items-center gap-1.5 text-xs text-white/60">
+                <FileText size={12} />
+                生成来源 · {item.sourcePoints.length} 个 star
+              </div>
+              <div className="max-h-32 space-y-1.5 overflow-y-auto pr-1 text-[11px] leading-relaxed text-white/55 [&::-webkit-scrollbar]:hidden">
+                {item.sourcePoints.map((point) => (
+                  <p key={point.id} className="line-clamp-2">
+                    <span className="text-white/75">{point.sourceDocName || '未命名来源'}</span>
+                    <span className="mx-1 text-white/30">·</span>
+                    {point.content}
+                  </p>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </motion.div>
   )
@@ -142,7 +167,7 @@ export default function Gallery() {
         <div className="text-center space-y-2">
           <Image size={32} className="mx-auto opacity-30" />
           <p>暂无 AI 生成图片</p>
-          <p className="text-xs">在探索页采集 ≥10 个 point 后点击圆环生成</p>
+          <p className="text-xs">采集 ≥10 个 star 后，在圆环面板里生成图片</p>
         </div>
       </div>
     )

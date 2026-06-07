@@ -1,26 +1,24 @@
 import { useCallback, useEffect, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { AnimatePresence, motion, useReducedMotion, type Variants } from 'framer-motion'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { BarChart2, Compass, Settings as SettingsIcon, Library as LibraryIcon, Maximize2, Minus, Sparkles, X } from 'lucide-react'
+import { BarChart2, ChevronDown, Compass, HelpCircle, Image, Settings as SettingsIcon, Library as LibraryIcon, Maximize2, Minus, Sparkles, X } from 'lucide-react'
 import Settings from '@/pages/Settings'
 import Explore from '@/pages/Explore'
 import Library from '@/pages/Library'
 import Analytics from '@/pages/Analytics'
-// TODO(gallery): re-enable when AI gallery feature is ready for release
-// import Gallery from '@/pages/Gallery'
-// import { Image } from 'lucide-react'
+import Gallery from '@/pages/Gallery'
 import { StarRing } from '@/components/StarRing'
 import { StartupSplash } from '@/components/StartupSplash'
+import { StarfieldBackground } from '@/components/StarfieldBackground'
 import { useConfigStore, useThemeStore } from '@/store'
 import { cn } from '@/lib/utils'
 
-type Page = 'explore' | 'library' | 'analytics' | 'settings'
-// TODO(gallery): add 'gallery' back to Page union when re-enabling
+type Page = 'explore' | 'library' | 'gallery' | 'analytics' | 'settings'
 
 const NAV: { id: Page; label: string; icon: typeof Compass }[] = [
   { id: 'explore', label: '探索', icon: Compass },
   { id: 'library', label: '知识库', icon: LibraryIcon },
-  // TODO(gallery): { id: 'gallery', label: '画廊', icon: Image },
+  { id: 'gallery', label: '画廊', icon: Image },
   { id: 'analytics', label: '统计', icon: BarChart2 },
   { id: 'settings', label: '设置', icon: SettingsIcon },
 ]
@@ -41,6 +39,30 @@ const NAV_SWEEP_VARIANTS: Variants = {
     x: 230,
     transition: { duration: 0.46, ease: 'easeOut' },
   },
+}
+
+function UsageGuide({ open }: { open: boolean }) {
+  return (
+    <AnimatePresence initial={false}>
+      {open && (
+        <motion.div
+          initial={{ opacity: 0, y: -6, height: 0 }}
+          animate={{ opacity: 1, y: 0, height: 'auto' }}
+          exit={{ opacity: 0, y: -6, height: 0 }}
+          transition={{ duration: 0.18, ease: 'easeOut' }}
+          className="overflow-hidden"
+        >
+          <div className="ml-2 mt-1.5 border-l border-border/70 pl-2.5 pr-1 text-[11px] leading-snug text-fg-muted">
+            <p><span className="font-medium text-fg">探索：</span>粘贴/拖拽/抓取网页，拆块解析。</p>
+            <p className="mt-1"><span className="font-medium text-fg">星星：</span>点击看解读，右键采集到圆环生成研报。</p>
+            <p className="mt-1"><span className="font-medium text-fg">评论员：</span>先选数字分身，再生成辣评。</p>
+            <p className="mt-1"><span className="font-medium text-fg">事实审查：</span>划词调用搜索模型核查并保存。</p>
+            <p className="mt-1"><span className="font-medium text-fg">知识库：</span>按来源归档，记录旁查看段原文。</p>
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  )
 }
 
 function isTauriRuntime(): boolean {
@@ -89,10 +111,6 @@ function AppTitleBar() {
           <Sparkles size={12} />
           <span className="pointer-events-none absolute inset-0 rounded-md border border-accent/20" />
         </div>
-        <div className="min-w-0">
-          <p className="truncate text-[12px] font-semibold leading-none tracking-normal">Deep Explorer</p>
-          <p className="mt-0.5 truncate text-[10px] leading-none text-fg-faint">point miner</p>
-        </div>
       </div>
       <div className="flex h-full shrink-0 items-center border-l border-border-strong bg-bg-elevated">
         <button
@@ -127,6 +145,7 @@ function AppTitleBar() {
 export default function App() {
   const [page, setPage] = useState<Page>('explore')
   const [showSplash, setShowSplash] = useState(true)
+  const [usageOpen, setUsageOpen] = useState(false)
   const prefersReducedMotion = useReducedMotion()
   const { loaded, fetchConfig } = useConfigStore()
   useThemeStore()
@@ -140,65 +159,97 @@ export default function App() {
   const renderPage = () => {
     if (page === 'settings') return <Settings />
     if (page === 'library') return <Library />
+    if (page === 'gallery') return <Gallery />
     if (page === 'analytics') return <Analytics />
-    // TODO(gallery): if (page === 'gallery') return <Gallery />
     return <Explore />
   }
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-bg text-fg ring-1 ring-inset ring-border-strong">
+    <div className="relative flex h-screen flex-col overflow-hidden bg-bg text-fg ring-1 ring-inset ring-border-strong">
+      <StarfieldBackground />
       <AnimatePresence>
         {showSplash && <StartupSplash onComplete={handleSplashComplete} />}
       </AnimatePresence>
 
       <AppTitleBar />
 
-      <div className="flex min-h-0 flex-1 overflow-hidden">
+      <div className="relative z-10 flex min-h-0 flex-1 overflow-hidden">
         <motion.nav
           className="flex w-52 shrink-0 flex-col border-r border-border bg-bg-elevated px-3 py-5"
           initial={prefersReducedMotion ? false : { opacity: 0, x: -14 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.28, ease: 'easeOut' }}
         >
-          <div className="px-2 pb-5 text-sm font-semibold tracking-normal">
-            Deep Explorer
-          </div>
           {NAV.map(({ id, label, icon: Icon }) => (
-            <motion.button
-              key={id}
-              onClick={() => setPage(id)}
-              variants={NAV_ITEM_VARIANTS}
-              initial="rest"
-              whileHover={prefersReducedMotion ? undefined : 'hover'}
-              whileTap={prefersReducedMotion ? undefined : { scale: 0.98 }}
-              aria-current={page === id ? 'page' : undefined}
-              className={cn(
-                'group/nav relative isolate flex items-center gap-2.5 overflow-hidden rounded-md px-2.5 py-2 text-sm transition-colors',
-                page === id ? 'text-fg' : 'text-fg-muted hover:text-fg'
+            <div key={id}>
+              <motion.button
+                onClick={() => setPage(id)}
+                variants={NAV_ITEM_VARIANTS}
+                initial="rest"
+                whileHover={prefersReducedMotion ? undefined : 'hover'}
+                whileTap={prefersReducedMotion ? undefined : { scale: 0.98 }}
+                aria-current={page === id ? 'page' : undefined}
+                className={cn(
+                  'group/nav relative isolate flex w-full items-center gap-2.5 overflow-hidden rounded-md px-2.5 py-2 text-sm transition-colors',
+                  page === id ? 'text-fg' : 'text-fg-muted hover:text-fg'
+                )}
+              >
+                <motion.span
+                  aria-hidden
+                  className="pointer-events-none absolute inset-y-1 -left-12 w-12 bg-accent/20"
+                  variants={NAV_SWEEP_VARIANTS}
+                />
+                {page === id && (
+                  <>
+                    <motion.span
+                      layoutId="active-nav"
+                      className="absolute inset-0 rounded-md bg-bg-hover"
+                      transition={{ type: 'spring', stiffness: 420, damping: 34 }}
+                    />
+                    <motion.span
+                      layoutId="active-nav-rail"
+                      className="absolute left-1 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-accent"
+                      transition={{ type: 'spring', stiffness: 520, damping: 36 }}
+                    />
+                  </>
+                )}
+                <Icon className="relative" size={16} />
+                <span className="relative">{label}</span>
+              </motion.button>
+              {id === 'settings' && (
+                <div>
+                  <motion.button
+                    type="button"
+                    onClick={() => setUsageOpen(value => !value)}
+                    variants={NAV_ITEM_VARIANTS}
+                    initial="rest"
+                    whileHover={prefersReducedMotion ? undefined : 'hover'}
+                    whileTap={prefersReducedMotion ? undefined : { scale: 0.98 }}
+                    className={cn(
+                      'group/nav relative isolate mt-1 flex w-full items-center gap-2.5 overflow-hidden rounded-md px-2.5 py-2 text-sm transition-colors',
+                      usageOpen ? 'text-fg' : 'text-fg-muted hover:text-fg'
+                    )}
+                  >
+                    <motion.span
+                      aria-hidden
+                      className="pointer-events-none absolute inset-y-1 -left-12 w-12 bg-accent/20"
+                      variants={NAV_SWEEP_VARIANTS}
+                    />
+                    {usageOpen && (
+                      <motion.span
+                        layoutId="active-usage-guide"
+                        className="absolute inset-0 rounded-md bg-bg-hover"
+                        transition={{ type: 'spring', stiffness: 420, damping: 34 }}
+                      />
+                    )}
+                    <HelpCircle className="relative" size={16} />
+                    <span className="relative min-w-0 flex-1 text-left">使用说明</span>
+                    <ChevronDown size={13} className={cn('relative transition-transform', usageOpen && 'rotate-180')} />
+                  </motion.button>
+                  <UsageGuide open={usageOpen} />
+                </div>
               )}
-            >
-              <motion.span
-                aria-hidden
-                className="pointer-events-none absolute inset-y-1 -left-12 w-12 bg-accent/20"
-                variants={NAV_SWEEP_VARIANTS}
-              />
-              {page === id && (
-                <>
-                  <motion.span
-                    layoutId="active-nav"
-                    className="absolute inset-0 rounded-md bg-bg-hover"
-                    transition={{ type: 'spring', stiffness: 420, damping: 34 }}
-                  />
-                  <motion.span
-                    layoutId="active-nav-rail"
-                    className="absolute left-1 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-accent"
-                    transition={{ type: 'spring', stiffness: 520, damping: 36 }}
-                  />
-                </>
-              )}
-              <Icon className="relative" size={16} />
-              <span className="relative">{label}</span>
-            </motion.button>
+            </div>
           ))}
         </motion.nav>
 
@@ -225,7 +276,7 @@ export default function App() {
       </div>
 
       {/* Global star-collect ring — persists across all pages (PRD: 全局累计 + 固定悬浮) */}
-      <StarRing />
+      <StarRing onNavigateGallery={() => setPage('gallery')} />
     </div>
   )
 }

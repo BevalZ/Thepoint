@@ -7,11 +7,16 @@ import {
   Link2,
   Brain,
   Loader2,
+  MessageSquarePlus,
+  Save,
   Search,
+  Sparkles,
+  X,
 } from 'lucide-react'
 import type { StoredPoint } from '@/api/types'
 import { useDeepenStore, useLibraryStore } from '@/store'
 import { cn } from '@/lib/utils'
+import { polishManualThought } from '@/api'
 
 interface DeepenActionsProps {
   point: StoredPoint
@@ -25,7 +30,7 @@ const BASIC_ACTIONS = [
 ] as const
 
 export function DeepenActions({ point, className }: DeepenActionsProps) {
-  const { deepen, findSimilarFor, deepening } = useLibraryStore()
+  const { deepen, addManualThought, findSimilarFor, deepening } = useLibraryStore()
   const {
     mentalModels,
     recommendations,
@@ -37,6 +42,10 @@ export function DeepenActions({ point, className }: DeepenActionsProps) {
   const [panelOpen, setPanelOpen] = useState(false)
   const [showAll, setShowAll] = useState(false)
   const [query, setQuery] = useState('')
+  const [thoughtOpen, setThoughtOpen] = useState(false)
+  const [thoughtDraft, setThoughtDraft] = useState('')
+  const [polishing, setPolishing] = useState(false)
+  const [thoughtError, setThoughtError] = useState<string | null>(null)
 
   const busy = deepening[point.id] ?? false
   const recs = recommendations[point.id] ?? []
@@ -61,6 +70,44 @@ export function DeepenActions({ point, className }: DeepenActionsProps) {
     setShowAll(false)
     setQuery('')
     await deepen(point, 'framework', key)
+  }
+
+  const discardThought = () => {
+    setThoughtOpen(false)
+    setThoughtDraft('')
+    setThoughtError(null)
+  }
+
+  const saveThought = async () => {
+    const trimmed = thoughtDraft.trim()
+    if (!trimmed) {
+      setThoughtError('请输入你的想法')
+      return
+    }
+    try {
+      await addManualThought(point, trimmed)
+      discardThought()
+    } catch (error: unknown) {
+      setThoughtError(error instanceof Error ? error.message : '保存失败')
+    }
+  }
+
+  const polishThought = async () => {
+    const trimmed = thoughtDraft.trim()
+    if (!trimmed || polishing) {
+      setThoughtError('请输入需要润色的内容')
+      return
+    }
+    setPolishing(true)
+    setThoughtError(null)
+    try {
+      const polished = await polishManualThought(point.content, trimmed)
+      setThoughtDraft(polished)
+    } catch (error: unknown) {
+      setThoughtError(error instanceof Error ? error.message : '润色失败')
+    } finally {
+      setPolishing(false)
+    }
   }
 
   const filtered = query.trim()
@@ -96,8 +143,76 @@ export function DeepenActions({ point, className }: DeepenActionsProps) {
           active={panelOpen}
           onClick={openFramework}
         />
+        <ActionButton
+          label="我的想法"
+          icon={MessageSquarePlus}
+          disabled={busy}
+          active={thoughtOpen}
+          onClick={() => {
+            setThoughtOpen(value => !value)
+            setThoughtError(null)
+          }}
+        />
         {busy && <Loader2 size={14} className="ml-1 animate-spin text-fg-faint" />}
       </div>
+
+      <AnimatePresence>
+        {thoughtOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: -4, height: 0 }}
+            animate={{ opacity: 1, y: 0, height: 'auto' }}
+            exit={{ opacity: 0, y: -4, height: 0 }}
+            className="overflow-hidden"
+          >
+            <div className="mt-2.5 rounded-lg border border-border bg-bg-elevated p-3 shadow-sm">
+              <div className="mb-2 flex items-center gap-2">
+                <span className="rounded-full border border-accent/25 bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent">
+                  我的想法
+                </span>
+              </div>
+              <textarea
+                value={thoughtDraft}
+                onChange={(event) => {
+                  setThoughtDraft(event.target.value)
+                  setThoughtError(null)
+                }}
+                rows={4}
+                placeholder="写下你对这个点的想法…"
+                className="w-full resize-y rounded-md border border-border bg-bg px-3 py-2 text-sm leading-relaxed text-fg outline-none placeholder:text-fg-faint focus:border-accent"
+              />
+              {thoughtError && <p className="mt-2 text-xs text-red-400">{thoughtError}</p>}
+              <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={discardThought}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg"
+                >
+                  <X size={13} />
+                  舍弃
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void polishThought()}
+                  disabled={polishing || busy}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg disabled:opacity-50"
+                >
+                  {polishing ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+                  润色
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void saveThought()}
+                  disabled={busy}
+                  className="inline-flex items-center gap-1.5 rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+                >
+                  <Save size={13} />
+                  保存
+                </button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {panelOpen && (

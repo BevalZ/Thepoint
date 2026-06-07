@@ -1,14 +1,14 @@
 use serde::{Deserialize, Serialize};
 
-/// A thinking framework / mental model. `prompt_lens` is backend-only (the LLM
-/// instruction); it is skipped when serialized to the frontend.
+/// A thinking framework / mental model. `prompt_lens` is the instruction sent to
+/// the LLM when applying this framework.
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct MentalModel {
     pub key: String,
     pub name: String,
     pub description: String,
-    #[serde(skip)]
+    #[serde(default)]
     pub prompt_lens: String,
 }
 
@@ -31,9 +31,19 @@ pub fn all() -> Vec<MentalModel> {
     v
 }
 
-/// Look up a single model by key.
-pub fn by_key(key: &str) -> Option<MentalModel> {
-    all().into_iter().find(|m| m.key == key)
+pub fn all_with_custom(custom: &[MentalModel]) -> Vec<MentalModel> {
+    let mut models = all();
+    for item in custom {
+        if item.key.trim().is_empty() || item.name.trim().is_empty() || item.prompt_lens.trim().is_empty() {
+            continue;
+        }
+        if let Some(existing) = models.iter_mut().find(|model| model.key == item.key) {
+            *existing = item.clone();
+        } else {
+            models.push(item.clone());
+        }
+    }
+    models
 }
 
 /// 结构化 / 咨询（麦肯锡系）

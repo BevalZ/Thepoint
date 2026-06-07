@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type ReactNode, type RefObject, type SetStateAction } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
@@ -8,6 +8,7 @@ import {
   Archive,
   ArchiveRestore,
   Calendar,
+  ChevronDown,
   Clipboard,
   Database,
   ExternalLink,
@@ -27,14 +28,16 @@ import {
 import { useConfigStore, useExploreHistoryStore, useExploreStore, useStarStore } from '@/store'
 import { cn } from '@/lib/utils'
 import { useStarFly } from '@/hooks/useStarFly'
-import { describeImage, savePoints } from '@/api'
-import type { AppConfig, ChunkCard, ExploreHistoryItem, ExploreSourceMetadata } from '@/api/types'
+import { analyzeTextBlock, describeImage, factCheckClaim, savePoints } from '@/api'
+import type { AppConfig, ChunkCard, ExploreHistoryItem, ExploreSourceMetadata, FactCheckResult } from '@/api/types'
 
 const URL_RE = /^https?:\/\/[^\s]+$/
 const SUPPORTED_EXTS = ['txt','md','markdown','rst','csv','docx','odt','html','htm']
 const BLOCK_PREVIEW_LIMIT = 320
+const INFO_BLOCK_SOFT_MIN_CHARS = 120
 const INFO_BLOCK_MIN_CHARS = 200
 const INFO_BLOCK_MAX_CHARS = 400
+const INFO_HEADING_BLOCK_MAX_CHARS = 500
 const STAGE_GAP = 150
 const STAGE_WINDOW = 3
 const STAGE_ADVANCE_MS = 720
@@ -75,6 +78,17 @@ const CONFETTI_PIECES = [
   { x: 176, y: 46, r: -150, c: 'bg-emerald-300', w: 8, h: 12, d: 0.02 },
   { x: 226, y: -126, r: 95, c: 'bg-rose-300', w: 6, h: 18, d: 0.05 },
 ]
+const WEBSITE_NOISE_TERMS = [
+  '推荐', '财经', 'AI', '自助报道', '浙江', '最新', '创投', '汽车', '科技', '专精特新', '直播', '视频', '专题', '活动',
+  '资讯推荐', '最近内容', '下一篇', '城市合作', '寻求报道', '我要入驻', '投资者关系', '商务合作', '关于我们', '联系我们',
+  '加入我们', '热门资讯', '热门产品', '快讯标签', '快讯', '36氪欧洲站', '36氢欧洲站', '首页',
+  'Auto', '数字时氪', 'Power on', '36氪研究院', '36氪企服点评', 'bonus36碳后浪研究所', 'Waves',
+  '氪气氛', '企业号', '企业服务', '企服点评', '36Kr研究院', '创新咨询', '核心服务', '政府服务',
+  '城市之窗', '创投发布', 'LP源计划', 'VClub', 'VClub投资机构库', '投资机构职位推介', '投资人认证',
+  '寻求报道', 'Pro创投氪', '投资氪企业', '入驻创业者服务', '创投平台', 'AI测评网',
+]
+const WEBSITE_NOISE_SET = new Set(WEBSITE_NOISE_TERMS.map((term) => term.toLowerCase()))
+const LS_FACT_CHECKS = 'explore-fact-checks-v1'
 
 type SourceBlock =
   | { type: 'text'; text: string }
@@ -83,6 +97,147 @@ type SourceBlock =
 type SourceResultItem =
   | { block: Extract<SourceBlock, { type: 'text' }>; index: number; card: ChunkCard | null; valuable: boolean }
   | { block: Extract<SourceBlock, { type: 'image' }>; index: number; card: null; valuable: false }
+
+type AnalysisAnchor = { x: number; y: number }
+type AnalysisStackEntry = { id: string; card: ChunkCard; anchor: AnalysisAnchor | null; blockIndex: number; title: string }
+type ImageViewerState = { src: string; alt: string; caption: string | null }
+
+interface ChunkDrawerProps {
+  entry: AnalysisStackEntry
+  depth: number
+  inactiveCount: number
+  active: boolean
+  commentatorEmoji: string
+  commentatorName: string
+  onClose: () => void
+  onSelect: () => void
+}
+
+interface AnalysisLinkProps {
+  sourceElement: HTMLElement | null
+}
+
+interface ThemeBlockProps {
+  card: ChunkCard
+  index: number
+  starred: boolean
+  onOpen?: (el: HTMLButtonElement) => void
+  onToggleStar?: (el: HTMLButtonElement) => void
+  onAnalyze?: (el: HTMLButtonElement) => void
+  analyzing?: boolean
+  analyzeError?: string | null
+  displayText?: string
+  muted?: boolean
+  blockRef?: (node: HTMLDivElement | null) => void
+  onFactCheck?: (claim: string, context: string, anchor: HTMLElement, range: FactCheckTextRange) => void
+  userAnnotations?: UserTextAnnotation[]
+  annotationColors?: AnnotationColors
+  activeFactCheck?: FactCheckInlineMarker | null
+}
+
+type AnnotationKind = 'fact' | 'data' | 'viewpoint' | 'quote' | 'poem' | 'description'
+
+interface TextAnnotation {
+  start: number
+  end: number
+  kind: AnnotationKind
+  clickable: boolean
+}
+
+interface FactCheckTextRange {
+  blockIndex: number
+  start: number
+  end: number
+}
+
+interface FactCheckInlineMarker extends FactCheckTextRange {
+  loading: boolean
+  onOpen: (anchor: HTMLElement) => void
+}
+
+type UserAnnotationKind = 'wavy' | 'line' | 'highlight' | 'comment'
+
+interface AnnotationColors {
+  underline: string
+  wavy: string
+  highlight: string
+}
+
+interface UserTextAnnotation {
+  id: string
+  start: number
+  end: number
+  kind: UserAnnotationKind
+  comment?: string
+}
+
+interface FactBubbleState {
+  claim: string
+  context: string
+  loading: boolean
+  x: number
+  y: number
+  blockIndex: number | null
+  start: number | null
+  end: number | null
+  collapsed: boolean
+  result?: FactCheckResult
+  error?: string
+  saved?: boolean
+}
+
+interface SelectionToolbarState {
+  text: string
+  context: string
+  x: number
+  y: number
+  blockIndex: number
+  start: number
+  end: number
+}
+
+interface CommentDialogState extends SelectionToolbarState {
+  error?: string
+}
+
+type PointTagType = '事实陈述' | '作者观点' | '待验证疑问'
+
+function tagTypeForChunkCard(card: ChunkCard): PointTagType {
+  const joined = `${card.summary}\n${card.text}`
+  if (/[？?]/.test(card.summary) || /(是否|能否|会不会|为什么|如何|待验证|不确定|存疑|需要核查)/.test(card.summary)) {
+    return '待验证疑问'
+  }
+
+  const scores: Record<PointTagType, number> = {
+    事实陈述: 0,
+    作者观点: 0,
+    待验证疑问: 0,
+  }
+  for (const label of card.labels) {
+    const category = label.category.trim()
+    const sub = label.sub.trim()
+    if (category === '事实' || /(事实|统计|数据|法律|制度|技术|参数|历史|案例|存在|科学共识)/.test(sub)) {
+      scores.事实陈述 += 2
+    } else if (category === '中间混淆形态' || /(预测|推测|匿名|伪装|归因|断言|待验证)/.test(sub)) {
+      scores.待验证疑问 += 2
+    } else if (category === '观点' || category === '修辞性' || /(判断|建议|呼吁|评价|审美|解释|隐喻|类比|反讽)/.test(sub)) {
+      scores.作者观点 += 2
+    } else if (category === '规范性/分析性') {
+      scores.事实陈述 += 1
+    }
+  }
+
+  if (/(公司|政府|机构|制度|法律|规则|政策|数据|比例|历史|报告|研究|规定|参数|成本|利润|分配|工资)/.test(joined)) {
+    scores.事实陈述 += 1
+  }
+  if (/(应该|必须|需要|值得|不应|更好|糟糕|荒诞|合理|不合理)/.test(joined)) {
+    scores.作者观点 += 1
+  }
+
+  if (scores.待验证疑问 > scores.事实陈述 && scores.待验证疑问 >= scores.作者观点) return '待验证疑问'
+  if (scores.事实陈述 >= scores.作者观点 && scores.事实陈述 > 0) return '事实陈述'
+  return '作者观点'
+}
 
 function processWebHtml(html: string): { richHtml: string; text: string; url: string | null } {
   const parser = new DOMParser()
@@ -95,47 +250,218 @@ function processWebHtml(html: string): { richHtml: string; text: string; url: st
   return { richHtml: doc.body?.innerHTML ?? html, text: (doc.body?.innerText ?? '').trim(), url }
 }
 
+function factCheckKey(claim: string, context: string): string {
+  return `${claim.trim().toLowerCase()}::${context.trim().slice(0, 240).toLowerCase()}`
+}
+
+function loadSavedFactChecks(): Array<{ key: string; result: FactCheckResult; savedAt: string }> {
+  try {
+    const raw = localStorage.getItem(LS_FACT_CHECKS)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((item) =>
+      item
+      && typeof item.key === 'string'
+      && typeof item.savedAt === 'string'
+      && item.result
+      && typeof item.result === 'object'
+    )
+  } catch {
+    return []
+  }
+}
+
+function findSavedFactCheck(claim: string, context: string): FactCheckResult | null {
+  const key = factCheckKey(claim, context)
+  return loadSavedFactChecks().find((item) => item.key === key)?.result ?? null
+}
+
+function saveFactCheckResult(claim: string, context: string, result: FactCheckResult) {
+  const key = factCheckKey(claim, context)
+  const next = [
+    { key, result, savedAt: new Date().toISOString() },
+    ...loadSavedFactChecks().filter((item) => item.key !== key),
+  ].slice(0, 200)
+  localStorage.setItem(LS_FACT_CHECKS, JSON.stringify(next))
+}
+
+function useScrollMoreHint(ref: RefObject<HTMLElement>, watchKey: string | number | boolean) {
+  const [visible, setVisible] = useState(false)
+
+  useEffect(() => {
+    const element = ref.current
+    if (!element) {
+      setVisible(false)
+      return
+    }
+
+    const update = () => {
+      setVisible(element.scrollHeight - element.clientHeight - element.scrollTop > 10)
+    }
+
+    update()
+    const frame = window.requestAnimationFrame(update)
+    const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update)
+    resizeObserver?.observe(element)
+    window.addEventListener('resize', update)
+    element.addEventListener('scroll', update, { passive: true })
+
+    return () => {
+      window.cancelAnimationFrame(frame)
+      resizeObserver?.disconnect()
+      window.removeEventListener('resize', update)
+      element.removeEventListener('scroll', update)
+    }
+  }, [ref, watchKey])
+
+  return visible
+}
+
+function ScrollMoreHint({ visible, className }: { visible: boolean; className?: string }) {
+  return (
+    <AnimatePresence>
+      {visible && (
+        <motion.div
+          initial={{ opacity: 0, y: 6 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 4 }}
+          className={cn('pointer-events-none absolute bottom-3 left-1/2 z-10 -translate-x-1/2', className)}
+        >
+          <motion.div
+            animate={{
+              y: [0, 6, 0],
+              opacity: [0.62, 1, 0.68],
+              boxShadow: [
+                '0 0 14px rgba(226,232,240,0.32), 0 0 22px rgba(56,189,248,0.18)',
+                '0 0 24px rgba(226,232,240,0.82), 0 0 38px rgba(56,189,248,0.45)',
+                '0 0 16px rgba(226,232,240,0.38), 0 0 24px rgba(56,189,248,0.22)',
+              ],
+            }}
+            transition={{ duration: 0.95, repeat: Infinity, ease: 'easeInOut' }}
+            className="flex h-8 w-8 items-center justify-center rounded-full border border-cyan-100/55 bg-bg-elevated/75 text-cyan-50 backdrop-blur-sm"
+          >
+            <ChevronDown size={17} strokeWidth={2.4} />
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  )
+}
+
+function formatCommentKnowledgeContent(selection: CommentDialogState, comment: string): string {
+  return `Comment: ${comment}\n\n原文: ${selection.text}`
+}
+
+function selectionOffsetWithin(container: HTMLElement, targetNode: Node, targetOffset: number): number {
+  const range = document.createRange()
+  range.selectNodeContents(container)
+  range.setEnd(targetNode, targetOffset)
+  return range.toString().length
+}
+
 function splitIntoInfoBlocks(text: string): string[] {
   const cleaned = text.replace(/\r\n/g, '\n').trim()
   if (!cleaned) return []
 
+  const seenParagraphs = new Set<string>()
   const paragraphs = cleaned
     .split(/\n+/)
     .map((part) => part.trim())
-    .filter(Boolean)
+    .filter((part) => {
+      if (!part || isDiscardableTextFragment(part)) return false
+      const key = comparableTextKey(part)
+      if (seenParagraphs.has(key)) return false
+      seenParagraphs.add(key)
+      return true
+    })
+
+  if (paragraphs.some(isExplicitSectionHeading)) {
+    return splitExplicitSectionsIntoBlocks(paragraphs)
+  }
+
+  return splitParagraphsIntoInfoBlocks(paragraphs, INFO_BLOCK_MAX_CHARS)
+}
+
+function splitExplicitSectionsIntoBlocks(paragraphs: string[]): string[] {
+  const sections: string[][] = []
+  let current: string[] = []
+
+  for (const paragraph of paragraphs) {
+    if (isExplicitSectionHeading(paragraph) && current.length > 0) {
+      sections.push(current)
+      current = [paragraph]
+    } else {
+      current.push(paragraph)
+    }
+  }
+
+  if (current.length > 0) sections.push(current)
 
   const blocks: string[] = []
+  const seenBlocks = new Set<string>()
+  const pushUnique = (block: string) => {
+    const trimmed = block.trim()
+    const key = comparableTextKey(trimmed)
+    if (!trimmed || isDiscardableTextFragment(trimmed) || seenBlocks.has(key)) return
+    blocks.push(trimmed)
+    seenBlocks.add(key)
+  }
+
+  for (const section of sections) {
+    if (section.length === 1 && isBareSectionMarker(section[0])) continue
+    const sectionText = section.join('\n\n')
+    if (Array.from(sectionText).length <= INFO_HEADING_BLOCK_MAX_CHARS) {
+      pushUnique(sectionText)
+      continue
+    }
+    for (const block of splitParagraphsIntoInfoBlocks(section, INFO_HEADING_BLOCK_MAX_CHARS)) {
+      pushUnique(block)
+    }
+  }
+
+  return blocks
+}
+
+function splitParagraphsIntoInfoBlocks(paragraphs: string[], maxChars: number): string[] {
+  const blocks: string[] = []
+  const seenBlocks = new Set<string>()
   let current = ''
   let currentLength = 0
 
   const flush = () => {
     if (current) {
-      blocks.push(current)
+      const key = comparableTextKey(current)
+      if (!seenBlocks.has(key) && !isDiscardableTextFragment(current)) {
+        blocks.push(current)
+        seenBlocks.add(key)
+      }
       current = ''
       currentLength = 0
     }
   }
 
-  for (const paragraph of paragraphs.length > 0 ? paragraphs : [cleaned]) {
-    const parts = splitLongInfoPart(paragraph)
+  for (const paragraph of paragraphs) {
+    const parts = splitLongInfoPart(paragraph, maxChars)
     for (const part of parts) {
-      if (shouldKeepStandaloneBlock(part)) {
-        flush()
-        blocks.push(part)
-        continue
-      }
+      if (isDiscardableTextFragment(part)) continue
 
       const partLength = Array.from(part).length
       const separator = current ? '\n\n' : ''
-      const nextLength = currentLength + partLength
-      if (current && nextLength > INFO_BLOCK_MAX_CHARS) {
+      const nextLength = currentLength + partLength + Array.from(separator).length
+      if (current && currentLength >= INFO_BLOCK_SOFT_MIN_CHARS && startsNewInfoBlock(part)) {
+        flush()
+      }
+      if (current && nextLength > maxChars) {
         flush()
       }
 
-      current = current ? `${current}${separator}${part}` : part
-      currentLength += partLength
-      if (currentLength >= INFO_BLOCK_MIN_CHARS) {
-        flush()
+      if (current) {
+        current = `${current}\n\n${part}`
+        currentLength += 2 + partLength
+      } else {
+        current = part
+        currentLength = partLength
       }
     }
   }
@@ -144,7 +470,7 @@ function splitIntoInfoBlocks(text: string): string[] {
   return blocks
 }
 
-function splitLongInfoPart(part: string): string[] {
+function splitLongInfoPart(part: string, maxChars = INFO_BLOCK_MAX_CHARS): string[] {
   const normalized = part.replace(/\s+/g, ' ').trim()
   if (!normalized) return []
 
@@ -154,14 +480,14 @@ function splitLongInfoPart(part: string): string[] {
   for (const sentence of sentenceParts) {
     const trimmed = sentence.trim()
     if (!trimmed) continue
-    if (Array.from(trimmed).length <= INFO_BLOCK_MAX_CHARS) {
+    if (Array.from(trimmed).length <= maxChars) {
       chunks.push(trimmed)
       continue
     }
 
     const chars = Array.from(trimmed)
-    for (let start = 0; start < chars.length; start += INFO_BLOCK_MAX_CHARS) {
-      chunks.push(chars.slice(start, start + INFO_BLOCK_MAX_CHARS).join(''))
+    for (let start = 0; start < chars.length; start += maxChars) {
+      chunks.push(chars.slice(start, start + maxChars).join(''))
     }
   }
 
@@ -172,10 +498,85 @@ function normalizedText(text: string): string {
   return text.replace(/\s+/g, ' ').trim()
 }
 
+function isExplicitSectionHeading(text: string): boolean {
+  const normalized = normalizedText(text)
+  if (!normalized) return false
+  if (/^#{1,6}\s+\S+/.test(normalized)) return true
+  if (/^第[一二三四五六七八九十百千万\d]+[章节部分篇条]\s*\S{0,80}$/.test(normalized)) return true
+  if (/^[（(]?[一二三四五六七八九十\d]{1,4}(?:[）)、.．]|\s+|-|—|–)\s*\S{0,80}$/.test(normalized)) return true
+  if (/^[A-Z][.)．]\s*\S{0,80}$/.test(normalized)) return true
+  return false
+}
+
+function isBareSectionMarker(text: string): boolean {
+  const normalized = normalizedText(text)
+  return /^[（(]?(?:[一二三四五六七八九十\d]{1,4}|[A-Z])[）)、.．]$/.test(normalized)
+}
+
+function startsNewInfoBlock(text: string): boolean {
+  const normalized = normalizedText(text)
+  if (!normalized) return false
+  if (/^(公开的)?(报道|资料|数据显示|统计显示|公开信息|原文|文中|报告).{0,12}(写道|显示|称|指出|如下)[：:]?$/.test(normalized)) return true
+  if (/^(据|根据).{1,24}(报道|资料|数据|统计|报告|文件)/.test(normalized)) return true
+  if (/^(以.{1,18}为例|例如|比如|举例来说|再看|另一个例子|接下来|下面)/.test(normalized)) return true
+  if (/^(首先|其次|再次|最后|总之|结论是|问题是|原因是|解决办法是)[，,:：]/.test(normalized)) return true
+  return false
+}
+
+function comparableTextKey(text: string): string {
+  return normalizedText(text)
+    .replace(/[“”"‘’'「」『』]/g, '')
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+}
+
+function isDiscardableTextFragment(text: string): boolean {
+  const normalized = normalizedText(text)
+  if (!normalized) return true
+  if (isWebsiteNoiseText(normalized)) return true
+  if (normalized.length <= 4 && /^[“”"‘’'「」『』,，.。;；:：、\s]+$/.test(normalized)) return true
+  if (/^[“”"‘’'「」『』]+$/.test(normalized)) return true
+  return false
+}
+
+function isWebsiteNoiseText(normalized: string): boolean {
+  const compact = normalized.replace(/\s+/g, '')
+  const lower = normalized.toLowerCase()
+  const compactLower = compact.toLowerCase()
+  if (WEBSITE_NOISE_SET.has(lower) || WEBSITE_NOISE_SET.has(compactLower)) return true
+  if (compact === '专注上市公司价值发现、创造与传播。') return true
+  if (/^(首页|推荐|财经|最新|直播|视频|专题|活动|快讯|AI测评网|创投平台)$/.test(compact)) return true
+  if (/^\d+\s*(分钟前|小时前|天前)$/.test(normalized)) return true
+  if (compact.length <= 90 && /\d+(分钟前|小时前|天前)$/.test(compact)) return true
+
+  const hitCount = WEBSITE_NOISE_TERMS.reduce((count, term) => (
+    compactLower.includes(term.toLowerCase().replace(/\s+/g, '')) ? count + 1 : count
+  ), 0)
+  if (compact.length <= 160 && hitCount >= 2 && !/[。！？!?；;]/.test(compact)) return true
+  if (compact.length <= 260 && hitCount >= 5 && !/[。！？!?；;]/.test(compact)) return true
+  if (/36[氪Kr]/i.test(compact) && hitCount >= 2 && !/[。！？!?；;]/.test(compact)) return true
+  if ((compact.match(/36[氪氢]欧洲站/g) ?? []).length >= 2) return true
+  return false
+}
+
 function isMetadataTextBlock(normalized: string): boolean {
   if (/^(作者|撰文|来源|发布|日期|时间|编辑|译者|摄影|图|图注|标题|by|source|date|updated|published)\s*[：:]/i.test(normalized)) return true
   if (/^\d{4}[-年]\d{1,2}([-/月]\d{1,2})?\s*$/.test(normalized)) return true
   return false
+}
+
+function stripLeadingMetadataLines(text: string): string {
+  const lines = text.replace(/\r\n/g, '\n').split('\n')
+  let start = 0
+  while (start < lines.length) {
+    const normalized = normalizedText(lines[start])
+    if (!normalized || isMetadataTextBlock(normalized)) {
+      start += 1
+      continue
+    }
+    break
+  }
+  return lines.slice(start).join('\n').trim()
 }
 
 function hasAnalysisSignalText(normalized: string): boolean {
@@ -197,23 +598,18 @@ function looksLikeHeadingText(normalized: string): boolean {
   return true
 }
 
-function shouldKeepStandaloneBlock(text: string): boolean {
-  const normalized = normalizedText(text)
-  return isMetadataTextBlock(normalized) || looksLikeHeadingText(normalized)
-}
-
 function isValuableTextBlock(text: string): boolean {
-  const normalized = normalizedText(text)
+  const normalized = normalizedText(stripLeadingMetadataLines(text))
   if (!normalized) return false
   if (isMetadataTextBlock(normalized)) return false
   if (looksLikeHeadingText(normalized)) return false
-  if (normalized.length < 28) return false
+  if (Array.from(normalized).length < INFO_BLOCK_MIN_CHARS) return false
 
   const sentenceMarks = (normalized.match(/[。！？!?；;]/g) ?? []).length
   const hasAnalysisSignals = hasAnalysisSignalText(normalized)
   const hasNumbersAndContext = hasNumbersAndContextText(normalized)
 
-  return normalized.length >= 80 || sentenceMarks >= 2 || hasAnalysisSignals || hasNumbersAndContext
+  return sentenceMarks >= 2 || hasAnalysisSignals || hasNumbersAndContext
 }
 
 function parseSourceBlocks(richHtml: string | null, fallbackText: string, baseUrl: string | null): SourceBlock[] {
@@ -226,6 +622,7 @@ function parseSourceBlocks(richHtml: string | null, fallbackText: string, baseUr
   const blocks: SourceBlock[] = []
   const pendingText: string[] = []
   const handledImageIndexes = new Map<string, number>()
+  const handledTextBlocks = new Set<string>()
   const blockTags = new Set([
     'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
     'p', 'li', 'blockquote', 'pre', 'td', 'th',
@@ -239,6 +636,9 @@ function parseSourceBlocks(richHtml: string | null, fallbackText: string, baseUr
   const flushText = () => {
     if (pendingText.length === 0) return
     for (const part of splitIntoInfoBlocks(pendingText.join('\n\n'))) {
+      const key = comparableTextKey(part)
+      if (handledTextBlocks.has(key)) continue
+      handledTextBlocks.add(key)
       blocks.push({ type: 'text', text: part })
     }
     pendingText.length = 0
@@ -353,6 +753,20 @@ function previewText(block: SourceBlock): string {
       : block.text
   }
   return block.caption ?? block.alt ?? '图片'
+}
+
+function analysisTitle(text: string): string {
+  const normalized = text.replace(/\s+/g, ' ').trim()
+  if (!normalized) return '未命名片段'
+  const chars = Array.from(normalized)
+  const title = chars.slice(0, 10).join('')
+  return chars.length > 10 ? `${title}...` : title
+}
+
+function analysisTabTitle(text: string): string {
+  const normalized = text.replace(/\s+/g, ' ').trim()
+  if (!normalized) return '片段'
+  return Array.from(normalized).slice(0, 3).join('')
 }
 
 function isRemoteImageSrc(src: string): boolean {
@@ -502,6 +916,9 @@ function SourceMetadataPanel({ metadata }: { metadata: ExploreSourceMetadata }) 
     )
     if (metadata.path !== null) rows.push({ icon: Link, label: '路径', value: metadata.path })
   } else if (metadata.kind === 'webpage') {
+    if (metadata.author) rows.push({ icon: Info, label: '作者', value: metadata.author })
+    if (metadata.publishedAt) rows.push({ icon: Calendar, label: '发布', value: metadata.publishedAt })
+    if (metadata.readingTime) rows.push({ icon: Info, label: '阅读', value: metadata.readingTime })
     rows.push({ icon: Hash, label: '字符', value: `${formatCount(metadata.characterCount)} 字` })
     if (metadata.url !== null) rows.push({ icon: ExternalLink, label: '地址', value: metadata.url, href: metadata.url })
   } else {
@@ -540,6 +957,7 @@ interface SourceHeaderProps {
   sourceName: string | null
   sourceUrl: string | null
   metadata: ExploreSourceMetadata
+  onReanalyze: () => void
   onOpenHistory: () => void
   onChangeFile: () => void
   onClear: () => void
@@ -551,6 +969,7 @@ function SourceHeader({
   sourceName,
   sourceUrl,
   metadata,
+  onReanalyze,
   onOpenHistory,
   onChangeFile,
   onClear,
@@ -604,6 +1023,16 @@ function SourceHeader({
           </button>
           <button
             type="button"
+            onClick={onReanalyze}
+            disabled={busy}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg disabled:cursor-not-allowed disabled:opacity-50"
+            title="重新采集"
+          >
+            <RotateCcw size={13} className={busy ? 'animate-spin' : undefined} />
+            重新采集
+          </button>
+          <button
+            type="button"
             onClick={onOpenHistory}
             className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg"
             title="缩略图"
@@ -638,9 +1067,14 @@ function SourceHeader({
 }
 
 // ── Drawer ─────────────────────────────────────────────────────────────────
-function ChunkDrawer({ card, commentatorEmoji, commentatorName, onClose }: {
-  card: ChunkCard; commentatorEmoji: string; commentatorName: string; onClose: () => void
-}) {
+function ChunkDrawer({ entry, depth, inactiveCount, active, commentatorEmoji, commentatorName, onClose, onSelect }: ChunkDrawerProps) {
+  const contentRef = useRef<HTMLDivElement>(null)
+  const { card } = entry
+  const displayCommentatorEmoji = card.commentatorEmoji ?? commentatorEmoji
+  const displayCommentatorName = card.commentatorName ?? commentatorName
+  const showMore = useScrollMoreHint(contentRef, `${active}-${card.summary}-${card.hotTake}-${card.labels.length}`)
+  const tabTop = `calc(50% - ${inactiveCount * 25}px + ${depth * 50}px)`
+  const tabTitle = analysisTabTitle(card.text)
   const CATEGORY_COLOR: Record<string, string> = {
     '事实': 'bg-blue-500/15 text-blue-300 border-blue-500/30',
     '观点': 'bg-violet-500/15 text-violet-300 border-violet-500/30',
@@ -650,46 +1084,682 @@ function ChunkDrawer({ card, commentatorEmoji, commentatorName, onClose }: {
   }
   return (
     <motion.div
-      initial={{ x: '100%', opacity: 0 }}
-      animate={{ x: 0, opacity: 1 }}
-      exit={{ x: '100%', opacity: 0 }}
+      initial={active ? { x: 34, y: '-50%', opacity: 0, scale: 0.96 } : { x: 24, opacity: 0 }}
+      animate={{
+        x: 0,
+        y: active ? '-50%' : 0,
+        opacity: 1,
+        scale: 1,
+      }}
+      whileHover={active ? undefined : { x: -8 }}
+      exit={active ? { x: 20, y: '-50%', opacity: 0, scale: 0.96 } : { x: 18, opacity: 0 }}
       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-      className="fixed right-0 top-0 h-full w-[360px] z-40 border-l border-border bg-bg-elevated shadow-2xl flex flex-col"
+      onClick={onSelect}
+      title={active ? undefined : '点击切换到对应文本块'}
+      style={{
+        top: active ? '50%' : tabTop,
+        zIndex: active ? 48 : 47 - depth,
+        maxHeight: active ? 'min(72vh, 34rem)' : undefined,
+      }}
+      className={cn(
+        active
+          ? 'fixed right-4 flex w-[min(320px,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-border bg-bg-elevated shadow-2xl transition-colors'
+          : 'fixed right-[21rem] flex h-11 w-16 cursor-pointer items-center rounded-l-lg border border-r-0 border-border/70 bg-bg-elevated/95 px-2 text-left shadow-xl transition-colors hover:border-accent/45 hover:bg-bg-hover'
+      )}
     >
-      <div className="flex items-center justify-between border-b border-border px-5 py-4">
-        <span className="text-sm font-medium text-fg">主题分析</span>
-        <button onClick={onClose} className="rounded-md p-1 text-fg-muted hover:bg-bg-hover transition-colors">
+      {!active && (
+        <>
+          <span className="mr-1.5 h-2 w-2 shrink-0 rounded-full bg-accent/70 shadow-[0_0_10px_rgba(250,204,21,0.42)]" />
+          <span className="min-w-0 truncate text-xs font-medium text-fg-muted">{tabTitle}</span>
+        </>
+      )}
+      {active && <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-3">
+        <span className="min-w-0 truncate text-sm font-medium text-fg">{entry.title}</span>
+        <button
+          onClick={(event) => {
+            event.stopPropagation()
+            onClose()
+          }}
+          className="rounded-md p-1 text-fg-muted hover:bg-bg-hover transition-colors"
+        >
           <X size={16} />
         </button>
-      </div>
-      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5 [&::-webkit-scrollbar]:hidden">
-        <div>
-          <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-fg-faint">总结</p>
-          <p className="text-sm leading-relaxed text-fg">{card.summary}</p>
-        </div>
-        <div className="rounded-xl border border-border bg-bg px-4 py-3">
-          <div className="mb-2 flex items-center gap-2">
-            <span className="text-lg">{commentatorEmoji}</span>
-            <span className="text-xs font-medium text-fg-muted">{commentatorName} 说</span>
-          </div>
-          <p className="text-sm leading-relaxed text-fg italic">{card.hotTake}</p>
-        </div>
-        {card.labels.length > 0 && (
+      </div>}
+      {active && <div className="relative min-h-0 flex-1 overflow-hidden">
+        <div ref={contentRef} className="max-h-[calc(72vh-3.25rem)] space-y-5 overflow-y-auto overscroll-contain px-5 pb-16 pt-4 [&::-webkit-scrollbar]:hidden">
           <div>
-            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-fg-faint">信息分类</p>
-            <div className="flex flex-wrap gap-1.5">
-              {card.labels.map((label, i) => (
-                <span key={i} className={cn(
-                  'rounded-full border px-2.5 py-0.5 text-xs',
-                  CATEGORY_COLOR[label.category] ?? 'bg-bg-hover text-fg-muted border-border'
-                )}>
-                  {label.category} · {label.sub}
-                </span>
-              ))}
+            <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-fg-faint">总结</p>
+            <p className="text-sm leading-relaxed text-fg">{card.summary}</p>
+          </div>
+          <div className="rounded-xl border border-border bg-bg px-4 py-3">
+            <div className="mb-2 flex items-center gap-2">
+              <span className="text-lg">{displayCommentatorEmoji}</span>
+              <span className="text-xs font-medium text-fg-muted">{displayCommentatorName} 说</span>
+            </div>
+            <p className="text-sm leading-relaxed text-fg italic">{card.hotTake}</p>
+          </div>
+          {card.labels.length > 0 && (
+            <div>
+              <p className="mb-2 text-xs font-medium uppercase tracking-wide text-fg-faint">信息分类</p>
+              <div className="flex flex-wrap gap-1.5">
+                {card.labels.map((label, i) => (
+                  <span key={i} className={cn(
+                    'rounded-full border px-2.5 py-0.5 text-xs',
+                    CATEGORY_COLOR[label.category] ?? 'bg-bg-hover text-fg-muted border-border'
+                  )}>
+                    {label.category} · {label.sub}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+        <ScrollMoreHint visible={showMore} />
+      </div>}
+    </motion.div>
+  )
+}
+
+function AnalysisLink({ sourceElement }: AnalysisLinkProps) {
+  const [points, setPoints] = useState<{ x: number; y: number; targetX: number; targetY: number } | null>(null)
+
+  useEffect(() => {
+    if (!sourceElement) {
+      setPoints(null)
+      return
+    }
+
+    let frame = 0
+    let alive = true
+
+    const update = () => {
+      if (!alive) return
+      const rect = sourceElement.getBoundingClientRect()
+      const cardWidth = Math.min(320, window.innerWidth - 32)
+      setPoints({
+        x: rect.right + 8,
+        y: rect.top + rect.height / 2,
+        targetX: window.innerWidth - cardWidth - 16,
+        targetY: window.innerHeight / 2,
+      })
+      frame = window.requestAnimationFrame(update)
+    }
+
+    update()
+    return () => {
+      alive = false
+      window.cancelAnimationFrame(frame)
+    }
+  }, [sourceElement])
+
+  if (points === null) return null
+
+  const controlX = Math.max(points.x + 46, points.targetX - 136)
+  const path = `M ${points.x} ${points.y} C ${controlX} ${points.y}, ${controlX} ${points.targetY}, ${points.targetX} ${points.targetY}`
+
+  return (
+    <svg className="pointer-events-none fixed inset-0 z-[39]" aria-hidden>
+      <defs>
+        <linearGradient id="analysis-link-gradient" x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0%" stopColor="rgba(255,255,255,0)" />
+          <stop offset="32%" stopColor="rgba(255,255,255,0.95)" />
+          <stop offset="62%" stopColor="rgba(226,232,240,1)" />
+          <stop offset="100%" stopColor="rgba(148,163,184,0.72)" />
+        </linearGradient>
+        <filter id="analysis-link-glow">
+          <feGaussianBlur stdDeviation="3.1" result="blur" />
+          <feMerge>
+            <feMergeNode in="blur" />
+            <feMergeNode in="SourceGraphic" />
+          </feMerge>
+        </filter>
+      </defs>
+      <motion.path
+        d={path}
+        fill="none"
+        stroke="rgba(255,255,255,0.22)"
+        strokeWidth="9"
+        strokeLinecap="round"
+        initial={{ pathLength: 0, opacity: 0 }}
+        animate={{ pathLength: 1, opacity: [0.28, 0.58, 0.32] }}
+        exit={{ pathLength: 0, opacity: 0 }}
+        transition={{
+          pathLength: { duration: 0.22, ease: 'easeOut' },
+          opacity: { duration: 0.95, repeat: Infinity, ease: 'easeInOut' },
+        }}
+      />
+      <motion.path
+        d={path}
+        fill="none"
+        stroke="url(#analysis-link-gradient)"
+        strokeWidth="2.4"
+        strokeLinecap="round"
+        strokeDasharray="9 11"
+        filter="url(#analysis-link-glow)"
+        initial={{ pathLength: 0, opacity: 0 }}
+        animate={{ pathLength: 1, opacity: [0.55, 1, 0.66], strokeDashoffset: [0, -56] }}
+        exit={{ pathLength: 0, opacity: 0 }}
+        transition={{
+          pathLength: { duration: 0.26, ease: 'easeOut' },
+          opacity: { duration: 0.82, repeat: Infinity, ease: 'easeInOut' },
+          strokeDashoffset: { duration: 0.9, repeat: Infinity, ease: 'linear' },
+        }}
+      />
+      <motion.circle
+        cx={points.x}
+        cy={points.y}
+        r="5.5"
+        fill="rgba(255,255,255,0.92)"
+        initial={{ scale: 0, opacity: 0 }}
+        animate={{ scale: [0.75, 1.65, 0.75], opacity: [0.48, 1, 0.48] }}
+        exit={{ scale: 0, opacity: 0 }}
+        transition={{ duration: 0.72, repeat: Infinity, ease: 'easeInOut' }}
+        filter="url(#analysis-link-glow)"
+      />
+      <motion.circle
+        cx={points.targetX}
+        cy={points.targetY}
+        r="4"
+        fill="rgba(226,232,240,0.9)"
+        initial={{ scale: 0, opacity: 0 }}
+        animate={{ scale: [0.8, 1.4, 0.8], opacity: [0.42, 0.95, 0.42] }}
+        exit={{ scale: 0, opacity: 0 }}
+        transition={{ duration: 0.78, repeat: Infinity, ease: 'easeInOut' }}
+        filter="url(#analysis-link-glow)"
+      />
+    </svg>
+  )
+}
+
+const ANNOTATION_CLASSES: Record<AnnotationKind, string> = {
+  fact: 'decoration-[#00A4EF]/80 decoration-2 underline underline-offset-[5px] hover:text-[#7dd8ff]',
+  data: 'rounded bg-[#7FBA00]/14 px-0.5 hover:bg-[#7FBA00]/20',
+  viewpoint: 'decoration-[#F25022]/80 decoration-wavy decoration-2 underline underline-offset-[5px]',
+  quote: 'decoration-[#FFB900]/80 decoration-2 underline underline-offset-[5px]',
+  poem: 'decoration-[#7373d9]/75 decoration-2 underline underline-offset-[5px]',
+  description: 'decoration-[#7373d9]/55 decoration-2 underline underline-offset-[5px]',
+}
+
+function countNumericTokens(text: string) {
+  return text.match(/[0-9０-９]+(?:[.,，]\d+)?|[一二三四五六七八九十百千万亿]+(?=年|月|日|%|％|人|个|家|元|岁|倍|成|分)/g)?.length ?? 0
+}
+
+function classifyAnnotation(sentence: string): AnnotationKind | null {
+  const trimmed = sentence.trim()
+  if (Array.from(trimmed).length < 10) return null
+  if (countNumericTokens(trimmed) > 3) return 'data'
+  if (/报道|报道称|公开|数据显示|统计|发布|根据|来源|指出|称|调查|研究|报告|新闻|公告|披露/.test(trimmed)) return 'fact'
+  if (/[“”"『』「」‘’]/.test(trimmed)) return 'quote'
+  if (/认为|主张|应该|必须|意味着|说明|问题在于|关键是|本质上|值得注意|真正的/.test(trimmed)) return 'viewpoint'
+  if (/诗曰|词曰|写道|诗句|古诗|原文为/.test(trimmed)) return 'poem'
+  if (/形容|描写|呈现出|场景是|画面是/.test(trimmed)) return 'description'
+  return null
+}
+
+function findTextAnnotations(text: string): TextAnnotation[] {
+  const annotations: TextAnnotation[] = []
+  const counts: Record<AnnotationKind, number> = {
+    fact: 0,
+    data: 0,
+    viewpoint: 0,
+    quote: 0,
+    poem: 0,
+    description: 0,
+  }
+  const sentenceRe = /[^。！？!?；;\n]+[。！？!?；;]?/g
+  let match: RegExpExecArray | null
+
+  while ((match = sentenceRe.exec(text)) !== null && annotations.length < 9) {
+    const sentence = match[0]
+    const kind = classifyAnnotation(sentence)
+    if (!kind) continue
+    if (kind !== 'data' && counts[kind] >= 3) continue
+
+    const rawStart = match.index
+    const leading = sentence.length - sentence.trimStart().length
+    const trimmed = sentence.trim()
+    const chars = Array.from(trimmed)
+    if (chars.length < 10) continue
+
+    const visibleText = chars.length > 120 ? chars.slice(0, 120).join('') : trimmed
+    const start = rawStart + leading
+    const end = start + visibleText.length
+    if (annotations.some((item) => start < item.end && end > item.start)) continue
+    annotations.push({ start, end, kind, clickable: kind === 'fact' || kind === 'data' })
+    counts[kind] += 1
+  }
+
+  return annotations
+}
+
+const DEFAULT_ANNOTATION_COLORS: AnnotationColors = {
+  underline: '#00A4EF',
+  wavy: '#F25022',
+  highlight: '#FFB900',
+}
+
+function colorWithAlpha(hex: string, alpha: number) {
+  const normalized = hex.trim()
+  const match = /^#?([0-9a-f]{6})$/i.exec(normalized)
+  if (!match) return normalized
+  const value = match[1]
+  const r = Number.parseInt(value.slice(0, 2), 16)
+  const g = Number.parseInt(value.slice(2, 4), 16)
+  const b = Number.parseInt(value.slice(4, 6), 16)
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
+}
+
+function manualAnnotationClass(kind: UserAnnotationKind) {
+  if (kind === 'highlight') return 'rounded px-0.5'
+  if (kind === 'comment') return 'rounded border-b border-dotted bg-[#7FBA00]/10 px-0.5'
+  return 'underline decoration-2 underline-offset-[5px]'
+}
+
+function manualAnnotationStyle(kind: UserAnnotationKind, colors: AnnotationColors): CSSProperties {
+  if (kind === 'wavy') {
+    return { textDecorationStyle: 'wavy', textDecorationColor: colors.wavy }
+  }
+  if (kind === 'line') {
+    return { textDecorationColor: colors.underline }
+  }
+  if (kind === 'highlight') {
+    return { backgroundColor: colorWithAlpha(colors.highlight, 0.2) }
+  }
+  return { borderBottomColor: colors.highlight }
+}
+
+function CommentAnnotationMark({ claim, annotation, colors }: {
+  claim: string
+  annotation: UserTextAnnotation
+  colors: AnnotationColors
+}) {
+  const [open, setOpen] = useState(false)
+  const popupRef = useRef<HTMLSpanElement>(null)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const comment = annotation.comment?.trim()
+
+  useEffect(() => {
+    if (!open) return
+    const handlePointerDown = (event: MouseEvent | TouchEvent) => {
+      const target = event.target
+      if (!(target instanceof Node)) return
+      if (popupRef.current?.contains(target) || buttonRef.current?.contains(target)) return
+      setOpen(false)
+    }
+    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('touchstart', handlePointerDown)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('touchstart', handlePointerDown)
+    }
+  }, [open])
+
+  return (
+    <span className="relative inline">
+      <span
+        title={comment}
+        className={cn('transition-colors', manualAnnotationClass(annotation.kind))}
+        style={manualAnnotationStyle(annotation.kind, colors)}
+      >
+        {claim}
+      </span>
+      {comment && (
+        <span className="relative inline-block">
+          <button
+            ref={buttonRef}
+            type="button"
+            onClick={(event) => {
+              event.stopPropagation()
+              setOpen(value => !value)
+            }}
+            title="查看 Comment"
+            aria-label="查看 Comment"
+            className="relative -top-1 ml-0.5 inline-flex align-super text-[0.5em] text-zinc-200 drop-shadow-[0_0_5px_rgba(226,232,240,0.85)] transition-transform hover:scale-125"
+          >
+            <motion.span
+              animate={{ opacity: [0.45, 1, 0.6], scale: [0.88, 1.22, 0.96] }}
+              transition={{ duration: 1.35, repeat: Infinity, ease: 'easeInOut' }}
+            >
+              <Star size={10} fill="currentColor" />
+            </motion.span>
+          </button>
+          <AnimatePresence>
+            {open && (
+              <motion.span
+                ref={popupRef}
+                initial={{ opacity: 0, y: 4, scale: 0.97 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 3, scale: 0.97 }}
+                transition={{ duration: 0.14, ease: 'easeOut' }}
+                className="absolute left-1 top-4 z-[72] block w-max max-w-[min(300px,calc(100vw-2rem))] rounded-lg border border-border bg-bg-elevated/88 px-3 py-2 text-xs leading-relaxed text-fg shadow-xl backdrop-blur-md"
+              >
+                <span className="whitespace-pre-wrap">{comment}</span>
+              </motion.span>
+            )}
+          </AnimatePresence>
+        </span>
+      )}
+    </span>
+  )
+}
+
+function FactCheckInlineStar({ loading, onOpen }: { loading: boolean; onOpen: (anchor: HTMLElement) => void }) {
+  return (
+    <button
+      type="button"
+      onClick={(event) => {
+        event.stopPropagation()
+        onOpen(event.currentTarget)
+      }}
+      title={loading ? '事实审查运行中，点击展开' : '查看事实审查'}
+      aria-label={loading ? '事实审查运行中，点击展开' : '查看事实审查'}
+      className="relative -top-1 ml-0.5 inline-flex align-super text-[0.52em] text-cyan-100 transition-transform hover:scale-125"
+    >
+      <motion.span
+        animate={loading
+          ? {
+              opacity: [0.35, 1, 0.42],
+              scale: [0.78, 1.34, 0.9],
+              filter: [
+                'drop-shadow(0 0 4px rgba(103,232,249,0.45))',
+                'drop-shadow(0 0 12px rgba(103,232,249,0.95))',
+                'drop-shadow(0 0 5px rgba(103,232,249,0.5))',
+              ],
+            }
+          : { opacity: [0.52, 0.9, 0.52], scale: [0.92, 1.12, 0.92] }}
+        transition={{ duration: loading ? 0.88 : 1.45, repeat: Infinity, ease: 'easeInOut' }}
+      >
+        <Star size={11} fill="currentColor" />
+      </motion.span>
+    </button>
+  )
+}
+
+function AnnotatedTextContent({ content, blockIndex, onFactCheck, userAnnotations = [], annotationColors = DEFAULT_ANNOTATION_COLORS, activeFactCheck }: {
+  content: string
+  blockIndex: number
+  onFactCheck?: (claim: string, context: string, anchor: HTMLElement, range: FactCheckTextRange) => void
+  userAnnotations?: UserTextAnnotation[]
+  annotationColors?: AnnotationColors
+  activeFactCheck?: FactCheckInlineMarker | null
+}) {
+  const colors = annotationColors
+  const factMarker = activeFactCheck?.blockIndex === blockIndex ? activeFactCheck : null
+  const annotations = useMemo(() => {
+    const manual = userAnnotations
+      .filter((item) => item.start >= 0 && item.end > item.start && item.end <= content.length)
+      .sort((a, b) => a.start - b.start || a.end - b.end)
+    const auto = findTextAnnotations(content).filter((item) =>
+      !manual.some((manualItem) => item.start < manualItem.end && item.end > manualItem.start)
+    )
+    return [
+      ...manual.map((item) => ({ ...item, source: 'manual' as const, clickable: false })),
+      ...auto.map((item) => ({ ...item, id: `auto-${item.start}-${item.end}-${item.kind}`, source: 'auto' as const })),
+    ].sort((a, b) => a.start - b.start || a.end - b.end)
+  }, [content, userAnnotations])
+  if (annotations.length === 0 && !factMarker) return <MarkdownContent content={content} />
+
+  const renderFactMarker = (start: number, end: number) => {
+    if (!factMarker || factMarker.start !== start || factMarker.end !== end) return null
+    return <FactCheckInlineStar loading={factMarker.loading} onOpen={factMarker.onOpen} />
+  }
+
+  const nodes: ReactNode[] = []
+  let cursor = 0
+  const renderAnnotations = factMarker && !annotations.some((item) => item.start === factMarker.start && item.end === factMarker.end)
+    ? [...annotations, { ...factMarker, id: `fact-marker-${factMarker.blockIndex}-${factMarker.start}-${factMarker.end}`, kind: 'fact' as const, clickable: false, source: 'auto' as const }]
+        .sort((a, b) => a.start - b.start || a.end - b.end)
+    : annotations
+
+  renderAnnotations.forEach((annotation, index) => {
+    if (annotation.start > cursor) {
+      nodes.push(<span key={`t-${index}`}>{content.slice(cursor, annotation.start)}</span>)
+    }
+    if (annotation.start < cursor) return
+
+    const claim = content.slice(annotation.start, annotation.end)
+    if (annotation.source === 'manual') {
+      nodes.push(annotation.kind === 'comment'
+        ? <CommentAnnotationMark key={annotation.id} claim={claim} annotation={annotation} colors={colors} />
+        : (
+          <span
+            key={annotation.id}
+            title={annotation.comment}
+            className={cn('transition-colors', manualAnnotationClass(annotation.kind))}
+            style={manualAnnotationStyle(annotation.kind, colors)}
+          >
+            {claim}
+            {renderFactMarker(annotation.start, annotation.end)}
+          </span>
+        )
+      )
+      cursor = annotation.end
+      return
+    }
+
+    const className = cn(
+      'transition-colors',
+      ANNOTATION_CLASSES[annotation.kind],
+      annotation.clickable && onFactCheck && 'cursor-pointer rounded-sm hover:bg-bg-hover'
+    )
+    if (annotation.clickable && onFactCheck) {
+      nodes.push(
+        <button
+          key={`a-${index}`}
+          type="button"
+          title="事实查询"
+          className={cn('inline text-left align-baseline', className)}
+          onClick={(event) => {
+            event.stopPropagation()
+            onFactCheck(claim, content, event.currentTarget, { blockIndex, start: annotation.start, end: annotation.end })
+          }}
+        >
+          {claim}
+          {renderFactMarker(annotation.start, annotation.end)}
+        </button>
+      )
+    } else {
+      nodes.push(<span key={`a-${index}`} className={className}>{claim}{renderFactMarker(annotation.start, annotation.end)}</span>)
+    }
+    cursor = annotation.end
+  })
+
+  if (cursor < content.length) nodes.push(<span key="t-end">{content.slice(cursor)}</span>)
+
+  return (
+    <div className="whitespace-pre-wrap text-sm leading-relaxed">
+      {nodes}
+    </div>
+  )
+}
+
+function FactCheckBubble({ bubble, onClose, onSave }: { bubble: FactBubbleState; onClose: () => void; onSave: () => void }) {
+  const contentRef = useRef<HTMLDivElement>(null)
+  const viewportWidth = typeof window === 'undefined' ? 1024 : window.innerWidth
+  const viewportHeight = typeof window === 'undefined' ? 720 : window.innerHeight
+  const left = Math.min(Math.max(bubble.x - 150, 16), Math.max(viewportWidth - 388, 16))
+  const maxHeight = Math.max(240, Math.min(520, viewportHeight - 32))
+  const top = Math.min(Math.max(bubble.y + 18, 16), Math.max(viewportHeight - maxHeight - 16, 16))
+  const showMore = useScrollMoreHint(contentRef, `${bubble.loading}-${bubble.error ?? ''}-${bubble.result?.answer ?? ''}`)
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8, scale: 0.96 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: 6, scale: 0.96 }}
+      transition={{ type: 'spring', stiffness: 340, damping: 28 }}
+      className="fixed z-[92] flex w-[min(360px,calc(100vw-2rem))] flex-col rounded-2xl border border-accent/35 bg-bg-elevated p-4 text-sm shadow-[0_18px_52px_rgba(0,0,0,0.42)]"
+      style={{ left, top, maxHeight }}
+    >
+      <span className="absolute -top-2 left-12 h-4 w-4 rotate-45 border-l border-t border-accent/35 bg-bg-elevated" />
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-medium uppercase tracking-wide text-accent">事实查询</p>
+          <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-fg-muted">{bubble.claim}</p>
+        </div>
+        <button type="button" onClick={onClose} className="rounded-md p-1 text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg">
+          <X size={15} />
+        </button>
+      </div>
+      <div ref={contentRef} className="relative min-h-0 flex-1 overflow-y-auto pr-1 [&::-webkit-scrollbar]:hidden">
+        {bubble.loading && (
+          <div className="flex items-center gap-2 rounded-xl border border-border bg-bg px-3 py-3 text-xs text-fg-muted">
+            <Loader2 size={13} className="animate-spin text-accent" />
+            调用搜索模型核查中…
+          </div>
+        )}
+        {bubble.error && !bubble.loading && (
+          <div className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+            {bubble.error}
+          </div>
+        )}
+        {bubble.result && !bubble.loading && (
+          <div className="space-y-3 pb-7">
+            <div className="rounded-xl border border-border bg-bg px-3 py-2">
+              <p className="text-sm leading-relaxed text-fg">{bubble.result.answer}</p>
+            </div>
+            {bubble.result.extra.length > 0 && (
+              <div className="space-y-1">
+                {bubble.result.extra.slice(0, 4).map((item, index) => (
+                  <p key={index} className="text-xs leading-relaxed text-fg-muted">· {item}</p>
+                ))}
+              </div>
+            )}
+            {bubble.result.sources.length > 0 && (
+              <div>
+                <p className="mb-2 text-xs text-fg-faint">来源</p>
+                <div className="flex flex-wrap gap-2">
+                  {bubble.result.sources.map((source, index) => (
+                    <a
+                      key={`${source.url}-${index}`}
+                      href={source.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={`${source.title}\n${source.url}\n${source.snippet}`}
+                      className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-accent/35 bg-accent/10 text-xs font-medium text-accent transition-colors hover:bg-accent/20"
+                    >
+                      {index + 1}
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={onSave}
+                className={cn(
+                  'rounded-lg border px-2.5 py-1.5 text-xs transition-colors',
+                  bubble.saved
+                    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                    : 'border-border text-fg-muted hover:bg-bg-hover hover:text-fg'
+                )}
+              >
+                {bubble.saved ? '已保存' : '保存审查'}
+              </button>
             </div>
           </div>
         )}
       </div>
+      <ScrollMoreHint visible={showMore} />
+    </motion.div>
+  )
+}
+
+function CommentDialog({ state, value, saving, onChange, onCancel, onSave }: {
+  state: CommentDialogState
+  value: string
+  saving: boolean
+  onChange: (value: string) => void
+  onCancel: () => void
+  onSave: () => void
+}) {
+  const viewportWidth = typeof window === 'undefined' ? 1024 : window.innerWidth
+  const left = Math.min(Math.max(state.x - 150, 16), Math.max(viewportWidth - 348, 16))
+  const top = Math.max(state.y - 8, 16)
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8, scale: 0.96 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: 6, scale: 0.96 }}
+      transition={{ type: 'spring', stiffness: 360, damping: 30 }}
+      className="fixed z-[94] w-[min(320px,calc(100vw-2rem))] rounded-xl border border-border bg-bg-elevated p-3 text-sm shadow-[0_18px_52px_rgba(0,0,0,0.42)]"
+      style={{ left, top }}
+    >
+      <p className="text-xs font-medium text-fg">Comment</p>
+      <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-fg-faint">{state.text}</p>
+      <textarea
+        value={value}
+        onChange={event => onChange(event.target.value)}
+        rows={3}
+        autoFocus
+        placeholder="写下你的评论…"
+        className="mt-2 w-full resize-none rounded-lg border border-border bg-bg px-2.5 py-2 text-sm leading-relaxed text-fg outline-none placeholder:text-fg-faint focus:border-accent"
+      />
+      {state.error && <p className="mt-1.5 text-xs text-red-400">{state.error}</p>}
+      <div className="mt-2.5 flex justify-end gap-1.5">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={saving}
+          className="rounded-md border border-border px-2.5 py-1 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg disabled:opacity-50"
+        >
+          取消
+        </button>
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={saving || value.trim().length === 0}
+          className="rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+        >
+          {saving ? '保存中' : '保存'}
+        </button>
+      </div>
+    </motion.div>
+  )
+}
+
+function SelectionToolbar({ state, onFactCheck, onMark, onClose, annotationColors = DEFAULT_ANNOTATION_COLORS }: {
+  state: SelectionToolbarState
+  onFactCheck: () => void
+  onMark: (kind: 'wavy' | 'line' | 'highlight' | 'comment') => void
+  onClose: () => void
+  annotationColors?: AnnotationColors
+}) {
+  const colors = annotationColors
+  const viewportWidth = typeof window === 'undefined' ? 1024 : window.innerWidth
+  const left = Math.min(Math.max(state.x - 170, 12), Math.max(viewportWidth - 360, 12))
+  const top = Math.max(state.y - 46, 12)
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 6, scale: 0.96 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: 4, scale: 0.96 }}
+      transition={{ duration: 0.12, ease: 'easeOut' }}
+      className="fixed z-[93] flex max-w-[calc(100vw-1.5rem)] items-center gap-1 rounded-xl border border-border bg-bg-elevated/98 p-1 shadow-2xl backdrop-blur"
+      style={{ left, top }}
+      onMouseDown={(event) => event.preventDefault()}
+    >
+      <button type="button" onClick={onFactCheck} className="rounded-lg px-2.5 py-1.5 text-xs text-emerald-300 transition-colors hover:bg-bg-hover">
+        事实审查
+      </button>
+      <button type="button" onClick={() => onMark('wavy')} className="rounded-lg px-2 py-1.5 text-xs text-fg-muted underline decoration-wavy decoration-2 underline-offset-4 transition-colors hover:bg-bg-hover hover:text-fg" style={{ textDecorationColor: colors.wavy }}>
+        波浪线
+      </button>
+      <button type="button" onClick={() => onMark('line')} className="rounded-lg px-2 py-1.5 text-xs text-fg-muted underline decoration-2 underline-offset-4 transition-colors hover:bg-bg-hover hover:text-fg" style={{ textDecorationColor: colors.underline }}>
+        横线
+      </button>
+      <button type="button" onClick={() => onMark('highlight')} className="rounded-lg px-2 py-1.5 text-xs text-fg transition-colors hover:bg-bg-hover" style={{ backgroundColor: colorWithAlpha(colors.highlight, 0.16) }}>
+        高亮
+      </button>
+      <button type="button" onClick={() => onMark('comment')} className="rounded-lg px-2 py-1.5 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg">
+        Comment
+      </button>
+      <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-fg-faint transition-colors hover:bg-bg-hover hover:text-fg">
+        <X size={13} />
+      </button>
     </motion.div>
   )
 }
@@ -753,44 +1823,60 @@ function MarkdownContent({ content }: { content: string }) {
 }
 
 function CompletionConfetti({ burstKey }: { burstKey: number }) {
+  const viewportWidth = typeof window === 'undefined' ? 1024 : window.innerWidth
+  const viewportHeight = typeof window === 'undefined' ? 720 : window.innerHeight
+  const spreadX = viewportWidth * 0.46
+  const spreadY = viewportHeight * 0.44
+
   return (
     <motion.div
       key={burstKey}
       aria-hidden
-      className="pointer-events-none fixed inset-0 z-30 overflow-hidden"
+      className="pointer-events-none fixed inset-0 z-[90] overflow-hidden"
       initial={{ opacity: 1 }}
       animate={{ opacity: 0 }}
-      transition={{ duration: 1.45, delay: 0.28, ease: 'easeOut' }}
+      transition={{ duration: 1.55, delay: 0.36, ease: 'easeOut' }}
     >
-      <div className="absolute left-1/2 top-[42%] h-0 w-0">
-        <motion.div
-          className="absolute -left-10 -top-10 h-20 w-20 rounded-full border border-amber-300/60"
-          initial={{ opacity: 0.9, scale: 0.2 }}
-          animate={{ opacity: 0, scale: 3.4 }}
-          transition={{ duration: 0.9, ease: 'easeOut' }}
-        />
-        {CONFETTI_PIECES.map((piece, index) => (
-          <motion.span
-            key={`${piece.x}-${piece.y}-${index}`}
-            className={cn('absolute left-0 top-0 rounded-sm shadow-[0_0_16px_rgba(255,255,255,0.16)]', piece.c)}
-            style={{ width: piece.w, height: piece.h }}
-            initial={{ opacity: 0, x: 0, y: 0, rotate: 0, scale: 0.4 }}
-            animate={{
-              opacity: [0, 1, 1, 0],
-              x: [0, piece.x * 0.42, piece.x],
-              y: [0, piece.y * 0.35 - 70, piece.y + 220],
-              rotate: [0, piece.r * 0.55, piece.r],
-              scale: [0.45, 1.05, 0.9],
-            }}
-            transition={{ duration: 1.18, delay: piece.d, ease: 'easeOut' }}
+      <div className="absolute left-1/2 top-1/2 h-0 w-0">
+        {[0, 1, 2].map((ring) => (
+          <motion.div
+            key={ring}
+            className="absolute -left-10 -top-10 h-20 w-20 rounded-full border border-amber-300/55 shadow-[0_0_36px_rgba(250,204,21,0.28)]"
+            initial={{ opacity: 0.85, scale: 0.15 }}
+            animate={{ opacity: 0, scale: 5.2 + ring * 1.5 }}
+            transition={{ duration: 0.9 + ring * 0.16, delay: ring * 0.04, ease: 'easeOut' }}
           />
         ))}
+        {CONFETTI_PIECES.map((piece, index) => {
+          const angle = (index / CONFETTI_PIECES.length) * Math.PI * 2 - Math.PI / 2
+          const distanceX = spreadX * (0.72 + (index % 4) * 0.08)
+          const distanceY = spreadY * (0.66 + (index % 5) * 0.07)
+          const x = Math.cos(angle) * distanceX
+          const y = Math.sin(angle) * distanceY
+
+          return (
+            <motion.span
+              key={`${piece.x}-${piece.y}-${index}`}
+              className={cn('absolute left-0 top-0 rounded-sm shadow-[0_0_16px_rgba(255,255,255,0.2)]', piece.c)}
+              style={{ width: piece.w, height: piece.h }}
+              initial={{ opacity: 0, x: 0, y: 0, rotate: 0, scale: 0.35 }}
+              animate={{
+                opacity: [0, 1, 1, 0],
+                x: [0, x * 0.48, x],
+                y: [0, y * 0.48, y],
+                rotate: [0, piece.r * 0.62, piece.r],
+                scale: [0.45, 1.1, 0.9],
+              }}
+              transition={{ duration: 1.22, delay: piece.d, ease: 'easeOut' }}
+            />
+          )
+        })}
         {STAR_BURST.map((spark, index) => (
           <motion.span
             key={`finish-star-${index}`}
             className="absolute left-0 top-0 text-amber-300"
             initial={{ opacity: 0, x: 0, y: 0, scale: 0.2, rotate: 0 }}
-            animate={{ opacity: [0, 1, 0], x: spark.x * 3.4, y: spark.y * 2.8, scale: 1.15, rotate: spark.rotate * 2 }}
+            animate={{ opacity: [0, 1, 0], x: spark.x * 5.4, y: spark.y * 4.8, scale: 1.2, rotate: spark.rotate * 2 }}
             transition={{ duration: 0.86, delay: 0.05 + index * 0.035, ease: 'easeOut' }}
           >
             <Star size={spark.size + 5} fill="currentColor" />
@@ -802,18 +1888,13 @@ function CompletionConfetti({ burstKey }: { burstKey: number }) {
 }
 
 // ── ThemeBlock ──────────────────────────────────────────────────────────────
-function ThemeBlock({ card, index, starred, onOpen, onToggleStar, displayText, muted = false }: {
-  card: ChunkCard
-  index: number
-  starred: boolean
-  onOpen?: () => void
-  onToggleStar?: (el: HTMLButtonElement) => void
-  displayText?: string
-  muted?: boolean
-}) {
+function ThemeBlock({ card, index, starred, onOpen, onToggleStar, onAnalyze, analyzing = false, analyzeError = null, displayText, muted = false, blockRef, onFactCheck, userAnnotations = [], annotationColors = DEFAULT_ANNOTATION_COLORS, activeFactCheck = null }: ThemeBlockProps) {
   const starRef = useRef<HTMLButtonElement>(null)
+  const selectableText = displayText ?? card.text
+  const shouldRenderAnnotations = displayText !== undefined || userAnnotations.length > 0 || activeFactCheck?.blockIndex === index
   return (
     <motion.div
+      ref={blockRef}
       initial={{ opacity: 0, y: 58, scale: 0.96 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ type: 'spring', stiffness: 250, damping: 24 }}
@@ -832,43 +1913,74 @@ function ThemeBlock({ card, index, starred, onOpen, onToggleStar, displayText, m
             transition={{ duration: 0.62, ease: 'easeOut', delay: 0.08 }}
           />
         )}
-        <div className="relative">
-          <MarkdownContent content={displayText ?? card.text} />
+        <div className="relative" data-selectable-text="true" data-block-index={index}>
+          {shouldRenderAnnotations ? (
+            <AnnotatedTextContent
+              content={selectableText}
+              blockIndex={index}
+              onFactCheck={onFactCheck}
+              userAnnotations={userAnnotations}
+              annotationColors={annotationColors}
+              activeFactCheck={activeFactCheck}
+            />
+          ) : (
+            <MarkdownContent content={card.text} />
+          )}
         </div>
       </div>
-      {onOpen && onToggleStar && (
+      {(onOpen && onToggleStar) || onAnalyze ? (
         <motion.button
           ref={starRef}
           initial={{ scale: 0 }}
           animate={{ scale: 1 }}
           transition={{ delay: 0.16, type: 'spring', stiffness: 400, damping: 15 }}
-          onClick={onOpen}
-          onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); starRef.current && onToggleStar(starRef.current) }}
+          onClick={() => {
+            if (!starRef.current) return
+            if (onOpen) onOpen(starRef.current)
+            else onAnalyze?.(starRef.current)
+          }}
+          onContextMenu={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            if (starRef.current && onToggleStar) onToggleStar(starRef.current)
+          }}
+          disabled={analyzing}
           className={cn(
             'shrink-0 rounded-full border p-2 shadow-lg transition-colors',
-            starred
+            onAnalyze
+              ? analyzeError
+                ? 'border-red-400/30 bg-red-500/5 text-red-300/70 hover:border-red-300/45 hover:bg-red-500/10 hover:text-red-200 disabled:opacity-60'
+                : 'border-border bg-bg text-fg-faint hover:border-amber-400/25 hover:bg-amber-400/5 hover:text-amber-400/70 disabled:opacity-60'
+              : starred
               ? 'border-amber-400/50 bg-amber-400/15 text-amber-400'
               : 'border-border bg-bg-elevated text-amber-400/60 hover:border-amber-400/40 hover:bg-amber-400/10 hover:text-amber-400'
           )}
-          title={starred ? '右键取消采集' : '左键查看分析 / 右键采集'}
+          title={onAnalyze ? analyzeError ? `生成失败，点击重试：${analyzeError}` : '点击尝试生成 AI 解读' : starred ? '右键取消采集' : '左键查看分析 / 右键采集'}
         >
-          <Star size={20} fill={starred ? 'currentColor' : 'none'} />
+          {analyzing ? <Loader2 size={20} className="animate-spin" /> : <Star size={20} fill={starred ? 'currentColor' : 'none'} />}
         </motion.button>
-      )}
+      ) : null}
     </motion.div>
   )
 }
 
-function SourceImageBlock({ block, active, shouldDescribe, descriptions, setDescriptions }: {
+function SourceImageBlock({ block, active, shouldDescribe, descriptions, setDescriptions, onOpenOriginal, onImageError }: {
   block: Extract<SourceBlock, { type: 'image' }>
   active: boolean
   shouldDescribe: boolean
   descriptions: Record<string, string | null | undefined>
   setDescriptions: Dispatch<SetStateAction<Record<string, string | null | undefined>>>
+  onOpenOriginal?: (image: ImageViewerState) => void
+  onImageError?: () => void
 }) {
+  const [failed, setFailed] = useState(false)
   const caption = block.caption ?? meaningfulCaption(block.alt)
   const generated = descriptions[block.src]
   const canDescribe = shouldDescribe && !caption && isRemoteImageSrc(block.src)
+
+  useEffect(() => {
+    setFailed(false)
+  }, [block.src])
 
   useEffect(() => {
     if (!active || !canDescribe || block.src in descriptions) return
@@ -884,14 +1996,31 @@ function SourceImageBlock({ block, active, shouldDescribe, descriptions, setDesc
 
   const visibleCaption = caption ?? (generated && generated.length > 0 ? generated : null)
 
+  if (failed) return null
+
   return (
     <div className="relative">
-      <div className="overflow-hidden rounded-xl border border-border bg-bg">
+      <div
+        className={cn(
+          'overflow-hidden rounded-xl border border-border bg-bg',
+          onOpenOriginal && 'cursor-zoom-in'
+        )}
+        onDoubleClick={() => onOpenOriginal?.({
+          src: block.src,
+          alt: block.alt || caption || '原文图片',
+          caption: visibleCaption,
+        })}
+        title={onOpenOriginal ? '双击查看原图' : undefined}
+      >
         <img
           src={block.src}
           alt={block.alt || caption || '原文图片'}
-          className="max-h-64 w-full object-contain"
+          className="aspect-video w-full object-contain"
           loading="lazy"
+          onError={() => {
+            setFailed(true)
+            onImageError?.()
+          }}
         />
       </div>
       {visibleCaption && (
@@ -1123,21 +2252,26 @@ function ProcessingStage({ blocks, completedIndexes, parsing, analyzing, shouldD
   )
 }
 
-function SourceImageResultBlock({ block, index, shouldDescribeImages, imageDescriptions, setImageDescriptions }: {
+function SourceImageResultBlock({ block, index, shouldDescribeImages, imageDescriptions, setImageDescriptions, onOpenOriginal }: {
   block: Extract<SourceBlock, { type: 'image' }>
   index: number
   shouldDescribeImages: boolean
   imageDescriptions: Record<string, string | null | undefined>
   setImageDescriptions: Dispatch<SetStateAction<Record<string, string | null | undefined>>>
+  onOpenOriginal: (image: ImageViewerState) => void
 }) {
+  const [hidden, setHidden] = useState(false)
+  useEffect(() => setHidden(false), [block.src])
+  if (hidden) return null
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 58, scale: 0.96 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ type: 'spring', stiffness: 250, damping: 24, delay: index * 0.02 }}
-      className="group relative flex items-start gap-3"
+      className="group relative flex items-center gap-3"
     >
-      <div className="relative flex-1 overflow-hidden rounded-xl border border-border bg-bg-elevated px-5 py-4">
+      <div className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-border bg-bg-elevated px-4 py-3 shadow-[0_12px_34px_rgba(0,0,0,0.18)]">
         <motion.span
           aria-hidden
           className="pointer-events-none absolute inset-y-0 -left-28 w-20 bg-accent/20"
@@ -1151,8 +2285,68 @@ function SourceImageResultBlock({ block, index, shouldDescribeImages, imageDescr
           shouldDescribe={shouldDescribeImages}
           descriptions={imageDescriptions}
           setDescriptions={setImageDescriptions}
+          onOpenOriginal={onOpenOriginal}
+          onImageError={() => setHidden(true)}
         />
       </div>
+      <div aria-hidden className="h-10 w-10 shrink-0" />
+    </motion.div>
+  )
+}
+
+function ImageLightbox({ image, onClose }: { image: ImageViewerState; onClose: () => void }) {
+  const [scale, setScale] = useState(1)
+
+  useEffect(() => {
+    setScale(1)
+  }, [image.src])
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[95] flex items-center justify-center bg-black/88"
+      onClick={onClose}
+    >
+      <button
+        type="button"
+        onClick={onClose}
+        className="absolute right-5 top-5 z-10 inline-flex h-9 w-9 items-center justify-center rounded-md border border-white/15 bg-black/40 text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+        title="关闭"
+      >
+        <X size={17} />
+      </button>
+      <div
+        className="absolute bottom-5 left-1/2 z-10 -translate-x-1/2 rounded-full border border-white/15 bg-black/45 px-3 py-1.5 text-xs text-white/70"
+      >
+        {Math.round(scale * 100)}%
+      </div>
+      <div
+        className="max-h-[92vh] max-w-[92vw] overflow-auto overscroll-contain rounded-lg [&::-webkit-scrollbar]:hidden"
+        onClick={(event) => event.stopPropagation()}
+        onWheel={(event) => {
+          event.preventDefault()
+          const direction = event.deltaY > 0 ? -1 : 1
+          setScale((value) => Math.min(8, Math.max(0.25, value + direction * 0.14)))
+        }}
+      >
+        <motion.img
+          src={image.src}
+          alt={image.alt}
+          draggable={false}
+          className="block max-h-[88vh] max-w-[88vw] select-none object-contain"
+          style={{ transform: `scale(${scale})`, transformOrigin: 'center center' }}
+          initial={{ scale: 0.96, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ duration: 0.16, ease: 'easeOut' }}
+        />
+      </div>
+      {image.caption && (
+        <div className="pointer-events-none absolute bottom-12 left-1/2 max-w-[min(44rem,88vw)] -translate-x-1/2 text-center text-xs leading-relaxed text-white/55">
+          {image.caption}
+        </div>
+      )}
     </motion.div>
   )
 }
@@ -1189,9 +2383,10 @@ function HistoryStackPreview({ item }: { item: ExploreHistoryItem }) {
   )
 }
 
-function HistoryTile({ item, onActivate, onArchive, onUnarchive, onDelete }: {
+function HistoryTile({ item, onActivate, onReanalyze, onArchive, onUnarchive, onDelete }: {
   item: ExploreHistoryItem
   onActivate: () => void
+  onReanalyze: () => void
   onArchive: () => void
   onUnarchive: () => void
   onDelete: () => void
@@ -1218,6 +2413,16 @@ function HistoryTile({ item, onActivate, onArchive, onUnarchive, onDelete }: {
           title="重新激活"
         >
           <RotateCcw size={12} className="inline" />
+        </button>
+        <button
+          onClick={(event) => {
+            event.stopPropagation()
+            onReanalyze()
+          }}
+          className="rounded-md border border-border px-2 py-1 text-[11px] text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg"
+          title="重新采集"
+        >
+          采集
         </button>
         {item.archived ? (
           <button
@@ -1248,10 +2453,11 @@ function HistoryTile({ item, onActivate, onArchive, onUnarchive, onDelete }: {
   )
 }
 
-function HistoryDrawer({ items, onClose, onActivate, onArchive, onUnarchive, onDelete }: {
+function HistoryDrawer({ items, onClose, onActivate, onReanalyze, onArchive, onUnarchive, onDelete }: {
   items: ExploreHistoryItem[]
   onClose: () => void
   onActivate: (id: string) => void
+  onReanalyze: (id: string) => void
   onArchive: (id: string) => void
   onUnarchive: (id: string) => void
   onDelete: (id: string) => void
@@ -1298,6 +2504,7 @@ function HistoryDrawer({ items, onClose, onActivate, onArchive, onUnarchive, onD
                       key={item.id}
                       item={item}
                       onActivate={() => onActivate(item.id)}
+                      onReanalyze={() => onReanalyze(item.id)}
                       onArchive={() => onArchive(item.id)}
                       onUnarchive={() => onUnarchive(item.id)}
                       onDelete={() => onDelete(item.id)}
@@ -1318,6 +2525,7 @@ function HistoryDrawer({ items, onClose, onActivate, onArchive, onUnarchive, onD
                       key={item.id}
                       item={item}
                       onActivate={() => onActivate(item.id)}
+                      onReanalyze={() => onReanalyze(item.id)}
                       onArchive={() => onArchive(item.id)}
                       onUnarchive={() => onUnarchive(item.id)}
                       onDelete={() => onDelete(item.id)}
@@ -1349,21 +2557,33 @@ export default function Explore() {
     setRichContent,
     parseFile,
     fetchUrlContent,
+    reanalyzeCurrent,
     reset,
   } = useExploreStore()
   const history = useExploreHistoryStore()
   const { config, loaded } = useConfigStore()
-  const { star, unstar } = useStarStore()
+  const { star, unstar, count: globalStarCount } = useStarStore()
   const fly = useStarFly()
+  const blockRefs = useRef<Record<number, HTMLDivElement | null>>({})
 
   const [dragging, setDragging] = useState(false)
-  const [activeCard, setActiveCard] = useState<ChunkCard | null>(null)
+  const [analysisStack, setAnalysisStack] = useState<AnalysisStackEntry[]>([])
   const [stageCompletedCount, setStageCompletedCount] = useState(0)
   const [revealedCount, setRevealedCount] = useState(0)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [imageViewer, setImageViewer] = useState<ImageViewerState | null>(null)
   const [imageDescriptions, setImageDescriptions] = useState<Record<string, string | null | undefined>>({})
   const [generationInProgress, setGenerationInProgress] = useState(false)
   const [completionBurstKey, setCompletionBurstKey] = useState<number | null>(null)
+  const [adHocCards, setAdHocCards] = useState<Record<number, ChunkCard>>({})
+  const [adHocAnalyzing, setAdHocAnalyzing] = useState<Record<number, boolean>>({})
+  const [adHocErrors, setAdHocErrors] = useState<Record<number, string>>({})
+  const [factBubble, setFactBubble] = useState<FactBubbleState | null>(null)
+  const [selectionToolbar, setSelectionToolbar] = useState<SelectionToolbarState | null>(null)
+  const [commentDialog, setCommentDialog] = useState<CommentDialogState | null>(null)
+  const [commentDraft, setCommentDraft] = useState('')
+  const [commentSaving, setCommentSaving] = useState(false)
+  const [userAnnotations, setUserAnnotations] = useState<Record<number, UserTextAnnotation[]>>({})
   // index → saved point id (once a chunk has been saved+starred)
   const [savedIds, setSavedIds] = useState<Record<number, string>>({})
 
@@ -1382,13 +2602,13 @@ export default function Explore() {
     return sourceBlocks.map((block, index) => {
       if (block.type === 'text') {
         const valuable = isValuableTextBlock(block.text)
-        const card = valuable ? chunkCards[textIndex] ?? null : null
+        const card = valuable ? chunkCards[textIndex] ?? adHocCards[index] ?? null : adHocCards[index] ?? null
         if (valuable) textIndex += 1
         return { block, index, card, valuable }
       }
       return { block, index, card: null, valuable: false }
     })
-  }, [chunkCards, sourceBlocks])
+  }, [adHocCards, chunkCards, sourceBlocks])
   const stageTargetCount = sourceBlocks.length > 0 ? sourceBlocks.length : chunkCards.length
   const completedIndexes = useMemo(
     () => new Set(Array.from(
@@ -1406,23 +2626,92 @@ export default function Explore() {
     : []
   const commentatorEmoji = config?.commentatorEmoji ?? '🧐'
   const commentatorName = config?.commentatorName ?? '鲁迅'
+  const annotationColors = useMemo<AnnotationColors>(() => ({
+    underline: config?.annotationUnderlineColor || DEFAULT_ANNOTATION_COLORS.underline,
+    wavy: config?.annotationWavyColor || DEFAULT_ANNOTATION_COLORS.wavy,
+    highlight: config?.annotationHighlightColor || DEFAULT_ANNOTATION_COLORS.highlight,
+  }), [config?.annotationHighlightColor, config?.annotationUnderlineColor, config?.annotationWavyColor])
   const shouldDescribeImages = supportsMultimodal(config)
   const displaySourceMetadata = useMemo(
     () => sourceMetadata ?? buildFallbackSourceMetadata(sourceName, sourceUrl, text),
     [sourceMetadata, sourceName, sourceUrl, text]
   )
+  const activeFactCheckMarker = useMemo<FactCheckInlineMarker | null>(() => {
+    if (
+      !factBubble?.collapsed
+      || factBubble.blockIndex === null
+      || factBubble.start === null
+      || factBubble.end === null
+    ) {
+      return null
+    }
+
+    return {
+      blockIndex: factBubble.blockIndex,
+      start: factBubble.start,
+      end: factBubble.end,
+      loading: factBubble.loading,
+      onOpen: (anchor) => {
+        const rect = anchor.getBoundingClientRect()
+        setFactBubble((current) => current
+          ? {
+              ...current,
+              x: rect.left + rect.width / 2,
+              y: rect.bottom,
+              collapsed: false,
+            }
+          : current
+        )
+      },
+    }
+  }, [factBubble])
 
   useEffect(() => {
     if (analyzing || parsing) {
-      setActiveCard(null)
+      setAnalysisStack([])
+      setImageViewer(null)
       setSavedIds({})
       setImageDescriptions({})
+      setAdHocCards({})
+      setAdHocAnalyzing({})
+      setAdHocErrors({})
+      setFactBubble(null)
+      setSelectionToolbar(null)
+      setCommentDialog(null)
+      setCommentDraft('')
+      setCommentSaving(false)
+      setUserAnnotations({})
       setStageCompletedCount(0)
       setRevealedCount(0)
       setGenerationInProgress(true)
       setCompletionBurstKey(null)
     }
   }, [analyzing, parsing])
+
+  useEffect(() => {
+    if (globalStarCount === 0) setSavedIds({})
+  }, [globalStarCount])
+
+  useEffect(() => {
+    if (history.activeVersion === 0) return
+
+    setAnalysisStack([])
+    setImageViewer(null)
+    setStageCompletedCount(Number.MAX_SAFE_INTEGER)
+    setRevealedCount(Number.MAX_SAFE_INTEGER)
+    setGenerationInProgress(false)
+    setCompletionBurstKey(null)
+    setImageDescriptions({})
+    setAdHocCards({})
+    setAdHocAnalyzing({})
+    setAdHocErrors({})
+    setFactBubble(null)
+    setSelectionToolbar(null)
+    setCommentDialog(null)
+    setCommentDraft('')
+    setCommentSaving(false)
+    setUserAnnotations({})
+  }, [history.activeVersion])
 
   useEffect(() => {
     if (stageTargetCount === 0) {
@@ -1460,13 +2749,201 @@ export default function Explore() {
   }, [showProcessing, resultTargetCount])
 
   useEffect(() => {
-    if (!generationInProgress || showProcessing || resultTargetCount === 0 || revealedCount < resultTargetCount) return
+    if (!generationInProgress || showProcessing || resultTargetCount === 0) return
 
     setCompletionBurstKey(Date.now())
     setGenerationInProgress(false)
     const timer = window.setTimeout(() => setCompletionBurstKey(null), 1700)
     return () => window.clearTimeout(timer)
-  }, [generationInProgress, revealedCount, resultTargetCount, showProcessing])
+  }, [generationInProgress, resultTargetCount, showProcessing])
+
+  useEffect(() => {
+    const updateSelectionToolbar = () => {
+      window.setTimeout(() => {
+        const selection = window.getSelection()
+        if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+          setSelectionToolbar(null)
+          return
+        }
+
+        const text = selection.toString().replace(/\s+/g, ' ').trim()
+        if (text.length < 2) {
+          setSelectionToolbar(null)
+          return
+        }
+
+        const range = selection.getRangeAt(0)
+        const ancestor = range.commonAncestorContainer
+        const element = ancestor instanceof Element ? ancestor : ancestor.parentElement
+        const textBlock = element?.closest('[data-selectable-text="true"]')
+        if (!(textBlock instanceof HTMLElement)) {
+          setSelectionToolbar(null)
+          return
+        }
+
+        const rect = range.getBoundingClientRect()
+        if (rect.width === 0 && rect.height === 0) return
+        const blockIndex = Number(textBlock.dataset.blockIndex)
+        if (!Number.isFinite(blockIndex)) {
+          setSelectionToolbar(null)
+          return
+        }
+        const start = selectionOffsetWithin(textBlock, range.startContainer, range.startOffset)
+        const end = selectionOffsetWithin(textBlock, range.endContainer, range.endOffset)
+        const normalizedStart = Math.min(start, end)
+        const normalizedEnd = Math.max(start, end)
+        if (normalizedEnd <= normalizedStart) {
+          setSelectionToolbar(null)
+          return
+        }
+        setSelectionToolbar({
+          text,
+          context: textBlock.textContent?.trim() ?? text,
+          x: rect.left + rect.width / 2,
+          y: rect.top,
+          blockIndex,
+          start: normalizedStart,
+          end: normalizedEnd,
+        })
+      }, 0)
+    }
+
+    const hideSelectionToolbar = () => {
+      setSelectionToolbar(null)
+    }
+
+    document.addEventListener('mouseup', updateSelectionToolbar)
+    document.addEventListener('keyup', updateSelectionToolbar)
+    window.addEventListener('scroll', hideSelectionToolbar, true)
+    return () => {
+      document.removeEventListener('mouseup', updateSelectionToolbar)
+      document.removeEventListener('keyup', updateSelectionToolbar)
+      window.removeEventListener('scroll', hideSelectionToolbar, true)
+    }
+  }, [])
+
+  const runFactCheck = useCallback((claim: string, context: string, x: number, y: number, range?: FactCheckTextRange) => {
+    const anchorState = {
+      blockIndex: range?.blockIndex ?? null,
+      start: range?.start ?? null,
+      end: range?.end ?? null,
+      collapsed: false,
+    }
+    const saved = findSavedFactCheck(claim, context)
+    if (saved) {
+      setFactBubble({ claim, context, loading: false, x, y, ...anchorState, result: saved, saved: true })
+      return
+    }
+
+    setFactBubble({ claim, context, loading: true, x, y, ...anchorState })
+    factCheckClaim(claim, context)
+      .then((result) => {
+        setFactBubble((current) => {
+          if (!current || current.claim !== claim) return current
+          return { ...current, loading: false, result }
+        })
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error || '事实查询失败')
+        setFactBubble((current) => {
+          if (!current || current.claim !== claim) return current
+          return { ...current, loading: false, error: message }
+        })
+      })
+  }, [])
+
+  const handleSaveFactCheck = useCallback(() => {
+    setFactBubble((current) => {
+      if (!current?.result) return current
+      saveFactCheckResult(current.claim, current.context, current.result)
+      return { ...current, saved: true }
+    })
+  }, [])
+
+  const handleSelectionFactCheck = useCallback(() => {
+    if (!selectionToolbar) return
+    runFactCheck(
+      selectionToolbar.text,
+      selectionToolbar.context,
+      selectionToolbar.x,
+      selectionToolbar.y,
+      {
+        blockIndex: selectionToolbar.blockIndex,
+        start: selectionToolbar.start,
+        end: selectionToolbar.end,
+      }
+    )
+    setSelectionToolbar(null)
+    window.getSelection()?.removeAllRanges()
+  }, [runFactCheck, selectionToolbar])
+
+  const addUserAnnotation = useCallback((selection: SelectionToolbarState, kind: UserAnnotationKind, comment?: string) => {
+    const nextAnnotation: UserTextAnnotation = {
+      id: `${selection.blockIndex}-${selection.start}-${selection.end}-${Date.now()}`,
+      start: selection.start,
+      end: selection.end,
+      kind,
+      comment,
+    }
+    setUserAnnotations((current) => ({
+      ...current,
+      [selection.blockIndex]: [
+        ...(current[selection.blockIndex] ?? []).filter((item) =>
+          !(nextAnnotation.start < item.end && nextAnnotation.end > item.start)
+        ),
+        nextAnnotation,
+      ].sort((a, b) => a.start - b.start || a.end - b.end),
+    }))
+  }, [])
+
+  const handleSelectionMark = useCallback((kind: 'wavy' | 'line' | 'highlight' | 'comment') => {
+    if (!selectionToolbar) return
+
+    if (kind === 'comment') {
+      setCommentDialog(selectionToolbar)
+      setCommentDraft('')
+      setSelectionToolbar(null)
+      window.getSelection()?.removeAllRanges()
+      return
+    }
+
+    addUserAnnotation(selectionToolbar, kind)
+    setSelectionToolbar(null)
+    window.getSelection()?.removeAllRanges()
+  }, [addUserAnnotation, selectionToolbar])
+
+  const handleCancelComment = useCallback(() => {
+    setCommentDialog(null)
+    setCommentDraft('')
+    setCommentSaving(false)
+  }, [])
+
+  const handleSaveComment = useCallback(async () => {
+    if (!commentDialog || commentSaving) return
+    const comment = commentDraft.trim()
+    if (!comment) {
+      setCommentDialog(current => current ? { ...current, error: '请输入 Comment' } : current)
+      return
+    }
+    setCommentSaving(true)
+    try {
+      addUserAnnotation(commentDialog, 'comment', comment)
+      await savePoints(
+        [{ content: formatCommentKnowledgeContent(commentDialog, comment), tagType: '作者观点' }],
+        sourceName ?? 'Comment',
+        commentDialog.context
+      )
+      setCommentDialog(null)
+      setCommentDraft('')
+    } catch (error: unknown) {
+      setCommentDialog(current => current ? {
+        ...current,
+        error: error instanceof Error ? error.message : '保存到知识库失败',
+      } : current)
+    } finally {
+      setCommentSaving(false)
+    }
+  }, [addUserAnnotation, commentDialog, commentDraft, commentSaving, sourceName])
 
   const handleToggleStar = useCallback(async (index: number, card: ChunkCard, el: HTMLButtonElement) => {
     const existing = savedIds[index]
@@ -1478,7 +2955,7 @@ export default function Explore() {
       // first star: save chunk summary as a point, then star it
       try {
         fly(el)
-        const ids = await savePoints([{ content: card.summary, tagType: '作者观点' }], sourceName)
+        const ids = await savePoints([{ content: card.summary, tagType: tagTypeForChunkCard(card) }], sourceName, card.text)
         const pointId = ids[0]
         if (pointId) {
           await star(pointId)
@@ -1490,6 +2967,80 @@ export default function Explore() {
     }
   }, [savedIds, sourceName, fly, star, unstar])
 
+  const scrollToBlock = useCallback((blockIndex: number) => {
+    blockRefs.current[blockIndex]?.scrollIntoView({
+      behavior: 'smooth',
+      block: 'center',
+      inline: 'nearest',
+    })
+  }, [])
+
+  const handleOpenCard = useCallback((card: ChunkCard, blockIndex: number, el: HTMLButtonElement) => {
+    scrollToBlock(blockIndex)
+    const rect = el.getBoundingClientRect()
+    const anchor = {
+      x: rect.left + rect.width / 2,
+      y: rect.top + rect.height / 2,
+    }
+    const id = `${blockIndex}:${card.index}`
+    setAnalysisStack((current) => [
+      ...current.filter((entry) => entry.id !== id),
+      { id, card, anchor, blockIndex, title: analysisTitle(card.text) },
+    ])
+  }, [scrollToBlock])
+
+  const handleSelectAnalysis = useCallback((id: string) => {
+    setAnalysisStack((current) => {
+      const selected = current.find((entry) => entry.id === id)
+      if (!selected) return current
+      scrollToBlock(selected.blockIndex)
+      return [...current.filter((entry) => entry.id !== id), selected]
+    })
+  }, [scrollToBlock])
+
+  const handleCloseAnalysis = useCallback((id: string) => {
+    setAnalysisStack((current) => current.filter((entry) => entry.id !== id))
+  }, [])
+
+  const handleAnalyzeBlock = useCallback(async (index: number, blockText: string, el: HTMLButtonElement) => {
+    if (adHocAnalyzing[index]) return
+
+    const existing = adHocCards[index]
+    if (existing) {
+      handleOpenCard(existing, index, el)
+      return
+    }
+
+    setAdHocAnalyzing((current) => ({ ...current, [index]: true }))
+    setAdHocErrors((current) => {
+      const next = { ...current }
+      delete next[index]
+      return next
+    })
+    try {
+      const analyzedCard = await analyzeTextBlock(blockText, index)
+      const card = { ...analyzedCard, index: -index - 1 }
+      setAdHocCards((current) => ({ ...current, [index]: card }))
+      handleOpenCard(card, index, el)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error || '生成 AI 解读失败')
+      setAdHocErrors((current) => ({ ...current, [index]: message }))
+    } finally {
+      setAdHocAnalyzing((current) => {
+        const next = { ...current }
+        delete next[index]
+        return next
+      })
+    }
+  }, [adHocAnalyzing, adHocCards, handleOpenCard])
+
+  const handleFactCheck = useCallback((claim: string, context: string, anchor: HTMLElement, range: FactCheckTextRange) => {
+    const rect = anchor.getBoundingClientRect()
+    const x = rect.left + rect.width / 2
+    const y = rect.bottom
+    runFactCheck(claim, context, x, y, range)
+  }, [runFactCheck])
+
   // ── File picker ──────────────────────────────────────────────────────────
   const handlePick = async () => {
     const selected = await open({ multiple: false, filters: [{ name: '文档', extensions: SUPPORTED_EXTS }] })
@@ -1498,11 +3049,18 @@ export default function Explore() {
 
   const handleChangeFile = () => {
     reset()
-    setActiveCard(null)
+    setAnalysisStack([])
+    setImageViewer(null)
     setHistoryOpen(false)
     setStageCompletedCount(0)
     setRevealedCount(0)
     setImageDescriptions({})
+    setAdHocCards({})
+    setAdHocAnalyzing({})
+    setAdHocErrors({})
+    setFactBubble(null)
+    setSelectionToolbar(null)
+    setUserAnnotations({})
     setGenerationInProgress(false)
     setCompletionBurstKey(null)
   }
@@ -1510,12 +3068,41 @@ export default function Explore() {
   const handleActivateHistory = (id: string) => {
     history.activate(id)
     setHistoryOpen(false)
-    setActiveCard(null)
+    setAnalysisStack([])
+    setImageViewer(null)
     setStageCompletedCount(Number.MAX_SAFE_INTEGER)
     setRevealedCount(Number.MAX_SAFE_INTEGER)
     setGenerationInProgress(false)
     setCompletionBurstKey(null)
   }
+
+  const handleReanalyzeCurrent = useCallback(() => {
+    setAnalysisStack([])
+    setImageViewer(null)
+    setHistoryOpen(false)
+    setAdHocCards({})
+    setAdHocAnalyzing({})
+    setAdHocErrors({})
+    setFactBubble(null)
+    setSelectionToolbar(null)
+    setUserAnnotations({})
+    void reanalyzeCurrent()
+  }, [reanalyzeCurrent])
+
+  const handleReanalyzeHistory = useCallback((id: string) => {
+    const item = history.activate(id)
+    if (!item) return
+    setHistoryOpen(false)
+    setAnalysisStack([])
+    setImageViewer(null)
+    setAdHocCards({})
+    setAdHocAnalyzing({})
+    setAdHocErrors({})
+    setFactBubble(null)
+    setSelectionToolbar(null)
+    setUserAnnotations({})
+    void reanalyzeCurrent()
+  }, [history, reanalyzeCurrent])
 
   // ── Drag & drop ──────────────────────────────────────────────────────────
   const handleDragOver = useCallback((e: Event) => { e.preventDefault(); setDragging(true) }, [])
@@ -1563,7 +3150,7 @@ export default function Explore() {
 
   return (
     <div className="relative flex h-full overflow-hidden">
-      <div className={cn('flex h-full flex-1 flex-col transition-all duration-300', activeCard ? 'mr-[360px]' : '')}>
+      <div className="flex h-full flex-1 flex-col">
         {!hasContent && (
           <button
             onClick={() => setHistoryOpen(true)}
@@ -1610,6 +3197,7 @@ export default function Explore() {
               sourceName={sourceName}
               sourceUrl={sourceUrl}
               metadata={displaySourceMetadata}
+              onReanalyze={handleReanalyzeCurrent}
               onOpenHistory={() => setHistoryOpen(true)}
               onChangeFile={handleChangeFile}
               onClear={reset}
@@ -1633,7 +3221,17 @@ export default function Explore() {
                 isValuableBlock={isValuableSourceBlock}
               />
             ) : (
-              <div className="flex-1 overflow-y-auto px-6 py-5 [&::-webkit-scrollbar]:hidden">
+              <div className={cn(
+                'flex-1 overflow-y-auto px-6 py-5 transition-[padding] duration-300 ease-out [&::-webkit-scrollbar]:hidden',
+                analysisStack.length > 0 && 'pr-[21rem]'
+              )}
+                onScroll={() => {
+                  setFactBubble((current) => current && !current.collapsed
+                    ? { ...current, collapsed: true }
+                    : current
+                  )
+                }}
+              >
                 <div className="mx-auto max-w-2xl space-y-4 pb-10">
                   {resultTargetCount > 0 && (hasSourceBlocks ? visibleSourceItems.length === 0 : visibleCards.length === 0) && (
                     <motion.div
@@ -1658,28 +3256,38 @@ export default function Explore() {
                               shouldDescribeImages={shouldDescribeImages}
                               imageDescriptions={imageDescriptions}
                               setImageDescriptions={setImageDescriptions}
+                              onOpenOriginal={setImageViewer}
                             />
                           )
                         }
 
                         const analysisCard = item.card
+                        const blockText = item.block.text
                         const card = analysisCard ?? {
                           index: -item.index - 1,
-                          text: item.block.text,
-                          summary: item.block.text,
+                          text: blockText,
+                          summary: blockText,
                           hotTake: '',
                           labels: [],
                         }
                         return (
                           <ThemeBlock
                             key={`source-${item.index}`}
+                            blockRef={(node) => { blockRefs.current[item.index] = node }}
                             card={card}
                             index={item.index}
                             displayText={item.block.text}
                             muted={!analysisCard}
                             starred={analysisCard ? analysisCard.index in savedIds : false}
-                            onOpen={analysisCard ? () => setActiveCard(analysisCard) : undefined}
+                            onOpen={analysisCard ? (el) => handleOpenCard(analysisCard, item.index, el) : undefined}
                             onToggleStar={analysisCard ? (el) => handleToggleStar(analysisCard.index, analysisCard, el) : undefined}
+                            onAnalyze={!analysisCard ? (el) => handleAnalyzeBlock(item.index, blockText, el) : undefined}
+                            analyzing={adHocAnalyzing[item.index] === true}
+                            analyzeError={adHocErrors[item.index] ?? null}
+                            onFactCheck={handleFactCheck}
+                            userAnnotations={userAnnotations[item.index] ?? []}
+                            annotationColors={annotationColors}
+                            activeFactCheck={activeFactCheckMarker}
                           />
                         )
                       })
@@ -1687,11 +3295,16 @@ export default function Explore() {
                       visibleCards.map((card, i) => (
                         <ThemeBlock
                           key={card.index}
+                          blockRef={(node) => { blockRefs.current[i] = node }}
                           card={card}
                           index={i}
                           starred={card.index in savedIds}
-                          onOpen={() => setActiveCard(card)}
+                          onOpen={(el) => handleOpenCard(card, i, el)}
                           onToggleStar={(el) => handleToggleStar(card.index, card, el)}
+                          onFactCheck={handleFactCheck}
+                          userAnnotations={userAnnotations[i] ?? []}
+                          annotationColors={annotationColors}
+                          activeFactCheck={activeFactCheckMarker}
                         />
                       ))
                     )}
@@ -1705,6 +3318,33 @@ export default function Explore() {
 
       <AnimatePresence>
         {completionBurstKey !== null && <CompletionConfetti burstKey={completionBurstKey} />}
+        {selectionToolbar && (
+          <SelectionToolbar
+            state={selectionToolbar}
+            onFactCheck={handleSelectionFactCheck}
+            onMark={handleSelectionMark}
+            annotationColors={annotationColors}
+            onClose={() => {
+              setSelectionToolbar(null)
+              window.getSelection()?.removeAllRanges()
+            }}
+          />
+        )}
+        {commentDialog && (
+          <CommentDialog
+            state={commentDialog}
+            value={commentDraft}
+            saving={commentSaving}
+            onChange={(value) => {
+              setCommentDraft(value)
+              setCommentDialog(current => current ? { ...current, error: undefined } : current)
+            }}
+            onCancel={handleCancelComment}
+            onSave={() => void handleSaveComment()}
+          />
+        )}
+        {factBubble && !factBubble.collapsed && <FactCheckBubble bubble={factBubble} onClose={() => setFactBubble(null)} onSave={handleSaveFactCheck} />}
+        {imageViewer && <ImageLightbox image={imageViewer} onClose={() => setImageViewer(null)} />}
         {historyOpen && (
           <>
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -1713,18 +3353,35 @@ export default function Explore() {
               items={history.items}
               onClose={() => setHistoryOpen(false)}
               onActivate={handleActivateHistory}
+              onReanalyze={handleReanalyzeHistory}
               onArchive={history.archive}
               onUnarchive={history.unarchive}
               onDelete={history.remove}
             />
           </>
         )}
-        {activeCard && (
+        {analysisStack.length > 0 && (
           <>
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              className="fixed inset-0 z-30" onClick={() => setActiveCard(null)} />
-            <ChunkDrawer card={activeCard} commentatorEmoji={commentatorEmoji}
-              commentatorName={commentatorName} onClose={() => setActiveCard(null)} />
+            <AnalysisLink sourceElement={blockRefs.current[analysisStack[analysisStack.length - 1]?.blockIndex] ?? null} />
+            {analysisStack.slice(-5).map((entry, index, visibleStack) => {
+              const active = index === visibleStack.length - 1
+              const depth = active ? 0 : index
+              const inactiveCount = Math.max(visibleStack.length - 1, 0)
+
+              return (
+                <ChunkDrawer
+                  key={entry.id}
+                  entry={entry}
+                  depth={depth}
+                  inactiveCount={inactiveCount}
+                  active={active}
+                  commentatorEmoji={commentatorEmoji}
+                  commentatorName={commentatorName}
+                  onSelect={() => handleSelectAnalysis(entry.id)}
+                  onClose={() => handleCloseAnalysis(entry.id)}
+                />
+              )
+            })}
           </>
         )}
       </AnimatePresence>

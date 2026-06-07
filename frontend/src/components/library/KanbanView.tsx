@@ -1,5 +1,6 @@
 import type { StoredPoint } from '@/api/types'
 import { Archive } from 'lucide-react'
+import { SourceExcerptButton } from '@/components/SourceExcerptButton'
 
 const COLUMNS = ['事实陈述', '作者观点', '待验证疑问', '其他']
 
@@ -26,11 +27,17 @@ export function KanbanView({ points, onArchive }: Props) {
                   <p className="line-clamp-4">{p.content}</p>
                   <div className="flex items-center justify-between mt-2">
                     <span className="text-xs text-fg-faint truncate">{p.sourceDocName ?? '—'}</span>
-                    <button onClick={() => onArchive(p.id)}
-                      className="opacity-0 group-hover:opacity-100 p-0.5 rounded text-fg-faint hover:text-fg-muted transition-all"
-                      title="归档">
-                      <Archive size={12} />
-                    </button>
+                    <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                      <SourceExcerptButton
+                        point={p}
+                        className="p-0.5 rounded text-fg-faint hover:text-accent transition-colors"
+                      />
+                      <button onClick={() => onArchive(p.id)}
+                        className="p-0.5 rounded text-fg-faint hover:text-fg-muted transition-colors"
+                        title="归档">
+                        <Archive size={12} />
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}

@@ -67,7 +67,15 @@ pub async fn generate_digest(app: tauri::AppHandle<Wry>) -> Result<String, Strin
     struct Msg { content: String }
 
     let parsed: Resp = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
-    parsed.choices.into_iter().next()
+    let digest = parsed.choices.into_iter().next()
         .map(|c| c.message.content)
-        .ok_or_else(|| "模型未返回内容".to_string())
+        .ok_or_else(|| "模型未返回内容".to_string())?;
+
+    let clear_path = crate::db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || {
+        let c = crate::db::open_db(&clear_path)?;
+        crate::db::clear_starred_points(&c)
+    }).await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
+
+    Ok(digest)
 }

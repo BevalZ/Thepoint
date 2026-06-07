@@ -1,6 +1,6 @@
 use tauri::Wry;
 
-use crate::ai::explore::{self, FrameworkRecommendation};
+use crate::ai::explore::{self, FrameworkRecommendation, RelatedCandidateInput, RelatedClassification};
 use crate::ai::models::{self, MentalModel};
 use crate::db::{self, StoredPoint};
 
@@ -8,8 +8,9 @@ const MAX_SIMILAR: usize = 8;
 
 /// Return the full mental-model library (sync constant) for the "其他" panel.
 #[tauri::command]
-pub fn list_mental_models() -> Vec<MentalModel> {
-    models::all()
+pub fn list_mental_models(app: tauri::AppHandle<Wry>) -> Result<Vec<MentalModel>, String> {
+    let config = crate::commands::config::get_config(app)?;
+    Ok(models::all_with_custom(&config.custom_mental_models))
 }
 
 /// Ask the LLM to recommend 3 frameworks for a point.
@@ -19,7 +20,8 @@ pub async fn recommend_frameworks(
     point_content: String,
 ) -> Result<Vec<FrameworkRecommendation>, String> {
     let config = crate::commands::config::get_config(app)?;
-    explore::recommend_models(&config.openai_api_key, &config.openai_model, &config.openai_base_url, &config.extra_headers, &point_content)
+    let library = models::all_with_custom(&config.custom_mental_models);
+    explore::recommend_models(&config.openai_api_key, &config.openai_model, &config.openai_base_url, &config.extra_headers, &library, &point_content)
         .await
         .map_err(|e| e.to_string())
 }
@@ -59,11 +61,13 @@ pub async fn deepen_point(
             let key = framework_key
                 .clone()
                 .ok_or_else(|| "框架解读需要指定思维模型".to_string())?;
+            let library = models::all_with_custom(&config.custom_mental_models);
             explore::apply_framework(
                 &config.openai_api_key,
                 &config.openai_model,
                 &config.openai_base_url,
                 &config.extra_headers,
+                &library,
                 &key,
                 &parent_content,
             )
@@ -100,6 +104,30 @@ pub async fn deepen_point(
     .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub async fn polish_manual_thought(
+    app: tauri::AppHandle<Wry>,
+    parent_content: String,
+    thought: String,
+) -> Result<String, String> {
+    let trimmed = thought.trim();
+    if trimmed.is_empty() {
+        return Err("想法内容不能为空".to_string());
+    }
+
+    let config = crate::commands::config::get_config(app)?;
+    explore::polish_manual_thought(
+        &config.openai_api_key,
+        &config.openai_model,
+        &config.openai_base_url,
+        &config.extra_headers,
+        &parent_content,
+        trimmed,
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
 /// Keyword/LIKE similarity search in the local library. Records an action.
 /// Matches are NOT auto-attached; the frontend decides whether to mount them.
 #[tauri::command]
@@ -119,5 +147,25 @@ pub async fn find_similar(
     })
     .await
     .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn classify_related(
+    app: tauri::AppHandle<Wry>,
+    point_content: String,
+    candidates: Vec<RelatedCandidateInput>,
+) -> Result<Vec<RelatedClassification>, String> {
+    let config = crate::commands::config::get_config(app)?;
+    let clipped = candidates.into_iter().take(8).collect::<Vec<_>>();
+    explore::classify_related(
+        &config.openai_api_key,
+        &config.openai_model,
+        &config.openai_base_url,
+        &config.extra_headers,
+        &point_content,
+        &clipped,
+    )
+    .await
     .map_err(|e| e.to_string())
 }

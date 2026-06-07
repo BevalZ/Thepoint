@@ -28,5 +28,9 @@ pub struct ChunkCard {
     pub text: String,
     pub summary: String,
     pub hot_take: String,
+    #[serde(default)]
+    pub commentator_name: Option<String>,
+    #[serde(default)]
+    pub commentator_emoji: Option<String>,
     pub labels: Vec<Label>,
 }

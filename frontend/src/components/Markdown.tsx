@@ -4,9 +4,10 @@ import { cn } from '@/lib/utils'
 
 interface Props extends React.ComponentPropsWithoutRef<'div'> {
   children: string
+  onLinkClick?: (href: string) => boolean
 }
 
-export function Markdown({ children, className, ...rest }: Props) {
+export function Markdown({ children, className, onLinkClick, ...rest }: Props) {
   return (
     <div className={cn('prose prose-sm prose-invert max-w-none text-fg', className)} {...rest}>
       <ReactMarkdown
@@ -29,6 +30,21 @@ export function Markdown({ children, className, ...rest }: Props) {
           ),
           p: ({ children: c, ...p }) => (
             <p className="my-0.5 leading-relaxed" {...p}>{c}</p>
+          ),
+          a: ({ children: c, href, ...p }) => (
+            <a
+              href={href}
+              className="font-medium text-accent underline decoration-accent/40 underline-offset-4 hover:text-accent-hover"
+              onClick={(event) => {
+                if (!href) return
+                if (onLinkClick?.(href)) {
+                  event.preventDefault()
+                }
+              }}
+              {...p}
+            >
+              {c}
+            </a>
           ),
         }}
       >

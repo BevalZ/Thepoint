@@ -10,6 +10,7 @@ pub async fn save_points(
     app: tauri::AppHandle<Wry>,
     points: Vec<ExtractedPoint>,
     source_doc_name: Option<String>,
+    source_excerpt: Option<String>,
 ) -> Result<Vec<String>, String> {
     let path = db::db_path(&app).map_err(|e| e.to_string())?;
 
@@ -23,14 +24,41 @@ pub async fn save_points(
         for point in &points {
             let id = uuid::Uuid::new_v4().to_string();
             tx.execute(
-                "INSERT INTO points (id, content, tag_type, parent_id, source_doc_name, created_at)
-                 VALUES (?1, ?2, ?3, NULL, ?4, ?5)",
-                rusqlite::params![id, point.content, point.tag_type, source_doc_name, now],
+                "INSERT INTO points (id, content, tag_type, parent_id, source_doc_name, source_excerpt, created_at)
+                 VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6)",
+                rusqlite::params![id, point.content, point.tag_type, source_doc_name, source_excerpt, now],
             )?;
             ids.push(id);
         }
         tx.commit()?;
         Ok(ids)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn save_manual_point(
+    app: tauri::AppHandle<Wry>,
+    parent_id: String,
+    content: String,
+) -> Result<Vec<StoredPoint>, String> {
+    let trimmed = content.trim().to_string();
+    if trimmed.is_empty() {
+        return Err("想法内容不能为空".to_string());
+    }
+
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<StoredPoint>> {
+        let mut conn = db::open_db(&path)?;
+        db::save_child_points(
+            &mut conn,
+            Some(parent_id.as_str()),
+            "manual_thought",
+            None,
+            &[(trimmed, "我的想法".to_string())],
+        )
     })
     .await
     .map_err(|e| e.to_string())?
@@ -135,6 +163,19 @@ pub async fn get_starred_count(app: tauri::AppHandle<Wry>) -> Result<u32, String
     tokio::task::spawn_blocking(move || -> anyhow::Result<u32> {
         let conn = db::open_db(&path)?;
         db::starred_count(&conn)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+/// Return current starred points for the global collection ring.
+#[tauri::command]
+pub async fn list_starred_points(app: tauri::AppHandle<Wry>) -> Result<Vec<StoredPoint>, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<StoredPoint>> {
+        let conn = db::open_db(&path)?;
+        db::list_starred_points(&conn)
     })
     .await
     .map_err(|e| e.to_string())?

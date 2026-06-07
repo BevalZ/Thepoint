@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Loader2, Check, Copy, Download, X } from 'lucide-react'
-import { generateSuggestion, saveSuggestion, listSuggestionsByDate, getSuggestion, listMarkedDates } from '@/api'
+import { Loader2, Check, Copy, Download, Trash2, X } from 'lucide-react'
+import { generateSuggestion, saveSuggestion, listSuggestionsByDate, getSuggestion, listMarkedDates, deleteSuggestion } from '@/api'
 import type { Suggestion, SuggestionMeta } from '@/api/types'
 import { cn } from '@/lib/utils'
 import { Markdown } from '@/components/Markdown'
@@ -132,11 +132,13 @@ interface DayListProps {
   date: string
   onPick: (id: string) => void
   onClose: () => void
+  onDeleted?: () => void
 }
 
-export function SuggestionDayList({ date, onPick, onClose }: DayListProps) {
+export function SuggestionDayList({ date, onPick, onClose, onDeleted }: DayListProps) {
   const [items, setItems] = useState<SuggestionMeta[]>([])
   const [loading, setLoading] = useState(true)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
   useEffect(() => {
     listSuggestionsByDate(date)
@@ -145,40 +147,71 @@ export function SuggestionDayList({ date, onPick, onClose }: DayListProps) {
       .finally(() => setLoading(false))
   }, [date])
 
+  const handleDelete = async (id: string) => {
+    if (deletingId) return
+    setDeletingId(id)
+    try {
+      await deleteSuggestion(id)
+      setItems(current => current.filter(item => item.id !== id))
+      onDeleted?.()
+    } finally {
+      setDeletingId(null)
+    }
+  }
+
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.95 }}
-      animate={{ opacity: 1, scale: 1 }}
-      exit={{ opacity: 0, scale: 0.95 }}
-      className="absolute z-20 w-80 rounded-xl border border-border bg-bg-elevated shadow-2xl overflow-hidden"
-      style={{ top: '100%', left: '50%', transform: 'translateX(-50%)' }}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4 backdrop-blur-md"
+      onClick={onClose}
     >
-      <div className="flex items-center justify-between border-b border-border px-4 py-3">
-        <span className="text-sm font-medium text-fg">{date} · 探索建议存档</span>
-        <button onClick={onClose} className="rounded-md p-1 text-fg-muted hover:bg-bg-hover transition-colors">
-          <X size={14} />
-        </button>
-      </div>
-      <div className="max-h-60 overflow-y-auto [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none' }}>
-        {loading ? (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 size={16} className="animate-spin text-fg-faint" />
-          </div>
-        ) : items.length === 0 ? (
-          <div className="py-8 text-center text-xs text-fg-faint">暂无建议存档</div>
-        ) : (
-          items.map(item => (
-            <button
-              key={item.id}
-              onClick={() => onPick(item.id)}
-              className="w-full text-left px-4 py-3 hover:bg-bg-hover transition-colors border-b border-border last:border-b-0"
-            >
-              <p className="text-xs leading-relaxed text-fg line-clamp-2">{item.summary}</p>
-              <p className="mt-1 text-[10px] text-fg-faint">{formatISOTime(item.createdAt)}</p>
-            </button>
-          ))
-        )}
-      </div>
+      <motion.div
+        initial={{ opacity: 0, y: 14, scale: 0.96 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 10, scale: 0.96 }}
+        transition={{ type: 'spring', stiffness: 320, damping: 28 }}
+        className="w-full max-w-md overflow-hidden rounded-xl border border-border bg-bg-elevated shadow-2xl"
+        onClick={event => event.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-border px-4 py-3">
+          <span className="text-sm font-medium text-fg">{date} · 探索建议存档</span>
+          <button onClick={onClose} className="rounded-md p-1 text-fg-muted hover:bg-bg-hover transition-colors">
+            <X size={14} />
+          </button>
+        </div>
+        <div className="max-h-[min(56vh,24rem)] overflow-y-auto [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none' }}>
+          {loading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 size={16} className="animate-spin text-fg-faint" />
+            </div>
+          ) : items.length === 0 ? (
+            <div className="py-8 text-center text-xs text-fg-faint">暂无建议存档</div>
+          ) : (
+            items.map(item => (
+              <div key={item.id} className="group flex items-start gap-2 border-b border-border px-4 py-3 last:border-b-0 hover:bg-bg-hover transition-colors">
+                <button
+                  onClick={() => onPick(item.id)}
+                  className="min-w-0 flex-1 text-left"
+                >
+                  <p className="text-xs leading-relaxed text-fg line-clamp-2">{item.summary}</p>
+                  <p className="mt-1 text-[10px] text-fg-faint">{formatISOTime(item.createdAt)}</p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleDelete(item.id)}
+                  disabled={deletingId === item.id}
+                  className="mt-0.5 rounded-md p-1.5 text-fg-faint opacity-70 transition-colors hover:bg-red-500/10 hover:text-red-300 disabled:opacity-40"
+                  title="删除报告"
+                >
+                  {deletingId === item.id ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      </motion.div>
     </motion.div>
   )
 }
@@ -188,12 +221,14 @@ export function SuggestionDayList({ date, onPick, onClose }: DayListProps) {
 interface ViewProps {
   id: string
   onClose: () => void
+  onDeleted?: () => void
 }
 
-export function SuggestionViewModal({ id, onClose }: ViewProps) {
+export function SuggestionViewModal({ id, onClose, onDeleted }: ViewProps) {
   const [doc, setDoc] = useState<Suggestion | null>(null)
   const [loading, setLoading] = useState(true)
   const [copied, setCopied] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     getSuggestion(id)
@@ -220,10 +255,22 @@ export function SuggestionViewModal({ id, onClose }: ViewProps) {
     URL.revokeObjectURL(url)
   }
 
+  const handleDelete = async () => {
+    if (!doc || deleting) return
+    setDeleting(true)
+    try {
+      await deleteSuggestion(doc.id)
+      onDeleted?.()
+      onClose()
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 px-4 backdrop-blur-md"
       onClick={onClose}
     >
       <motion.div
@@ -248,6 +295,11 @@ export function SuggestionViewModal({ id, onClose }: ViewProps) {
             <button onClick={handleDownload}
               className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-fg-muted hover:text-fg hover:bg-bg-hover transition-colors">
               <Download size={12} />下载 MD
+            </button>
+            <button onClick={handleDelete} disabled={!doc || deleting}
+              className="flex items-center gap-1.5 rounded-lg border border-red-500/30 px-3 py-1.5 text-xs text-red-300/80 hover:bg-red-500/10 hover:text-red-200 disabled:opacity-50 transition-colors">
+              {deleting ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+              删除
             </button>
             <button onClick={onClose}
               className="rounded-md p-1.5 text-fg-muted hover:bg-bg-hover transition-colors">

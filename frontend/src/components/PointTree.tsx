@@ -1,9 +1,12 @@
 import { motion } from 'framer-motion'
-import { Archive, ChevronRight, CornerDownRight, Trash2 } from 'lucide-react'
+import { Archive, ChevronRight, CornerDownRight, Trash2, X } from 'lucide-react'
+import { useState } from 'react'
 import type { StoredPoint } from '@/api/types'
 import { useLibraryStore } from '@/store'
 import { cn } from '@/lib/utils'
 import { DeepenActions } from './DeepenActions'
+import { SourceExcerptButton } from './SourceExcerptButton'
+import { Markdown } from './Markdown'
 
 const TAG_STYLES: Record<string, string> = {
   事实陈述: 'border-sky-500/30 bg-sky-500/10 text-sky-300',
@@ -17,6 +20,148 @@ function formatDate(value: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
   return date.toLocaleString()
+}
+
+function normalizePointMarkdown(content: string): string {
+  return content
+    .replace(/\s+(#{2,6})\s+/g, '\n\n$1 ')
+    .replace(/\s+---\s+/g, '\n\n---\n\n')
+    .replace(/\s+(\d+\.\s+)/g, '\n$1')
+    .trim()
+}
+
+interface DigestReference {
+  index: number
+  title: string
+  body: string
+}
+
+function digestReferences(sourceExcerpt: string | null): DigestReference[] {
+  const excerpt = sourceExcerpt?.trim()
+  if (!excerpt) return []
+
+  const sections = excerpt.split(/\n(?=### Star (?:\[\d+\]|\d+))/g)
+  return sections.flatMap((section) => {
+    const match = /^### Star (?:\[(\d+)\]|(\d+))(?:\n|$)/.exec(section.trim())
+    if (!match) return []
+    const index = Number(match[1] ?? match[2])
+    if (!Number.isFinite(index)) return []
+    return [{
+      index,
+      title: `Star [${index}]`,
+      body: section.replace(/^### Star (?:\[\d+\]|\d+)\s*/, '').trim(),
+    }]
+  })
+}
+
+function linkDigestReferences(content: string, refs: DigestReference[]): string {
+  if (refs.length === 0) return content
+  const available = new Set(refs.map(ref => ref.index))
+  return content.replace(/\[(\d+)\]/g, (full, rawIndex: string) => {
+    const index = Number(rawIndex)
+    if (!available.has(index)) return full
+    return `[[${index}]](#digest-ref-${index})`
+  })
+}
+
+function shouldRenderMarkdown(point: StoredPoint): boolean {
+  if (point.tagType === '研报摘要') return true
+  return /(^|\s)(#{1,6}\s|\*\*|>\s|[-*]\s|\d+\.\s)/.test(point.content)
+}
+
+function shouldCollapsePoint(point: StoredPoint): boolean {
+  if (point.tagType === '研报摘要') return true
+  return point.content.length > 360 || point.content.split(/\r?\n/).length > 5
+}
+
+function PointContent({ point }: { point: StoredPoint }) {
+  const [expanded, setExpanded] = useState(false)
+  const [openRef, setOpenRef] = useState<DigestReference | null>(null)
+  const renderMarkdown = shouldRenderMarkdown(point)
+  const collapsible = shouldCollapsePoint(point)
+  const refs = point.tagType === '研报摘要' ? digestReferences(point.sourceExcerpt) : []
+  const content = renderMarkdown
+    ? linkDigestReferences(normalizePointMarkdown(point.content), refs)
+    : point.content
+
+  return (
+    <div className="mt-2">
+      <div className={cn(
+        'relative overflow-hidden',
+        collapsible && !expanded && 'max-h-[8.2rem]'
+      )}>
+        {renderMarkdown ? (
+          <Markdown
+            className="text-sm leading-relaxed [&_h1]:text-sm [&_h1]:font-semibold [&_h1]:text-fg [&_h2]:text-sm [&_h3]:text-sm [&_p]:my-1"
+            onLinkClick={(href) => {
+              const match = /^#digest-ref-(\d+)$/.exec(href)
+              if (!match) return false
+              const ref = refs.find(item => item.index === Number(match[1]))
+              if (!ref) return true
+              setOpenRef(ref)
+              return true
+            }}
+          >
+            {content}
+          </Markdown>
+        ) : (
+          <p className="text-sm leading-relaxed text-fg">
+            {content}
+          </p>
+        )}
+        {collapsible && !expanded && (
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-bg-elevated to-transparent" />
+        )}
+      </div>
+      {collapsible && (
+        <button
+          type="button"
+          onClick={() => setExpanded(value => !value)}
+          className="mt-2 rounded-md border border-border px-2 py-1 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg"
+        >
+          {expanded ? '收起' : '展开全文'}
+        </button>
+      )}
+      {openRef && (
+        <div>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[95] bg-black/30 backdrop-blur-sm"
+            onClick={() => setOpenRef(null)}
+          />
+          <motion.div
+            initial={{ opacity: 0, y: 12, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 8, scale: 0.97 }}
+            transition={{ type: 'spring', stiffness: 320, damping: 28 }}
+            className="fixed left-1/2 top-1/2 z-[96] flex max-h-[72vh] w-[min(680px,calc(100vw-2rem))] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border border-border bg-bg-elevated shadow-2xl"
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
+              <div>
+                <p className="text-sm font-medium text-fg">{openRef.title}</p>
+                <p className="mt-0.5 text-xs text-fg-faint">研报引用来源</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setOpenRef(null)}
+                className="rounded-md p-1 text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg"
+                aria-label="关闭"
+              >
+                <X size={15} />
+              </button>
+            </div>
+            <div className="overflow-y-auto px-4 py-3">
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-fg">
+                {openRef.body}
+              </p>
+            </div>
+          </motion.div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 interface TreeNode {
@@ -91,6 +236,10 @@ function TreeRow({ node, depth, index, onArchive }: TreeRowProps) {
         className="group relative rounded-lg border border-border bg-bg-elevated p-4"
       >
         <div className="flex items-start gap-2">
+          <SourceExcerptButton
+            point={point}
+            className="absolute right-14 top-3 text-fg-faint opacity-0 transition-opacity hover:text-accent group-hover:opacity-100"
+          />
           <button
             onClick={handleDelete}
             className="absolute right-3 top-3 opacity-0 group-hover:opacity-100 transition-opacity text-fg-faint hover:text-red-400"
@@ -137,9 +286,7 @@ function TreeRow({ node, depth, index, onArchive }: TreeRowProps) {
                 {point.tagType}
               </span>
             )}
-            <p className="mt-2 text-sm leading-relaxed text-fg">
-              {point.content}
-            </p>
+            <PointContent point={point} />
             {(point.sourceDocName || point.createdAt) && (
               <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-fg-faint">
                 {point.sourceDocName && (

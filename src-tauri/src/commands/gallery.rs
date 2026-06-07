@@ -1,8 +1,17 @@
 use std::fs;
 use std::path::PathBuf;
+use serde::{Deserialize, Serialize};
 use tauri::{Manager, Wry};
 
-use crate::db::{self, GalleryItem};
+use crate::db::{self, GalleryItem, GallerySourcePoint, StoredPoint};
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct GalleryPromptPreview {
+    pub prompt: String,
+    pub point_ids: Vec<String>,
+    pub source_points: Vec<GallerySourcePoint>,
+}
 
 pub fn gallery_dir(app: &tauri::AppHandle<Wry>) -> anyhow::Result<PathBuf> {
     let dir = app.path().app_data_dir()?.join("gallery");
@@ -31,7 +40,6 @@ fn save_image_files(dir: &PathBuf, id: &str, b64: &str) -> anyhow::Result<(Strin
 
 /// Call LLM to build an image prompt from starred point contents.
 async fn build_image_prompt(config: &crate::commands::config::AppConfig, contents: &[String]) -> anyhow::Result<String> {
-    use serde::Deserialize;
     #[derive(Deserialize)] struct Resp { choices: Vec<Choice> }
     #[derive(Deserialize)] struct Choice { message: Msg }
     #[derive(Deserialize)] struct Msg { content: String }
@@ -52,10 +60,87 @@ async fn build_image_prompt(config: &crate::commands::config::AppConfig, content
         .post(&endpoint)
         .bearer_auth(&config.openai_api_key)
         .json(&body)
-        .send().await?
-        .text().await?;
-    let parsed: Resp = serde_json::from_str(&resp)?;
+        .send().await?;
+    let status = resp.status();
+    let raw = resp.text().await?;
+    if !status.is_success() {
+        anyhow::bail!("图片提示词生成失败 ({status}): {raw}");
+    }
+    let parsed: Resp = serde_json::from_str(&raw)?;
     Ok(parsed.choices.into_iter().next().map(|c| c.message.content).unwrap_or_default())
+}
+
+fn source_points_from_starred(starred: &[StoredPoint]) -> Vec<GallerySourcePoint> {
+    starred
+        .iter()
+        .map(|point| GallerySourcePoint {
+            id: point.id.clone(),
+            content: point.content.chars().take(220).collect(),
+            source_doc_name: point.source_doc_name.clone(),
+        })
+        .collect()
+}
+
+async fn starred_prompt_preview(app: &tauri::AppHandle<Wry>) -> Result<GalleryPromptPreview, String> {
+    let config = crate::commands::config::get_config(app.clone())?;
+    if config.openai_api_key.trim().is_empty() {
+        return Err("尚未配置聊天模型 API Key，无法生成图片 Prompt".to_string());
+    }
+
+    let db_path = db::db_path(app).map_err(|e| e.to_string())?;
+    let starred = tokio::task::spawn_blocking({
+        let p = db_path.clone();
+        move || { let c = db::open_db(&p)?; db::list_starred_points(&c) }
+    }).await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
+
+    if starred.len() < 10 {
+        return Err(format!("至少采集 10 个 point 才可生成，当前仅 {} 个", starred.len()));
+    }
+
+    let point_ids = starred.iter().map(|p| p.id.clone()).collect::<Vec<_>>();
+    let contents = starred.iter().map(|p| p.content.clone()).collect::<Vec<_>>();
+    let prompt = build_image_prompt(&config, &contents).await.map_err(|e| e.to_string())?;
+    Ok(GalleryPromptPreview {
+        prompt,
+        point_ids,
+        source_points: source_points_from_starred(&starred),
+    })
+}
+
+async fn save_generated_image(
+    app: &tauri::AppHandle<Wry>,
+    prompt: String,
+    point_ids: Vec<String>,
+    source_points: Vec<GallerySourcePoint>,
+) -> Result<GalleryItem, String> {
+    let config = crate::commands::config::get_config(app.clone())?;
+    if prompt.trim().is_empty() {
+        return Err("图片 Prompt 不能为空".to_string());
+    }
+
+    let b64 = call_image_api(&config, prompt.trim()).await.map_err(|e| e.to_string())?;
+    let id = uuid::Uuid::new_v4().to_string();
+    let dir = gallery_dir(app).map_err(|e| e.to_string())?;
+    let (file_path, thumbnail_path) = save_image_files(&dir, &id, &b64).map_err(|e| e.to_string())?;
+
+    let item = GalleryItem {
+        id: id.clone(),
+        file_path,
+        thumbnail_path,
+        prompt: prompt.trim().to_string(),
+        generated_at: chrono::Utc::now().to_rfc3339(),
+        download_status: "ok".to_string(),
+        point_ids,
+        source_points,
+    };
+    let db_path = db::db_path(app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking({
+        let item2 = item.clone();
+        let p = db_path.clone();
+        move || { let c = db::open_db(&p)?; db::insert_gallery_item(&c, &item2) }
+    }).await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
+
+    Ok(item)
 }
 
 /// Call image API (OpenAI-compat or Gemini) and return base64 PNG.
@@ -64,6 +149,9 @@ async fn call_image_api(config: &crate::commands::config::AppConfig, prompt: &st
     let base_url = if config.image_base_url.is_empty() { &config.openai_base_url } else { &config.image_base_url };
     let api_key  = if config.image_api_key.is_empty()  { &config.openai_api_key  } else { &config.image_api_key  };
     let model    = if config.image_model.is_empty()    { "gpt-image-1"            } else { &config.image_model   };
+    if api_key.trim().is_empty() {
+        anyhow::bail!("尚未配置图片模型 API Key");
+    }
 
     if config.image_provider_key == "gemini-image" {
         // Gemini Imagen format
@@ -76,12 +164,20 @@ async fn call_image_api(config: &crate::commands::config::AppConfig, prompt: &st
         #[derive(Deserialize)] struct InlineData { data: String }
 
         let base = base_url.trim().trim_end_matches('/');
+        if base.is_empty() {
+            anyhow::bail!("Gemini 图片模型需要配置 Image Base URL");
+        }
         let url = format!("{}/v1beta/models/{}:generateContent?key={}", base, model, api_key);
         let body = serde_json::json!({
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {"responseModalities": ["IMAGE"], "imageConfig": {"aspectRatio": "16:9"}}
         });
-        let raw = reqwest::Client::new().post(&url).json(&body).send().await?.text().await?;
+        let resp = reqwest::Client::new().post(&url).json(&body).send().await?;
+        let status = resp.status();
+        let raw = resp.text().await?;
+        if !status.is_success() {
+            anyhow::bail!("Gemini 图片生成失败 ({status}): {raw}");
+        }
         let resp: GemResp = serde_json::from_str(&raw)
             .map_err(|_| anyhow::anyhow!("Gemini parse error: {}", &raw[..raw.len().min(400)]))?;
         resp.candidates.into_iter().next()
@@ -95,14 +191,32 @@ async fn call_image_api(config: &crate::commands::config::AppConfig, prompt: &st
         #[derive(Deserialize)] struct OaiImg { b64_json: Option<String>, url: Option<String> }
 
         let base = base_url.trim().trim_end_matches('/');
+        let base = if base.is_empty() { "https://api.openai.com" } else { base };
         let endpoint = format!("{}/v1/images/generations", base);
         let body = serde_json::json!({
             "model": model, "prompt": prompt, "n": 1,
             "size": "1792x1024", "response_format": "b64_json"
         });
-        let raw = reqwest::Client::new()
+        let fallback_body = serde_json::json!({
+            "model": model, "prompt": prompt, "n": 1,
+            "size": "1792x1024"
+        });
+        let resp = reqwest::Client::new()
             .post(&endpoint).bearer_auth(api_key).json(&body)
-            .send().await?.text().await?;
+            .send().await?;
+        let status = resp.status();
+        let mut raw = resp.text().await?;
+        let mut final_status = status;
+        if !status.is_success() && raw.contains("response_format") {
+            let retry = reqwest::Client::new()
+                .post(&endpoint).bearer_auth(api_key).json(&fallback_body)
+                .send().await?;
+            final_status = retry.status();
+            raw = retry.text().await?;
+        }
+        if !final_status.is_success() {
+            anyhow::bail!("图片生成失败 ({final_status}): {raw}");
+        }
         let resp: OaiResp = serde_json::from_str(&raw)
             .map_err(|_| anyhow::anyhow!("OpenAI image parse error: {}", &raw[..raw.len().min(400)]))?;
         let img = resp.data.into_iter().next()
@@ -122,52 +236,23 @@ async fn call_image_api(config: &crate::commands::config::AppConfig, prompt: &st
 
 #[tauri::command]
 pub async fn generate_image(app: tauri::AppHandle<Wry>) -> Result<GalleryItem, String> {
-    let config = crate::commands::config::get_config(app.clone())?;
-    if config.openai_api_key.is_empty() {
-        return Err("尚未配置 API Key".to_string());
-    }
+    let preview = starred_prompt_preview(&app).await?;
+    save_generated_image(&app, preview.prompt, preview.point_ids, preview.source_points).await
+}
 
-    // 1. fetch starred points
-    let db_path = db::db_path(&app).map_err(|e| e.to_string())?;
-    let starred = tokio::task::spawn_blocking({
-        let p = db_path.clone();
-        move || { let c = db::open_db(&p)?; db::list_starred_points(&c) }
-    }).await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
+#[tauri::command]
+pub async fn prepare_gallery_image_prompt(app: tauri::AppHandle<Wry>) -> Result<GalleryPromptPreview, String> {
+    starred_prompt_preview(&app).await
+}
 
-    if starred.len() < 10 {
-        return Err(format!("至少采集 10 个 point 才可生成，当前仅 {} 个", starred.len()));
-    }
-    let point_ids: Vec<String> = starred.iter().map(|p| p.id.clone()).collect();
-    let contents: Vec<String> = starred.iter().map(|p| p.content.clone()).collect();
-
-    // 2. build prompt via LLM
-    let prompt = build_image_prompt(&config, &contents).await.map_err(|e| e.to_string())?;
-
-    // 3. call image API
-    let b64 = call_image_api(&config, &prompt).await.map_err(|e| e.to_string())?;
-
-    // 4. save files
-    let id = uuid::Uuid::new_v4().to_string();
-    let dir = gallery_dir(&app).map_err(|e| e.to_string())?;
-    let (file_path, thumbnail_path) = save_image_files(&dir, &id, &b64).map_err(|e| e.to_string())?;
-
-    // 5. insert DB record
-    let item = GalleryItem {
-        id: id.clone(),
-        file_path,
-        thumbnail_path,
-        prompt,
-        generated_at: chrono::Utc::now().to_rfc3339(),
-        download_status: "ok".to_string(),
-        point_ids,
-    };
-    tokio::task::spawn_blocking({
-        let item2 = item.clone();
-        let p = db_path.clone();
-        move || { let c = db::open_db(&p)?; db::insert_gallery_item(&c, &item2) }
-    }).await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
-
-    Ok(item)
+#[tauri::command]
+pub async fn generate_image_from_prompt(
+    app: tauri::AppHandle<Wry>,
+    prompt: String,
+    point_ids: Vec<String>,
+    source_points: Vec<GallerySourcePoint>,
+) -> Result<GalleryItem, String> {
+    save_generated_image(&app, prompt, point_ids, source_points).await
 }
 
 #[tauri::command]

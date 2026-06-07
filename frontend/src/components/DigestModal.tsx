@@ -3,15 +3,49 @@ import { motion } from 'framer-motion'
 import { X, Copy, Download, BookmarkPlus, Check, Loader2 } from 'lucide-react'
 import { savePoints } from '@/api'
 import { Markdown } from '@/components/Markdown'
+import type { StoredPoint } from '@/api/types'
 
 export const DIGEST_SOURCE_NAME = '知识研报'
 
 interface Props {
   content: string
+  starredPoints: StoredPoint[]
   onClose: () => void
 }
 
-export function DigestModal({ content, onClose }: Props) {
+function digestSourceExcerpt(points: StoredPoint[]): string {
+  if (points.length === 0) return '本研报未记录采集来源。'
+
+  const groups = new Map<string, StoredPoint[]>()
+  for (const point of points) {
+    const source = point.sourceDocName?.trim() || '未命名来源'
+    groups.set(source, [...(groups.get(source) ?? []), point])
+  }
+
+  const lines = [
+    `本研报由 ${points.length} 个采集 star 生成。`,
+    '',
+    ...Array.from(groups.entries()).flatMap(([source, sourcePoints], groupIndex) => [
+      `## 来源 ${groupIndex + 1}: ${source}`,
+      `采集 star: ${sourcePoints.length} 个`,
+      '',
+      ...sourcePoints.flatMap((point, pointIndex) => {
+        const excerpt = point.sourceExcerpt?.trim()
+        return [
+          `### Star [${pointIndex + 1}]`,
+          `类型: ${point.tagType ?? '未分类'}`,
+          `内容: ${point.content}`,
+          ...(excerpt ? ['', '原文块:', excerpt] : []),
+          '',
+        ]
+      }),
+    ]),
+  ]
+
+  return lines.join('\n').trim()
+}
+
+export function DigestModal({ content, starredPoints, onClose }: Props) {
   const [copied, setCopied] = useState(false)
   const [archived, setArchived] = useState(false)
   const [archiving, setArchiving] = useState(false)
@@ -36,7 +70,7 @@ export function DigestModal({ content, onClose }: Props) {
     if (archived || archiving) return
     setArchiving(true)
     try {
-      await savePoints([{ content, tagType: '研报摘要' }], DIGEST_SOURCE_NAME)
+      await savePoints([{ content, tagType: '研报摘要' }], DIGEST_SOURCE_NAME, digestSourceExcerpt(starredPoints))
       setArchived(true)
     } finally {
       setArchiving(false)

@@ -225,6 +225,22 @@ pub async fn get_suggestion(
 }
 
 #[tauri::command]
+pub async fn delete_suggestion(
+    app: tauri::AppHandle<Wry>,
+    id: String,
+) -> Result<(), String> {
+    let path = crate::db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+        let conn = crate::db::open_db(&path)?;
+        crate::db::delete_suggestion(&conn, &id)?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn list_marked_dates(app: tauri::AppHandle<Wry>) -> Result<Vec<String>, String> {
     let path = crate::db::db_path(&app).map_err(|e| e.to_string())?;
     tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<String>> {

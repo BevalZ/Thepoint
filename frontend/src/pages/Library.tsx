@@ -6,6 +6,7 @@ import { GroupedView } from '@/components/library/GroupedView'
 import { ListView } from '@/components/library/ListView'
 import { TableView } from '@/components/library/TableView'
 import { KanbanView } from '@/components/library/KanbanView'
+import { SourceExcerptButton } from '@/components/SourceExcerptButton'
 import { cn } from '@/lib/utils'
 import type { StoredPoint } from '@/api/types'
 import { searchPoints } from '@/api'
@@ -119,6 +120,10 @@ export default function Library() {
               {archivedPoints.map(p => (
                 <div key={p.id} className="flex items-start gap-3 rounded-lg border border-border bg-bg-elevated px-4 py-3 text-sm text-fg">
                   <p className="flex-1 leading-relaxed">{p.content}</p>
+                  <SourceExcerptButton
+                    point={p}
+                    className="shrink-0 text-fg-faint transition-colors hover:text-accent mt-0.5"
+                  />
                   <button onClick={() => handleUnarchive(p.id)}
                     className="shrink-0 text-xs text-fg-muted hover:text-accent transition-colors mt-0.5">恢复</button>
                 </div>

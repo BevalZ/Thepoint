@@ -1,5 +1,5 @@
 use anyhow::Context;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use super::models;
@@ -37,6 +37,34 @@ struct RecPayload {
 struct RecItem {
     key: String,
     reason: String,
+}
+
+#[derive(Deserialize)]
+struct PolishPayload {
+    text: String,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct RelatedCandidateInput {
+    pub id: String,
+    pub content: String,
+    pub tag_type: Option<String>,
+    pub source_doc_name: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct RelatedPayload {
+    items: Vec<RelatedClassification>,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct RelatedClassification {
+    pub id: String,
+    pub relation: String,
+    pub reason: String,
+    pub confidence: f32,
 }
 
 /// A framework recommendation returned to the frontend (name resolved from the library).
@@ -188,9 +216,9 @@ pub async fn recommend_models(
     model: &str,
     base_url: &str,
     extra_headers: &str,
+    library: &[models::MentalModel],
     point_content: &str,
 ) -> anyhow::Result<Vec<FrameworkRecommendation>> {
-    let library = models::all();
     let catalog: String = library
         .iter()
         .map(|m| format!("- {} ({}): {}", m.key, m.name, m.description))
@@ -212,9 +240,9 @@ pub async fn recommend_models(
         .recommendations
         .into_iter()
         .filter_map(|item| {
-            models::by_key(&item.key).map(|m| FrameworkRecommendation {
-                key: m.key,
-                name: m.name,
+            library.iter().find(|model| model.key == item.key).map(|m| FrameworkRecommendation {
+                key: m.key.clone(),
+                name: m.name.clone(),
                 reason: item.reason,
             })
         })
@@ -229,10 +257,11 @@ pub async fn apply_framework(
     model: &str,
     base_url: &str,
     extra_headers: &str,
+    library: &[models::MentalModel],
     model_key: &str,
     point_content: &str,
 ) -> anyhow::Result<Vec<ExtractedPoint>> {
-    let mental = models::by_key(model_key).context("未知的思维模型")?;
+    let mental = library.iter().find(|model| model.key == model_key).context("未知的思维模型")?;
     let system = format!(
         "你是一个用思维框架深度解读观点的助手。{}\n\
 请基于上述视角输出 1 到 3 条解读要点。\
@@ -245,4 +274,73 @@ pub async fn apply_framework(
     let payload: PointsPayload =
         serde_json::from_str(&content).context("模型返回的内容不是预期的 JSON 格式")?;
     Ok(payload.points)
+}
+
+pub async fn polish_manual_thought(
+    api_key: &str,
+    model: &str,
+    base_url: &str,
+    extra_headers: &str,
+    parent_content: &str,
+    thought: &str,
+) -> anyhow::Result<String> {
+    let system = "你是一个中文写作润色助手。请保留用户原意和第一人称视角，把输入整理成更清楚、自然、有力量的一段观点。不要扩写成总结，不要加入“文章/文本/作者”等表述。只返回 JSON 对象 {\"text\":\"润色后的正文\"}。";
+    let user = format!("【关联观点】\n{parent_content}\n\n【我的想法】\n{thought}");
+    let content = chat_json(api_key, model, base_url, extra_headers, system, &user).await?;
+    let payload: PolishPayload =
+        serde_json::from_str(&content).context("模型返回的润色内容不是预期的 JSON 格式")?;
+    Ok(payload.text.trim().to_string())
+}
+
+pub async fn classify_related(
+    api_key: &str,
+    model: &str,
+    base_url: &str,
+    extra_headers: &str,
+    point_content: &str,
+    candidates: &[RelatedCandidateInput],
+) -> anyhow::Result<Vec<RelatedClassification>> {
+    if candidates.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let compact_candidates = candidates
+        .iter()
+        .take(8)
+        .map(|candidate| {
+            let excerpt = candidate.content.chars().take(180).collect::<String>();
+            format!(
+                "id: {}\nsource: {}\ntag: {}\ntext: {}",
+                candidate.id,
+                candidate.source_doc_name.as_deref().unwrap_or("未知来源"),
+                candidate.tag_type.as_deref().unwrap_or("未标注"),
+                excerpt
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n---\n");
+
+    let current = point_content.chars().take(300).collect::<String>();
+    let system = "你是低成本关系分类器。只对用户给出的候选内容分类，不要扩写，不要搜索。\
+关系只能从 same_view、opposite_view、similar_case、evidence、duplicate 中选择。\
+same_view=同类观点；opposite_view=相反观点或明显质疑；similar_case=结构相似案例；evidence=数据/报道/事实依据；duplicate=重复或近似重复。\
+只返回 JSON 对象 {\"items\":[{\"id\":\"候选id\",\"relation\":\"枚举值\",\"reason\":\"40字以内中文理由\",\"confidence\":0.0}]}。\
+不要返回候选之外的 id；reason 不要出现“文本通过/文章通过/该文本”等套话。";
+    let user = format!("【当前块】\n{current}\n\n【候选】\n{compact_candidates}");
+    let content = chat_json(api_key, model, base_url, extra_headers, system, &user).await?;
+    let payload: RelatedPayload =
+        serde_json::from_str(&content).context("模型返回的关联分类不是预期的 JSON 格式")?;
+    let allowed_ids = candidates.iter().map(|candidate| candidate.id.as_str()).collect::<std::collections::HashSet<_>>();
+    let allowed_relations = ["same_view", "opposite_view", "similar_case", "evidence", "duplicate"];
+
+    Ok(payload.items
+        .into_iter()
+        .filter(|item| allowed_ids.contains(item.id.as_str()))
+        .filter(|item| allowed_relations.contains(&item.relation.as_str()))
+        .map(|mut item| {
+            item.reason = item.reason.trim().chars().take(40).collect();
+            item.confidence = item.confidence.clamp(0.0, 1.0);
+            item
+        })
+        .collect())
 }

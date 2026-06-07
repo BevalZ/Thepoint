@@ -9,6 +9,7 @@ import type {
   ExploreHistoryItem,
   ExploreSourceMetadata,
   FrameworkRecommendation,
+  GalleryPromptPreview,
   MentalModel,
   StoredPoint,
 } from '@/api/types'
@@ -30,16 +31,18 @@ import {
   getProfiles,
   setProfiles,
   fetchUrl,
+  saveManualPoint,
   starPoint,
   unstarPoint,
-  getStarredCount,
-  // TODO(gallery): re-enable when AI gallery feature is ready
-  // generateImage,
+  listStarredPoints,
+  prepareGalleryImagePrompt,
+  generateImageFromPrompt,
   listGallery,
   deleteGalleryItem,
   retryDownload,
 } from '@/api'
 import type { GalleryItem } from '@/api/types'
+import { saveSourceMetadataRecord } from '@/lib/sourceMetadataRegistry'
 
 interface ConfigStore {
   config: AppConfig | null
@@ -89,6 +92,7 @@ interface ExploreStore {
   setRichContent: (html: string, text: string, url: string | null) => void
   parseFile: (filePath: string) => Promise<void>
   fetchUrlContent: (url: string) => Promise<void>
+  reanalyzeCurrent: () => Promise<void>
   reset: () => void
 }
 
@@ -161,10 +165,18 @@ function pasteMetadata(text: string): ExploreSourceMetadata {
     createdAt: null,
     modifiedAt: null,
     characterCount: characterCount(text),
+    author: null,
+    publishedAt: null,
+    readingTime: null,
   }
 }
 
-function webpageMetadata(name: string | null, url: string | null, text: string): ExploreSourceMetadata {
+function webpageMetadata(
+  name: string | null,
+  url: string | null,
+  text: string,
+  extra?: Pick<ExploreSourceMetadata, 'author' | 'publishedAt' | 'readingTime'>
+): ExploreSourceMetadata {
   return {
     kind: url ? 'webpage' : 'paste',
     name,
@@ -174,6 +186,9 @@ function webpageMetadata(name: string | null, url: string | null, text: string):
     createdAt: null,
     modifiedAt: null,
     characterCount: characterCount(text),
+    author: extra?.author ?? null,
+    publishedAt: extra?.publishedAt ?? null,
+    readingTime: extra?.readingTime ?? null,
   }
 }
 
@@ -202,7 +217,7 @@ async function autoAnalyze(set: (s: Partial<ExploreStore>) => void, content: str
   }
 }
 
-export const useExploreStore = create<ExploreStore>((set) => ({
+export const useExploreStore = create<ExploreStore>((set, get) => ({
   text: '',
   sourceName: null,
   richHtml: null,
@@ -214,28 +229,32 @@ export const useExploreStore = create<ExploreStore>((set) => ({
   error: null,
   savedChunkIds: {},
   setText: (text) => {
+    const metadata = pasteMetadata(text)
     set({
       text,
       sourceName: '粘贴文本',
       richHtml: null,
       sourceUrl: null,
-      sourceMetadata: pasteMetadata(text),
+      sourceMetadata: metadata,
       chunkCards: [],
       error: null,
     })
+    saveSourceMetadataRecord('粘贴文本', metadata)
     autoAnalyze(set, text)
   },
   setRichContent: (html, text, url) => {
     const sourceName = url ?? '粘贴网页内容'
+    const metadata = webpageMetadata(sourceName, url, text)
     set({
       richHtml: html,
       text,
       sourceName,
       sourceUrl: url,
-      sourceMetadata: webpageMetadata(sourceName, url, text),
+      sourceMetadata: metadata,
       chunkCards: [],
       error: null,
     })
+    saveSourceMetadataRecord(sourceName, metadata)
     autoAnalyze(set, text)
   },
   parseFile: async (filePath) => {
@@ -243,21 +262,26 @@ export const useExploreStore = create<ExploreStore>((set) => ({
     try {
       const text = await parseDocument(filePath)
       const metadata = await getFileMetadata(filePath)
+      const sourceMetadata: ExploreSourceMetadata = {
+        kind: 'file',
+        name: metadata.fileName,
+        path: metadata.filePath,
+        url: null,
+        sizeBytes: metadata.sizeBytes,
+        createdAt: metadata.createdAt,
+        modifiedAt: metadata.modifiedAt,
+        characterCount: characterCount(text),
+        author: null,
+        publishedAt: null,
+        readingTime: null,
+      }
       set({
         text,
         sourceName: metadata.fileName,
-        sourceMetadata: {
-          kind: 'file',
-          name: metadata.fileName,
-          path: metadata.filePath,
-          url: null,
-          sizeBytes: metadata.sizeBytes,
-          createdAt: metadata.createdAt,
-          modifiedAt: metadata.modifiedAt,
-          characterCount: characterCount(text),
-        },
+        sourceMetadata,
         parsing: false,
       })
+      saveSourceMetadataRecord(metadata.fileName, sourceMetadata)
       await autoAnalyze(set, text)
     } catch (e) {
       set({ parsing: false, error: errorMessage(e) })
@@ -270,24 +294,36 @@ export const useExploreStore = create<ExploreStore>((set) => ({
       const content = page.text
       const sourceUrl = page.url ?? url
       const sourceName = page.title ?? sourceUrl
+      const metadata = webpageMetadata(sourceName, sourceUrl, content, {
+        author: page.author,
+        publishedAt: page.publishedAt,
+        readingTime: page.readingTime,
+      })
       set({
         richHtml: page.html,
         text: content,
         sourceName,
         sourceUrl,
-        sourceMetadata: webpageMetadata(sourceName, sourceUrl, content),
+        sourceMetadata: metadata,
         parsing: false,
       })
+      saveSourceMetadataRecord(sourceName, metadata)
       await autoAnalyze(set, content)
     } catch (e) {
       set({ parsing: false, error: errorMessage(e) })
     }
+  },
+  reanalyzeCurrent: async () => {
+    const current = get()
+    if (!current.text.trim() || current.analyzing || current.parsing) return
+    await autoAnalyze(set, current.text)
   },
   reset: () => set({ text: '', sourceName: null, richHtml: null, sourceUrl: null, sourceMetadata: null, chunkCards: [], analyzing: false, parsing: false, error: null, savedChunkIds: {} }),
 }))
 
 interface ExploreHistoryStore {
   items: ExploreHistoryItem[]
+  activeVersion: number
   saveCurrent: () => void
   remove: (id: string) => void
   archive: (id: string) => void
@@ -297,6 +333,7 @@ interface ExploreHistoryStore {
 
 export const useExploreHistoryStore = create<ExploreHistoryStore>((set, get) => ({
   items: loadExploreHistoryItems(),
+  activeVersion: 0,
   saveCurrent: () => {
     const current = useExploreStore.getState()
     if (!current.text.trim() || current.chunkCards.length === 0) return
@@ -314,6 +351,7 @@ export const useExploreHistoryStore = create<ExploreHistoryStore>((set, get) => 
       updatedAt: now,
       archived: false,
     }
+    saveSourceMetadataRecord(current.sourceName, current.sourceMetadata)
     const next = compactExploreHistory([item, ...get().items])
     persistExploreHistoryItems(next)
     set({ items: next })
@@ -352,6 +390,7 @@ export const useExploreHistoryStore = create<ExploreHistoryStore>((set, get) => 
       error: null,
       savedChunkIds: {},
     })
+    set((state) => ({ activeVersion: state.activeVersion + 1 }))
     return item
   },
 }))
@@ -371,6 +410,7 @@ interface LibraryStore {
   unarchivePoint: (id: string) => Promise<void>
   toggleExpanded: (pointId: string) => void
   deepen: (point: StoredPoint, action: DeepenAction, frameworkKey?: string) => Promise<void>
+  addManualThought: (point: StoredPoint, content: string) => Promise<void>
   findSimilarFor: (point: StoredPoint) => Promise<void>
   deletePoint: (id: string) => Promise<void>
   archiveMany: (ids: string[]) => Promise<void>
@@ -450,6 +490,28 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
       }))
     }
   },
+  addManualThought: async (point, content) => {
+    const trimmed = content.trim()
+    if (!trimmed || get().deepening[point.id]) return
+    set((s) => ({
+      deepening: { ...s.deepening, [point.id]: true },
+      error: null,
+    }))
+    try {
+      const children = await saveManualPoint(point.id, trimmed)
+      set((s) => ({
+        points: [...s.points, ...children],
+        expanded: { ...s.expanded, [point.id]: true },
+        deepening: { ...s.deepening, [point.id]: false },
+      }))
+    } catch (e) {
+      set((s) => ({
+        deepening: { ...s.deepening, [point.id]: false },
+        error: errorMessage(e),
+      }))
+      throw e
+    }
+  },
   findSimilarFor: async (point) => {
     if (get().deepening[point.id]) return
     set((s) => ({
@@ -505,7 +567,6 @@ export const useDeepenStore = create<DeepenStore>((set, get) => ({
   recommendations: {},
   recommending: {},
   fetchMentalModels: async () => {
-    if (get().modelsLoaded) return
     try {
       const mentalModels = await listMentalModels()
       set({ mentalModels, modelsLoaded: true })
@@ -540,36 +601,75 @@ function errorMessage(e: unknown): string {
 
 // ── Gallery store ────────────────────────────────────────────────────────────
 
+let galleryJobSeq = 0
+
 interface GalleryStore {
   items: GalleryItem[]
+  promptPreview: GalleryPromptPreview | null
+  preparingPrompt: boolean
   generating: boolean
   error: string | null
   fetch: () => Promise<void>
+  preparePrompt: () => Promise<GalleryPromptPreview>
+  generateFromPrompt: (prompt: string) => Promise<GalleryItem>
   generate: () => Promise<GalleryItem>
+  cancel: () => void
   remove: (id: string) => Promise<void>
   retry: (id: string) => Promise<void>
 }
 
-export const useGalleryStore = create<GalleryStore>((set) => ({
+export const useGalleryStore = create<GalleryStore>((set, get) => ({
   items: [],
+  promptPreview: null,
+  preparingPrompt: false,
   generating: false,
   error: null,
   fetch: async () => {
     const items = await listGallery()
     set({ items })
   },
+  preparePrompt: async () => {
+    if (get().preparingPrompt) {
+      throw new Error('已有图片 Prompt 正在生成')
+    }
+    if (get().generating) {
+      throw new Error('已有图片正在生成')
+    }
+    const jobId = ++galleryJobSeq
+    set({ preparingPrompt: true, error: null })
+    try {
+      const preview = await prepareGalleryImagePrompt()
+      if (jobId !== galleryJobSeq) throw new Error('已取消')
+      set({ promptPreview: preview, preparingPrompt: false })
+      return preview
+    } catch (e) {
+      if (jobId === galleryJobSeq) set({ preparingPrompt: false, error: errorMessage(e) })
+      throw e
+    }
+  },
+  generateFromPrompt: async (prompt) => {
+    const preview = get().promptPreview
+    if (!preview) throw new Error('请先生成图片 Prompt')
+    if (get().generating) throw new Error('已有图片正在生成')
+    const jobId = ++galleryJobSeq
+    set({ generating: true, error: null })
+    try {
+      const item = await generateImageFromPrompt(prompt, preview.pointIds, preview.sourcePoints)
+      if (jobId !== galleryJobSeq) throw new Error('已取消')
+      set((s) => ({ items: [item, ...s.items], generating: false }))
+      return item
+    } catch (e) {
+      if (jobId === galleryJobSeq) set({ generating: false, error: errorMessage(e) })
+      throw e
+    }
+  },
   generate: async () => {
-    // TODO(gallery): re-enable when AI gallery feature is ready
-    // set({ generating: true, error: null })
-    // try {
-    //   const item = await generateImage()
-    //   set((s) => ({ items: [item, ...s.items], generating: false }))
-    //   return item
-    // } catch (e) {
-    //   set({ generating: false, error: errorMessage(e) })
-    //   throw e
-    // }
-    throw new Error('gallery feature disabled')
+    const preview = await get().preparePrompt()
+    return get().generateFromPrompt(preview.prompt)
+  },
+  cancel: () => {
+    galleryJobSeq += 1
+    set({ preparingPrompt: false, generating: false, promptPreview: null })
   },
   remove: async (id) => {
     await deleteGalleryItem(id)
@@ -585,24 +685,36 @@ export const useGalleryStore = create<GalleryStore>((set) => ({
 
 interface StarStore {
   count: number
+  points: StoredPoint[]
   init: () => Promise<void>
   star: (pointId: string) => Promise<void>
   unstar: (pointId: string) => Promise<void>
+  clear: () => Promise<void>
 }
 
-export const useStarStore = create<StarStore>((set) => ({
+export const useStarStore = create<StarStore>((set, get) => ({
   count: 0,
+  points: [],
   init: async () => {
-    const count = await getStarredCount()
-    set({ count })
+    const points = await listStarredPoints()
+    set({ count: points.length, points })
   },
   star: async (pointId) => {
     const count = await starPoint(pointId)
-    set({ count })
+    const points = await listStarredPoints()
+    set({ count, points })
   },
   unstar: async (pointId) => {
     const count = await unstarPoint(pointId)
-    set({ count })
+    const points = await listStarredPoints()
+    set({ count, points })
+  },
+  clear: async () => {
+    const points = [...get().points]
+    for (const point of points) {
+      await unstarPoint(point.id)
+    }
+    set({ count: 0, points: [] })
   },
 }))
 

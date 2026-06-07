@@ -18,6 +18,7 @@ pub struct StoredPoint {
     pub tag_type: Option<String>,
     pub parent_id: Option<String>,
     pub source_doc_name: Option<String>,
+    pub source_excerpt: Option<String>,
     pub created_at: String,
     pub archived: bool,
     pub starred: bool,
@@ -53,6 +54,7 @@ pub fn init_db(conn: &Connection) -> Result<()> {
             tag_type        TEXT,
             parent_id       TEXT,
             source_doc_name TEXT,
+            source_excerpt  TEXT,
             created_at      TEXT NOT NULL
         )",
         [],
@@ -72,6 +74,11 @@ pub fn init_db(conn: &Connection) -> Result<()> {
     if !column_exists(conn, "points", "starred")? {
         conn.execute("ALTER TABLE points ADD COLUMN starred INTEGER NOT NULL DEFAULT 0", [])
             .context("failed to add starred column")?;
+    }
+
+    if !column_exists(conn, "points", "source_excerpt")? {
+        conn.execute("ALTER TABLE points ADD COLUMN source_excerpt TEXT", [])
+            .context("failed to add source_excerpt column")?;
     }
 
     conn.execute(
@@ -130,10 +137,16 @@ pub fn init_db(conn: &Connection) -> Result<()> {
             prompt          TEXT NOT NULL,
             generated_at    TEXT NOT NULL,
             download_status TEXT NOT NULL DEFAULT 'ok',
-            point_ids       TEXT NOT NULL DEFAULT '[]'
+            point_ids       TEXT NOT NULL DEFAULT '[]',
+            source_points   TEXT NOT NULL DEFAULT '[]'
         );",
     )
     .context("failed to create gallery table")?;
+
+    if !column_exists(conn, "gallery", "source_points")? {
+        conn.execute("ALTER TABLE gallery ADD COLUMN source_points TEXT NOT NULL DEFAULT '[]'", [])
+            .context("failed to add source_points column to gallery")?;
+    }
 
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS suggestions (
@@ -167,7 +180,7 @@ fn column_exists(conn: &Connection, table: &str, column: &str) -> Result<bool> {
 /// Read every non-archived point (newest first) including its parent link.
 pub fn list_points(conn: &Connection) -> Result<Vec<StoredPoint>> {
     let mut stmt = conn.prepare(
-        "SELECT id, content, tag_type, parent_id, source_doc_name, created_at, archived, starred
+        "SELECT id, content, tag_type, parent_id, source_doc_name, source_excerpt, created_at, archived, starred
          FROM points
          WHERE archived = 0
          ORDER BY created_at DESC",
@@ -198,8 +211,8 @@ pub fn save_child_points(
     for (content, tag_type) in points {
         let id = uuid::Uuid::new_v4().to_string();
         tx.execute(
-            "INSERT INTO points (id, content, tag_type, parent_id, source_doc_name, created_at)
-             VALUES (?1, ?2, ?3, ?4, NULL, ?5)",
+            "INSERT INTO points (id, content, tag_type, parent_id, source_doc_name, source_excerpt, created_at)
+             VALUES (?1, ?2, ?3, ?4, NULL, NULL, ?5)",
             params![id, content, tag_type, parent_id, now],
         )?;
         written.push(StoredPoint {
@@ -208,6 +221,7 @@ pub fn save_child_points(
             tag_type: Some(tag_type.clone()),
             parent_id: parent_id.map(str::to_string),
             source_doc_name: None,
+            source_excerpt: None,
             created_at: now.clone(),
             archived: false,
             starred: false,
@@ -256,7 +270,7 @@ pub fn find_similar_points(
             UNION ALL
             SELECT p.id FROM points p JOIN descendants d ON p.parent_id = d.id
         )
-        SELECT p.id, p.content, p.tag_type, p.parent_id, p.source_doc_name, p.created_at, p.archived, p.starred
+        SELECT p.id, p.content, p.tag_type, p.parent_id, p.source_doc_name, p.source_excerpt, p.created_at, p.archived, p.starred
         FROM points_fts f
         JOIN points p ON p.id = f.id
         WHERE points_fts MATCH ?2
@@ -285,7 +299,7 @@ pub fn search_points(conn: &Connection, query: &str, limit: usize) -> Result<Vec
         .collect::<Vec<_>>()
         .join(" OR ");
 
-    let sql = "SELECT p.id, p.content, p.tag_type, p.parent_id, p.source_doc_name, p.created_at, p.archived, p.starred
+    let sql = "SELECT p.id, p.content, p.tag_type, p.parent_id, p.source_doc_name, p.source_excerpt, p.created_at, p.archived, p.starred
                FROM points_fts f
                JOIN points p ON p.id = f.id
                WHERE points_fts MATCH ?1
@@ -376,7 +390,7 @@ pub fn extract_keywords(content: &str) -> Vec<String> {
 /// Read every archived point (newest first).
 pub fn list_archived_points(conn: &Connection) -> Result<Vec<StoredPoint>> {
     let mut stmt = conn.prepare(
-        "SELECT id, content, tag_type, parent_id, source_doc_name, created_at, archived, starred
+        "SELECT id, content, tag_type, parent_id, source_doc_name, source_excerpt, created_at, archived, starred
          FROM points
          WHERE archived = 1
          ORDER BY created_at DESC",
@@ -403,9 +417,10 @@ fn map_point_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredPoint> {
         tag_type: row.get(2)?,
         parent_id: row.get(3)?,
         source_doc_name: row.get(4)?,
-        created_at: row.get(5)?,
-        archived: row.get::<_, i64>(6).unwrap_or(0) != 0,
-        starred: row.get::<_, i64>(7).unwrap_or(0) != 0,
+        source_excerpt: row.get(5)?,
+        created_at: row.get(6)?,
+        archived: row.get::<_, i64>(7).unwrap_or(0) != 0,
+        starred: row.get::<_, i64>(8).unwrap_or(0) != 0,
     })
 }
 
@@ -436,13 +451,19 @@ pub fn starred_count(conn: &Connection) -> Result<u32> {
 /// List all starred points (content only), for image prompt generation.
 pub fn list_starred_points(conn: &Connection) -> Result<Vec<StoredPoint>> {
     let mut stmt = conn.prepare(
-        "SELECT id, content, tag_type, parent_id, source_doc_name, created_at, archived, starred
+        "SELECT id, content, tag_type, parent_id, source_doc_name, source_excerpt, created_at, archived, starred
          FROM points WHERE starred = 1 ORDER BY created_at DESC",
     )?;
     let rows = stmt.query_map([], map_point_row)?;
     let mut out = Vec::new();
     for row in rows { out.push(row?); }
     Ok(out)
+}
+
+/// Clear the current starred collection after a digest has been generated.
+pub fn clear_starred_points(conn: &Connection) -> Result<u32> {
+    conn.execute("UPDATE points SET starred = 0 WHERE starred = 1", [])?;
+    starred_count(conn)
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -455,22 +476,32 @@ pub struct GalleryItem {
     pub generated_at: String,
     pub download_status: String,
     pub point_ids: Vec<String>,
+    pub source_points: Vec<GallerySourcePoint>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct GallerySourcePoint {
+    pub id: String,
+    pub content: String,
+    pub source_doc_name: Option<String>,
 }
 
 pub fn insert_gallery_item(conn: &Connection, item: &GalleryItem) -> Result<()> {
     let point_ids = serde_json::to_string(&item.point_ids)?;
+    let source_points = serde_json::to_string(&item.source_points)?;
     conn.execute(
-        "INSERT INTO gallery (id, file_path, thumbnail_path, prompt, generated_at, download_status, point_ids)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        "INSERT INTO gallery (id, file_path, thumbnail_path, prompt, generated_at, download_status, point_ids, source_points)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![item.id, item.file_path, item.thumbnail_path, item.prompt,
-                item.generated_at, item.download_status, point_ids],
+                item.generated_at, item.download_status, point_ids, source_points],
     )?;
     Ok(())
 }
 
 pub fn list_gallery(conn: &Connection) -> Result<Vec<GalleryItem>> {
     let mut stmt = conn.prepare(
-        "SELECT id, file_path, thumbnail_path, prompt, generated_at, download_status, point_ids
+        "SELECT id, file_path, thumbnail_path, prompt, generated_at, download_status, point_ids, source_points
          FROM gallery ORDER BY generated_at DESC",
     )?;
     let rows = stmt.query_map([], map_gallery_row)?;
@@ -481,7 +512,7 @@ pub fn list_gallery(conn: &Connection) -> Result<Vec<GalleryItem>> {
 
 pub fn get_gallery_item(conn: &Connection, id: &str) -> Result<Option<GalleryItem>> {
     let mut stmt = conn.prepare(
-        "SELECT id, file_path, thumbnail_path, prompt, generated_at, download_status, point_ids
+        "SELECT id, file_path, thumbnail_path, prompt, generated_at, download_status, point_ids, source_points
          FROM gallery WHERE id = ?1",
     )?;
     let mut rows = stmt.query(params![id])?;
@@ -509,6 +540,8 @@ pub fn update_gallery_status(conn: &Connection, id: &str, file_path: &str, thumb
 fn map_gallery_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<GalleryItem> {
     let point_ids_str: String = row.get(6)?;
     let point_ids: Vec<String> = serde_json::from_str(&point_ids_str).unwrap_or_default();
+    let source_points_str: String = row.get(7)?;
+    let source_points: Vec<GallerySourcePoint> = serde_json::from_str(&source_points_str).unwrap_or_default();
     Ok(GalleryItem {
         id: row.get(0)?,
         file_path: row.get(1)?,
@@ -517,6 +550,7 @@ fn map_gallery_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<GalleryItem> {
         generated_at: row.get(4)?,
         download_status: row.get(5)?,
         point_ids,
+        source_points,
     })
 }
 
@@ -580,6 +614,11 @@ pub fn get_suggestion(conn: &Connection, id: &str) -> Result<Option<Suggestion>>
     } else {
         Ok(None)
     }
+}
+
+pub fn delete_suggestion(conn: &Connection, id: &str) -> Result<()> {
+    conn.execute("DELETE FROM suggestions WHERE id = ?1", params![id])?;
+    Ok(())
 }
 
 pub fn list_marked_dates(conn: &Connection) -> Result<Vec<String>> {
