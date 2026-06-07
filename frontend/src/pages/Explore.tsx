@@ -3,12 +3,32 @@ import { motion, AnimatePresence } from 'framer-motion'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { open } from '@tauri-apps/plugin-dialog'
-import { Archive, ArchiveRestore, Images, Loader2, Upload, FileText, Star, X, Link, AlertCircle, RotateCcw, Trash2 } from 'lucide-react'
+import {
+  AlertCircle,
+  Archive,
+  ArchiveRestore,
+  Calendar,
+  Clipboard,
+  Database,
+  ExternalLink,
+  FileText,
+  Globe,
+  Hash,
+  Images,
+  Info,
+  Link,
+  Loader2,
+  RotateCcw,
+  Star,
+  Trash2,
+  Upload,
+  X,
+} from 'lucide-react'
 import { useConfigStore, useExploreHistoryStore, useExploreStore, useStarStore } from '@/store'
 import { cn } from '@/lib/utils'
 import { useStarFly } from '@/hooks/useStarFly'
 import { describeImage, savePoints } from '@/api'
-import type { AppConfig, ChunkCard, ExploreHistoryItem } from '@/api/types'
+import type { AppConfig, ChunkCard, ExploreHistoryItem, ExploreSourceMetadata } from '@/api/types'
 
 const URL_RE = /^https?:\/\/[^\s]+$/
 const SUPPORTED_EXTS = ['txt','md','markdown','rst','csv','docx','odt','html','htm']
@@ -177,7 +197,7 @@ function parseSourceBlocks(richHtml: string | null, fallbackText: string, baseUr
   const parser = new DOMParser()
   const doc = parser.parseFromString(richHtml, 'text/html')
   const blocks: SourceBlock[] = []
-  const handledImages = new WeakSet<Element>()
+  const handledImageIndexes = new Map<string, number>()
   const blockTags = new Set([
     'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
     'p', 'li', 'blockquote', 'pre', 'td', 'th',
@@ -190,15 +210,28 @@ function parseSourceBlocks(richHtml: string | null, fallbackText: string, baseUr
   }
 
   const pushImage = (img: HTMLImageElement, caption: string | null) => {
-    if (handledImages.has(img)) return
     const rawSrc = img.getAttribute('src')?.trim()
     if (!rawSrc) return
-    handledImages.add(img)
+    const resolvedSrc = resolveImageSrc(rawSrc, baseUrl)
+    const imageKey = normalizeImageSrcKey(resolvedSrc)
+    if (!imageKey) return
+    const alt = img.getAttribute('alt')?.trim() ?? ''
+    const nextCaption = caption ?? meaningfulCaption(alt)
+    const existingIndex = handledImageIndexes.get(imageKey)
+    if (existingIndex !== undefined) {
+      const existing = blocks[existingIndex]
+      if (existing.type === 'image') {
+        if (!existing.alt && alt) existing.alt = alt
+        if (!existing.caption && nextCaption) existing.caption = nextCaption
+      }
+      return
+    }
+    handledImageIndexes.set(imageKey, blocks.length)
     blocks.push({
       type: 'image',
-      src: resolveImageSrc(rawSrc, baseUrl),
-      alt: img.getAttribute('alt')?.trim() ?? '',
-      caption: caption ?? meaningfulCaption(img.getAttribute('alt')),
+      src: resolvedSrc,
+      alt,
+      caption: nextCaption,
     })
   }
 
@@ -262,6 +295,20 @@ function resolveImageSrc(src: string, baseUrl: string | null): string {
   }
 }
 
+function normalizeImageSrcKey(src: string): string {
+  const trimmed = src.trim()
+  if (!trimmed) return ''
+  if (/^data:/i.test(trimmed)) return trimmed
+  try {
+    const url = new URL(trimmed)
+    url.hash = ''
+    return url.toString()
+  } catch {
+    const hashIndex = trimmed.indexOf('#')
+    return hashIndex >= 0 ? trimmed.slice(0, hashIndex) : trimmed
+  }
+}
+
 function previewText(block: SourceBlock): string {
   if (block.type === 'text') {
     return block.text.length > BLOCK_PREVIEW_LIMIT
@@ -311,6 +358,248 @@ function formatHistoryDate(value: string): string {
   })
 }
 
+function formatBytes(bytes: number | null): string {
+  if (bytes === null) return '未知'
+  if (bytes < 1024) return `${bytes} B`
+
+  const units = ['KB', 'MB', 'GB', 'TB']
+  let value = bytes / 1024
+  let unitIndex = 0
+
+  while (value >= 1024 && unitIndex < units.length - 1) {
+    value /= 1024
+    unitIndex += 1
+  }
+
+  return `${value >= 10 ? value.toFixed(1) : value.toFixed(2)} ${units[unitIndex]}`
+}
+
+function formatDateTime(value: string | null): string {
+  if (value === null) return '未知'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '未知'
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function formatCount(value: number): string {
+  return new Intl.NumberFormat('zh-CN').format(value)
+}
+
+function sourceKindLabel(kind: ExploreSourceMetadata['kind']): string {
+  if (kind === 'file') return '本地文件'
+  if (kind === 'webpage') return '网页'
+  return '粘贴内容'
+}
+
+function sourceKindIcon(kind: ExploreSourceMetadata['kind']) {
+  if (kind === 'file') return FileText
+  if (kind === 'webpage') return Globe
+  return Clipboard
+}
+
+function buildFallbackSourceMetadata(
+  sourceName: string | null,
+  sourceUrl: string | null,
+  text: string
+): ExploreSourceMetadata {
+  return {
+    kind: sourceUrl === null ? 'paste' : 'webpage',
+    name: sourceName,
+    path: null,
+    url: sourceUrl,
+    sizeBytes: null,
+    createdAt: null,
+    modifiedAt: null,
+    characterCount: Array.from(text).length,
+  }
+}
+
+interface MetadataRowProps {
+  icon: typeof Info
+  label: string
+  value: string
+  href?: string
+}
+
+function MetadataRow({ icon: Icon, label, value, href }: MetadataRowProps) {
+  return (
+    <div className="grid grid-cols-[1rem,4.5rem,minmax(0,1fr)] items-start gap-2 text-xs">
+      <Icon size={13} className="mt-0.5 text-accent" />
+      <span className="text-fg-faint">{label}</span>
+      {href ? (
+        <a
+          href={href}
+          target="_blank"
+          rel="noreferrer"
+          className="break-all text-fg-muted underline decoration-accent/30 underline-offset-4 transition-colors hover:text-accent"
+        >
+          {value}
+        </a>
+      ) : (
+        <span className="break-words text-fg-muted">{value}</span>
+      )}
+    </div>
+  )
+}
+
+function SourceMetadataPanel({ metadata }: { metadata: ExploreSourceMetadata }) {
+  const KindIcon = sourceKindIcon(metadata.kind)
+  const rows: MetadataRowProps[] = [
+    { icon: KindIcon, label: '类型', value: sourceKindLabel(metadata.kind) },
+  ]
+
+  if (metadata.name !== null) rows.push({ icon: FileText, label: '名称', value: metadata.name })
+
+  if (metadata.kind === 'file') {
+    rows.push(
+      { icon: Database, label: '大小', value: formatBytes(metadata.sizeBytes) },
+      { icon: Calendar, label: '创建', value: formatDateTime(metadata.createdAt) },
+      { icon: Calendar, label: '修改', value: formatDateTime(metadata.modifiedAt) },
+      { icon: Hash, label: '字符', value: `${formatCount(metadata.characterCount)} 字` },
+    )
+    if (metadata.path !== null) rows.push({ icon: Link, label: '路径', value: metadata.path })
+  } else if (metadata.kind === 'webpage') {
+    rows.push({ icon: Hash, label: '字符', value: `${formatCount(metadata.characterCount)} 字` })
+    if (metadata.url !== null) rows.push({ icon: ExternalLink, label: '地址', value: metadata.url, href: metadata.url })
+  } else {
+    rows.push({ icon: Hash, label: '字符', value: `${formatCount(metadata.characterCount)} 字` })
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -8, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: -6, scale: 0.98 }}
+      transition={{ duration: 0.16, ease: 'easeOut' }}
+      className="absolute right-6 top-[calc(100%+0.5rem)] z-30 w-[min(28rem,calc(100vw-3rem))] rounded-lg border border-border-strong bg-bg-elevated p-4 shadow-2xl"
+    >
+      <div className="mb-3 flex items-center gap-2">
+        <div className="flex h-7 w-7 items-center justify-center rounded-md border border-accent/30 bg-accent/10 text-accent">
+          <Info size={15} />
+        </div>
+        <div>
+          <p className="text-sm font-medium text-fg">元信息</p>
+          <p className="text-[11px] text-fg-faint">{sourceKindLabel(metadata.kind)}</p>
+        </div>
+      </div>
+      <div className="space-y-2.5">
+        {rows.map((row) => (
+          <MetadataRow key={`${row.label}-${row.value}`} {...row} />
+        ))}
+      </div>
+    </motion.div>
+  )
+}
+
+interface SourceHeaderProps {
+  busy: boolean
+  parsing: boolean
+  sourceName: string | null
+  sourceUrl: string | null
+  metadata: ExploreSourceMetadata
+  onOpenHistory: () => void
+  onChangeFile: () => void
+  onClear: () => void
+}
+
+function SourceHeader({
+  busy,
+  parsing,
+  sourceName,
+  sourceUrl,
+  metadata,
+  onOpenHistory,
+  onChangeFile,
+  onClear,
+}: SourceHeaderProps) {
+  const [metadataOpen, setMetadataOpen] = useState(false)
+  const KindIcon = sourceKindIcon(metadata.kind)
+
+  useEffect(() => {
+    setMetadataOpen(false)
+  }, [metadata])
+
+  return (
+    <div className="relative shrink-0 border-b border-border bg-bg-elevated/95 px-6 py-3">
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-accent/25 bg-accent/10 text-accent">
+          {busy ? <Loader2 size={16} className="animate-spin" /> : <KindIcon size={16} />}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="shrink-0 rounded-md border border-border bg-bg px-2 py-0.5 text-[11px] text-fg-faint">
+              {busy ? parsing ? '解析中' : '分析中' : sourceKindLabel(metadata.kind)}
+            </span>
+            <p className="truncate text-sm font-medium text-fg">{sourceName ?? metadata.name ?? '未命名来源'}</p>
+          </div>
+          <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-fg-faint">
+            <span>{formatCount(metadata.characterCount)} 字符</span>
+            {sourceUrl !== null && (
+              <a
+                href={sourceUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="flex min-w-0 items-center gap-1 truncate transition-colors hover:text-accent"
+              >
+                <ExternalLink size={11} className="shrink-0" />
+                <span className="truncate">{sourceUrl}</span>
+              </a>
+            )}
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setMetadataOpen((openValue) => !openValue)}
+            className={cn(
+              'inline-flex h-8 w-8 items-center justify-center rounded-md border border-border text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg',
+              metadataOpen && 'border-accent/40 bg-accent/10 text-accent'
+            )}
+            title="元信息"
+          >
+            <Info size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={onOpenHistory}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg"
+            title="缩略图"
+          >
+            <Images size={13} />
+            缩略图
+          </button>
+          <button
+            type="button"
+            onClick={onChangeFile}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg"
+            title="换文件"
+          >
+            <FileText size={13} />
+            换文件
+          </button>
+          <button
+            type="button"
+            onClick={onClear}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg"
+            title="清空"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      </div>
+      <AnimatePresence>
+        {metadataOpen && <SourceMetadataPanel metadata={metadata} />}
+      </AnimatePresence>
+    </div>
+  )
+}
+
 // ── Drawer ─────────────────────────────────────────────────────────────────
 function ChunkDrawer({ card, commentatorEmoji, commentatorName, onClose }: {
   card: ChunkCard; commentatorEmoji: string; commentatorName: string; onClose: () => void
@@ -336,7 +625,7 @@ function ChunkDrawer({ card, commentatorEmoji, commentatorName, onClose }: {
           <X size={16} />
         </button>
       </div>
-      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5 [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none' }}>
+      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5 [&::-webkit-scrollbar]:hidden">
         <div>
           <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-fg-faint">总结</p>
           <p className="text-sm leading-relaxed text-fg">{card.summary}</p>
@@ -899,7 +1188,7 @@ function HistoryDrawer({ items, onClose, onActivate, onArchive, onUnarchive, onD
           <X size={16} />
         </button>
       </div>
-      <div className="flex-1 overflow-y-auto px-5 py-4 [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none' }}>
+      <div className="flex-1 overflow-y-auto px-5 py-4 [&::-webkit-scrollbar]:hidden">
         {items.length === 0 ? (
           <div className="flex h-full items-center justify-center text-center text-sm text-fg-faint">
             <div>
@@ -958,7 +1247,22 @@ function HistoryDrawer({ items, onClose, onActivate, onArchive, onUnarchive, onD
 
 // ── Main ────────────────────────────────────────────────────────────────────
 export default function Explore() {
-  const { text, richHtml, chunkCards, analyzing, parsing, error, sourceName, sourceUrl, setText, setRichContent, parseFile, fetchUrlContent, reset } = useExploreStore()
+  const {
+    text,
+    richHtml,
+    chunkCards,
+    analyzing,
+    parsing,
+    error,
+    sourceName,
+    sourceUrl,
+    sourceMetadata,
+    setText,
+    setRichContent,
+    parseFile,
+    fetchUrlContent,
+    reset,
+  } = useExploreStore()
   const history = useExploreHistoryStore()
   const { config, loaded } = useConfigStore()
   const { star, unstar } = useStarStore()
@@ -1013,6 +1317,10 @@ export default function Explore() {
   const commentatorEmoji = config?.commentatorEmoji ?? '🧐'
   const commentatorName = config?.commentatorName ?? '鲁迅'
   const shouldDescribeImages = supportsMultimodal(config)
+  const displaySourceMetadata = useMemo(
+    () => sourceMetadata ?? buildFallbackSourceMetadata(sourceName, sourceUrl, text),
+    [sourceMetadata, sourceName, sourceUrl, text]
+  )
 
   useEffect(() => {
     if (analyzing || parsing) {
@@ -1191,28 +1499,16 @@ export default function Explore() {
 
         {hasContent && (
           <>
-            <div className="flex shrink-0 items-center gap-2 border-b border-border px-6 py-2.5 text-xs text-fg-faint">
-              {busy ? (
-                <><Loader2 size={12} className="animate-spin text-accent" /><span className="text-accent">{parsing ? '解析中…' : '分析中…'}</span></>
-              ) : (
-                <>
-                  {sourceName && <span className="truncate max-w-[260px] text-fg-muted">{sourceName}</span>}
-                  {sourceUrl && (
-                    <a href={sourceUrl} target="_blank" rel="noreferrer"
-                      className="flex items-center gap-1 hover:text-accent transition-colors truncate max-w-[200px]">
-                      <Link size={11} />{sourceUrl}
-                    </a>
-                  )}
-                  <button onClick={() => setHistoryOpen(true)} className="ml-auto rounded border border-border px-2 py-0.5 hover:bg-bg-hover transition-colors">
-                    <Images size={11} className="inline mr-1" />缩略图
-                  </button>
-                  <button onClick={handleChangeFile} className="rounded border border-border px-2 py-0.5 hover:bg-bg-hover transition-colors">
-                    <FileText size={11} className="inline mr-1" />换文件
-                  </button>
-                  <button onClick={reset} className="rounded border border-border px-2 py-0.5 hover:bg-bg-hover transition-colors">清空</button>
-                </>
-              )}
-            </div>
+            <SourceHeader
+              busy={busy}
+              parsing={parsing}
+              sourceName={sourceName}
+              sourceUrl={sourceUrl}
+              metadata={displaySourceMetadata}
+              onOpenHistory={() => setHistoryOpen(true)}
+              onChangeFile={handleChangeFile}
+              onClear={reset}
+            />
 
             {error && (
               <div className="mx-6 mt-4 flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
@@ -1232,7 +1528,7 @@ export default function Explore() {
                 isValuableBlock={isValuableSourceBlock}
               />
             ) : (
-              <div className="flex-1 overflow-y-auto px-6 py-5 [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none' }}>
+              <div className="flex-1 overflow-y-auto px-6 py-5 [&::-webkit-scrollbar]:hidden">
                 <div className="mx-auto max-w-2xl space-y-4 pb-10">
                   {resultTargetCount > 0 && (hasSourceBlocks ? visibleSourceItems.length === 0 : visibleCards.length === 0) && (
                     <motion.div

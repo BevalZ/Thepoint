@@ -19,6 +19,7 @@ pub fn run() {
             commands::config::get_profiles,
             commands::config::set_profiles,
             commands::extract::parse_document,
+            commands::extract::get_file_metadata,
             commands::extract::extract_text,
             commands::extract::extract_text_streaming,
             commands::extract::fetch_url,

@@ -1,6 +1,9 @@
-use std::path::PathBuf;
-use tauri::Wry;
 use serde::{Deserialize, Serialize};
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+};
+use tauri::Wry;
 
 use crate::ai::{openai, ExtractedPoint};
 
@@ -10,6 +13,17 @@ pub struct FetchedPage {
     pub html: String,
     pub text: String,
     pub title: Option<String>,
+    pub url: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileMetadata {
+    pub file_path: String,
+    pub file_name: String,
+    pub size_bytes: u64,
+    pub created_at: Option<String>,
+    pub modified_at: Option<String>,
 }
 
 /// Fetch a URL and extract readable content (rich HTML + plain text + title).
@@ -29,34 +43,77 @@ pub async fn fetch_url(url: String) -> Result<FetchedPage, String> {
     Ok(extract_page_content(&raw, &final_url))
 }
 
+#[tauri::command]
+pub async fn get_file_metadata(file_path: String) -> Result<FileMetadata, String> {
+    tokio::task::spawn_blocking(move || {
+        let path = PathBuf::from(&file_path);
+        let metadata = std::fs::metadata(&path).map_err(|e| e.to_string())?;
+        let file_name = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .map_or_else(|| file_path.clone(), ToString::to_string);
+
+        Ok(FileMetadata {
+            file_path,
+            file_name,
+            size_bytes: metadata.len(),
+            created_at: metadata.created().ok().map(system_time_to_rfc3339),
+            modified_at: metadata.modified().ok().map(system_time_to_rfc3339),
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn system_time_to_rfc3339(time: std::time::SystemTime) -> String {
+    let datetime: chrono::DateTime<chrono::Utc> = time.into();
+    datetime.to_rfc3339()
+}
+
 fn extract_page_content(raw: &str, base_url: &reqwest::Url) -> FetchedPage {
     use scraper::{Html, Selector};
 
     let doc = Html::parse_document(raw);
 
     // title
-    let title = Selector::parse("title").ok()
+    let title = Selector::parse("title")
+        .ok()
         .and_then(|s| doc.select(&s).next())
         .map(|el| el.text().collect::<String>().trim().to_string())
         .filter(|s| !s.is_empty());
 
     // noise tags to strip
-    let noise_sel = Selector::parse("script,style,nav,footer,aside,header,noscript,iframe,form,button")
-        .expect("valid");
-    let noise_ids: std::collections::HashSet<_> = doc.select(&noise_sel).map(|e| e.id()).collect();
+    let noise_ids: HashSet<_> =
+        Selector::parse("script,style,nav,footer,aside,header,noscript,iframe,form,button")
+            .ok()
+            .map(|selector| doc.select(&selector).map(|e| e.id()).collect())
+            .unwrap_or_default();
 
     // prefer <article> or <main>, fall back to <body>
-    let root_sel = Selector::parse("article,main,body").expect("valid");
-    let root = doc.select(&root_sel).next();
+    let root_sel = Selector::parse("article,main,body").ok();
+    let root = root_sel
+        .as_ref()
+        .and_then(|selector| doc.select(selector).next());
 
     // rebuild clean HTML: walk content elements, keep img tags
-    let content_sel = Selector::parse("h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,img,figure,table,td,th")
-        .expect("valid");
-    let img_sel = Selector::parse("img").expect("valid");
-    let caption_sel = Selector::parse("figcaption").expect("valid");
+    let content_sel =
+        match Selector::parse("h1,h2,h3,h4,h5,h6,p,li,blockquote,pre,img,figure,table,td,th") {
+            Ok(selector) => selector,
+            Err(_) => {
+                return FetchedPage {
+                    html: String::new(),
+                    text: String::new(),
+                    title,
+                    url: base_url.to_string(),
+                };
+            }
+        };
+    let img_sel = Selector::parse("img").ok();
+    let caption_sel = Selector::parse("figcaption").ok();
 
     let mut html_parts: Vec<String> = Vec::new();
     let mut text_lines: Vec<String> = Vec::new();
+    let mut seen_images: HashMap<String, SeenImage> = HashMap::new();
 
     let elements: Vec<_> = match root {
         Some(r) => r.select(&content_sel).collect(),
@@ -64,7 +121,11 @@ fn extract_page_content(raw: &str, base_url: &reqwest::Url) -> FetchedPage {
     };
 
     for el in elements {
-        if el.ancestors().any(|a| a.value().as_element().map_or(false, |_| noise_ids.contains(&a.id()))) {
+        if el.ancestors().any(|a| {
+            a.value()
+                .as_element()
+                .map_or(false, |_| noise_ids.contains(&a.id()))
+        }) {
             continue;
         }
         let tag = el.value().name();
@@ -72,26 +133,39 @@ fn extract_page_content(raw: &str, base_url: &reqwest::Url) -> FetchedPage {
             continue;
         }
         if tag == "figure" {
-            if let Some(img) = el.select(&img_sel).next() {
+            if let Some(img) = img_sel
+                .as_ref()
+                .and_then(|selector| el.select(selector).next())
+            {
                 if let Some(src) = image_src(&img) {
                     let src = absolutize_src(&src, base_url);
                     let alt = img.value().attr("alt").unwrap_or("");
-                    let caption = el.select(&caption_sel).next()
+                    let caption = caption_sel
+                        .as_ref()
+                        .and_then(|selector| el.select(selector).next())
                         .map(|c| c.text().collect::<String>().trim().to_string())
                         .filter(|s| !s.is_empty());
-                    html_parts.push(image_html(&src, alt, caption.as_deref()));
+                    push_image_html(
+                        &mut html_parts,
+                        &mut seen_images,
+                        &src,
+                        alt,
+                        caption.as_deref(),
+                    );
                 }
             }
         } else if tag == "img" {
             if let Some(src) = image_src(&el) {
                 let src = absolutize_src(&src, base_url);
                 let alt = el.value().attr("alt").unwrap_or("");
-                html_parts.push(image_html(&src, alt, None));
+                push_image_html(&mut html_parts, &mut seen_images, &src, alt, None);
             }
         } else {
             let text: String = el.text().collect::<String>();
             let text = text.trim().to_string();
-            if text.is_empty() { continue; }
+            if text.is_empty() {
+                continue;
+            }
             html_parts.push(format!("<{tag}>{}</{tag}>", escape_html_text(&text)));
             text_lines.push(text);
         }
@@ -101,7 +175,63 @@ fn extract_page_content(raw: &str, base_url: &reqwest::Url) -> FetchedPage {
         html: html_parts.join("\n"),
         text: text_lines.join("\n"),
         title,
+        url: base_url.to_string(),
     }
+}
+
+#[derive(Clone)]
+struct SeenImage {
+    part_index: usize,
+    src: String,
+    alt: String,
+    caption: Option<String>,
+}
+
+fn push_image_html(
+    html_parts: &mut Vec<String>,
+    seen_images: &mut HashMap<String, SeenImage>,
+    src: &str,
+    alt: &str,
+    caption: Option<&str>,
+) {
+    let key = normalize_image_src_key(src);
+    if key.is_empty() {
+        return;
+    }
+
+    let alt = alt.trim();
+    let caption = caption.map(str::trim).filter(|value| !value.is_empty());
+
+    if let Some(existing) = seen_images.get_mut(&key) {
+        let mut changed = false;
+        if existing.alt.is_empty() && !alt.is_empty() {
+            existing.alt = alt.to_string();
+            changed = true;
+        }
+        if existing.caption.is_none() {
+            if let Some(caption) = caption {
+                existing.caption = Some(caption.to_string());
+                changed = true;
+            }
+        }
+        if changed {
+            html_parts[existing.part_index] =
+                image_html(&existing.src, &existing.alt, existing.caption.as_deref());
+        }
+        return;
+    }
+
+    let part_index = html_parts.len();
+    html_parts.push(image_html(src, alt, caption));
+    seen_images.insert(
+        key,
+        SeenImage {
+            part_index,
+            src: src.to_string(),
+            alt: alt.to_string(),
+            caption: caption.map(ToString::to_string),
+        },
+    );
 }
 
 fn has_ancestor_tag(el: &scraper::ElementRef<'_>, tag_name: &str) -> bool {
@@ -132,6 +262,26 @@ fn absolutize_src(src: &str, base_url: &reqwest::Url) -> String {
         .unwrap_or_else(|_| src.to_string())
 }
 
+fn normalize_image_src_key(src: &str) -> String {
+    let trimmed = src.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if trimmed.starts_with("data:") {
+        return trimmed.to_string();
+    }
+    match reqwest::Url::parse(trimmed) {
+        Ok(mut url) => {
+            url.set_fragment(None);
+            url.to_string()
+        }
+        Err(_) => trimmed.split_once('#').map_or_else(
+            || trimmed.to_string(),
+            |(without_hash, _)| without_hash.to_string(),
+        ),
+    }
+}
+
 fn image_html(src: &str, alt: &str, caption: Option<&str>) -> String {
     let src = escape_html_attr(src);
     let alt = escape_html_attr(alt);
@@ -158,13 +308,22 @@ fn escape_html_attr(value: &str) -> String {
 }
 
 #[tauri::command]
-pub async fn describe_image(app: tauri::AppHandle<Wry>, image_url: String) -> Result<String, String> {
+pub async fn describe_image(
+    app: tauri::AppHandle<Wry>,
+    image_url: String,
+) -> Result<String, String> {
     #[derive(Deserialize)]
-    struct Resp { choices: Vec<Choice> }
+    struct Resp {
+        choices: Vec<Choice>,
+    }
     #[derive(Deserialize)]
-    struct Choice { message: Msg }
+    struct Choice {
+        message: Msg,
+    }
     #[derive(Deserialize)]
-    struct Msg { content: String }
+    struct Msg {
+        content: String,
+    }
 
     let config = crate::commands::config::get_config(app)?;
     if config.openai_api_key.is_empty() {
@@ -174,11 +333,8 @@ pub async fn describe_image(app: tauri::AppHandle<Wry>, image_url: String) -> Re
         return Err("图片地址为空".to_string());
     }
 
-    let endpoint = crate::commands::config::completions_endpoint(
-        &config.openai_base_url,
-        "openai-compat",
-        "",
-    );
+    let endpoint =
+        crate::commands::config::completions_endpoint(&config.openai_base_url, "openai-compat", "");
     let body = serde_json::json!({
         "model": config.openai_model,
         "messages": [{
@@ -202,7 +358,9 @@ pub async fn describe_image(app: tauri::AppHandle<Wry>, image_url: String) -> Re
         .post(&endpoint)
         .bearer_auth(&config.openai_api_key)
         .json(&body);
-    if let Ok(map) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&config.extra_headers) {
+    if let Ok(map) =
+        serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&config.extra_headers)
+    {
         for (k, v) in &map {
             if let Some(s) = v.as_str() {
                 builder = builder.header(k.as_str(), s);
@@ -210,14 +368,17 @@ pub async fn describe_image(app: tauri::AppHandle<Wry>, image_url: String) -> Re
         }
     }
 
-    let resp = builder.send().await.map_err(|e| format!("图像说明请求失败: {e}"))?;
+    let resp = builder
+        .send()
+        .await
+        .map_err(|e| format!("图像说明请求失败: {e}"))?;
     let status = resp.status();
     let raw = resp.text().await.map_err(|e| e.to_string())?;
     if !status.is_success() {
         return Err(format!("图像说明失败 ({status}): {raw}"));
     }
-    let parsed: Resp = serde_json::from_str(&raw)
-        .map_err(|e| format!("图像说明响应解析失败: {e}"))?;
+    let parsed: Resp =
+        serde_json::from_str(&raw).map_err(|e| format!("图像说明响应解析失败: {e}"))?;
     Ok(parsed
         .choices
         .into_iter()
@@ -262,11 +423,12 @@ pub async fn extract_text_streaming(
             }
         }));
     }
-    for h in handles { let _ = h.await; }
+    for h in handles {
+        let _ = h.await;
+    }
     let _ = app.emit("points_done", ());
     Ok(())
 }
-
 
 #[tauri::command]
 pub async fn parse_document(file_path: String) -> Result<String, String> {
@@ -283,9 +445,15 @@ pub async fn extract_text(
     text: String,
 ) -> Result<Vec<ExtractedPoint>, String> {
     let config = crate::commands::config::get_config(app)?;
-    openai::extract_points(&config.openai_api_key, &config.openai_model, &config.openai_base_url, &config.extra_headers, &text)
-        .await
-        .map_err(|e| e.to_string())
+    openai::extract_points(
+        &config.openai_api_key,
+        &config.openai_model,
+        &config.openai_base_url,
+        &config.extra_headers,
+        &text,
+    )
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// Analyze text streaming: split → per-chunk analyze → emit "chunk_card", then "chunk_cards_done".
@@ -297,26 +465,76 @@ pub async fn analyze_text_streaming(
     use tauri::Emitter;
     let config = crate::commands::config::get_config(app.clone())?;
     let chunks = openai::split_chunks(
-        &config.openai_api_key, &config.openai_model,
-        &config.openai_base_url, &config.extra_headers, &text,
-    ).await.map_err(|e| e.to_string())?;
+        &config.openai_api_key,
+        &config.openai_model,
+        &config.openai_base_url,
+        &config.extra_headers,
+        &text,
+    )
+    .await
+    .map_err(|e| e.to_string())?;
 
     let mut handles = Vec::new();
     for (index, chunk) in chunks.into_iter().enumerate() {
         let (api_key, model, base_url, headers, name, style) = (
-            config.openai_api_key.clone(), config.openai_model.clone(),
-            config.openai_base_url.clone(), config.extra_headers.clone(),
-            config.commentator_name.clone(), config.commentator_style.clone(),
+            config.openai_api_key.clone(),
+            config.openai_model.clone(),
+            config.openai_base_url.clone(),
+            config.extra_headers.clone(),
+            config.commentator_name.clone(),
+            config.commentator_style.clone(),
         );
         let app = app.clone();
         handles.push(tokio::spawn(async move {
-            if let Ok(mut card) = openai::analyze_chunk(&api_key, &model, &base_url, &headers, &chunk, &name, &style).await {
+            if let Ok(mut card) =
+                openai::analyze_chunk(&api_key, &model, &base_url, &headers, &chunk, &name, &style)
+                    .await
+            {
                 card.index = index;
                 let _ = app.emit("chunk_card", &card);
             }
         }));
     }
-    for h in handles { let _ = h.await; }
+    for h in handles {
+        let _ = h.await;
+    }
     let _ = app.emit("chunk_cards_done", ());
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_page_content_deduplicates_images_by_normalized_src() {
+        let base_url =
+            reqwest::Url::parse("https://example.com/articles/story/").expect("valid test url");
+        let raw = r#"
+            <html>
+                <body>
+                    <main>
+                        <p>Opening paragraph with useful text.</p>
+                        <img src="../assets/tree.webp#hero" alt="">
+                        <figure>
+                            <img src="https://example.com/articles/assets/tree.webp" alt="Tree worker">
+                            <figcaption>Worker in a tree</figcaption>
+                        </figure>
+                        <p>Closing paragraph with useful text.</p>
+                    </main>
+                </body>
+            </html>
+        "#;
+
+        let page = extract_page_content(raw, &base_url);
+
+        assert_eq!(page.html.matches("<img ").count(), 1);
+        assert!(page
+            .html
+            .contains(r#"src="https://example.com/articles/assets/tree.webp#hero""#));
+        assert!(page.html.contains(r#"alt="Tree worker""#));
+        assert!(page
+            .html
+            .contains("<figcaption>Worker in a tree</figcaption>"));
+    }
 }

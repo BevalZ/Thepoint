@@ -5,6 +5,7 @@ import type {
   ConfigProfile,
   DeepenAction,
   ExtractedPoint,
+  FileMetadata,
   FrameworkRecommendation,
   GalleryItem,
   GenerateSuggestionResult,
@@ -21,6 +22,9 @@ export const setConfig = (config: AppConfig) =>
 
 export const parseDocument = (filePath: string) =>
   invoke<string>('parse_document', { filePath })
+
+export const getFileMetadata = (filePath: string) =>
+  invoke<FileMetadata>('get_file_metadata', { filePath })
 
 export const extractText = (text: string) =>
   invoke<ExtractedPoint[]>('extract_text', { text })
@@ -92,7 +96,7 @@ export const setProfiles = (profiles: ConfigProfile[]) =>
   invoke<void>('set_profiles', { profiles })
 
 export const fetchUrl = (url: string) =>
-  invoke<{ html: string; text: string; title: string | null }>('fetch_url', { url })
+  invoke<{ html: string; text: string; title: string | null; url: string }>('fetch_url', { url })
 
 export const describeImage = (imageUrl: string) =>
   invoke<string>('describe_image', { imageUrl })

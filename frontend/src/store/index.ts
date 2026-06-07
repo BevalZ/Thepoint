@@ -7,6 +7,7 @@ import type {
   DeepenAction,
   ExtractedPoint,
   ExploreHistoryItem,
+  ExploreSourceMetadata,
   FrameworkRecommendation,
   MentalModel,
   StoredPoint,
@@ -15,6 +16,7 @@ import {
   getConfig,
   setConfig,
   parseDocument,
+  getFileMetadata,
   analyzeTextStreaming,
   listPoints,
   deletePoint,
@@ -76,6 +78,7 @@ interface ExploreStore {
   sourceName: string | null
   richHtml: string | null
   sourceUrl: string | null
+  sourceMetadata: ExploreSourceMetadata | null
   chunkCards: ChunkCard[]
   analyzing: boolean
   parsing: boolean
@@ -144,6 +147,36 @@ function firstImageFromHtml(html: string | null): string | null {
   return doc.querySelector('img[src]')?.getAttribute('src') ?? null
 }
 
+function characterCount(text: string): number {
+  return Array.from(text).length
+}
+
+function pasteMetadata(text: string): ExploreSourceMetadata {
+  return {
+    kind: 'paste',
+    name: '粘贴文本',
+    path: null,
+    url: null,
+    sizeBytes: null,
+    createdAt: null,
+    modifiedAt: null,
+    characterCount: characterCount(text),
+  }
+}
+
+function webpageMetadata(name: string | null, url: string | null, text: string): ExploreSourceMetadata {
+  return {
+    kind: url ? 'webpage' : 'paste',
+    name,
+    path: null,
+    url,
+    sizeBytes: null,
+    createdAt: null,
+    modifiedAt: null,
+    characterCount: characterCount(text),
+  }
+}
+
 async function autoAnalyze(set: (s: Partial<ExploreStore>) => void, content: string) {
   if (!content.trim()) return
   set({ analyzing: true, error: null, chunkCards: [] })
@@ -174,25 +207,57 @@ export const useExploreStore = create<ExploreStore>((set) => ({
   sourceName: null,
   richHtml: null,
   sourceUrl: null,
+  sourceMetadata: null,
   chunkCards: [],
   analyzing: false,
   parsing: false,
   error: null,
   savedChunkIds: {},
   setText: (text) => {
-    set({ text, sourceName: '粘贴文本', richHtml: null, sourceUrl: null, chunkCards: [], error: null })
+    set({
+      text,
+      sourceName: '粘贴文本',
+      richHtml: null,
+      sourceUrl: null,
+      sourceMetadata: pasteMetadata(text),
+      chunkCards: [],
+      error: null,
+    })
     autoAnalyze(set, text)
   },
   setRichContent: (html, text, url) => {
-    set({ richHtml: html, text, sourceName: url ?? '粘贴网页内容', sourceUrl: url, chunkCards: [], error: null })
+    const sourceName = url ?? '粘贴网页内容'
+    set({
+      richHtml: html,
+      text,
+      sourceName,
+      sourceUrl: url,
+      sourceMetadata: webpageMetadata(sourceName, url, text),
+      chunkCards: [],
+      error: null,
+    })
     autoAnalyze(set, text)
   },
   parseFile: async (filePath) => {
-    set({ parsing: true, error: null, chunkCards: [], richHtml: null, sourceUrl: null })
+    set({ parsing: true, error: null, chunkCards: [], richHtml: null, sourceUrl: null, sourceMetadata: null })
     try {
       const text = await parseDocument(filePath)
-      const sourceName = filePath.split(/[\\/]/).pop() ?? filePath
-      set({ text, sourceName, parsing: false })
+      const metadata = await getFileMetadata(filePath)
+      set({
+        text,
+        sourceName: metadata.fileName,
+        sourceMetadata: {
+          kind: 'file',
+          name: metadata.fileName,
+          path: metadata.filePath,
+          url: null,
+          sizeBytes: metadata.sizeBytes,
+          createdAt: metadata.createdAt,
+          modifiedAt: metadata.modifiedAt,
+          characterCount: characterCount(text),
+        },
+        parsing: false,
+      })
       await autoAnalyze(set, text)
     } catch (e) {
       set({ parsing: false, error: errorMessage(e) })
@@ -203,13 +268,22 @@ export const useExploreStore = create<ExploreStore>((set) => ({
     try {
       const page = await fetchUrl(url)
       const content = page.text
-      set({ richHtml: page.html, text: content, sourceName: page.title ?? url, sourceUrl: url, parsing: false })
+      const sourceUrl = page.url ?? url
+      const sourceName = page.title ?? sourceUrl
+      set({
+        richHtml: page.html,
+        text: content,
+        sourceName,
+        sourceUrl,
+        sourceMetadata: webpageMetadata(sourceName, sourceUrl, content),
+        parsing: false,
+      })
       await autoAnalyze(set, content)
     } catch (e) {
       set({ parsing: false, error: errorMessage(e) })
     }
   },
-  reset: () => set({ text: '', sourceName: null, richHtml: null, sourceUrl: null, chunkCards: [], analyzing: false, parsing: false, error: null, savedChunkIds: {} }),
+  reset: () => set({ text: '', sourceName: null, richHtml: null, sourceUrl: null, sourceMetadata: null, chunkCards: [], analyzing: false, parsing: false, error: null, savedChunkIds: {} }),
 }))
 
 interface ExploreHistoryStore {
@@ -231,6 +305,7 @@ export const useExploreHistoryStore = create<ExploreHistoryStore>((set, get) => 
       id: newHistoryId(),
       sourceName: current.sourceName,
       sourceUrl: current.sourceUrl,
+      sourceMetadata: current.sourceMetadata,
       text: current.text,
       richHtml: current.richHtml,
       chunkCards: [...current.chunkCards].sort((a, b) => a.index - b.index),
@@ -270,6 +345,7 @@ export const useExploreHistoryStore = create<ExploreHistoryStore>((set, get) => 
       sourceName: item.sourceName,
       richHtml: item.richHtml,
       sourceUrl: item.sourceUrl,
+      sourceMetadata: item.sourceMetadata ?? null,
       chunkCards: item.chunkCards,
       analyzing: false,
       parsing: false,

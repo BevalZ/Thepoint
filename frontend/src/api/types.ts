@@ -86,10 +86,32 @@ export interface GalleryItem {
   pointIds: string[]
 }
 
+export interface FileMetadata {
+  filePath: string
+  fileName: string
+  sizeBytes: number
+  createdAt: string | null
+  modifiedAt: string | null
+}
+
+export type ExploreSourceKind = 'file' | 'webpage' | 'paste'
+
+export interface ExploreSourceMetadata {
+  kind: ExploreSourceKind
+  name: string | null
+  path: string | null
+  url: string | null
+  sizeBytes: number | null
+  createdAt: string | null
+  modifiedAt: string | null
+  characterCount: number
+}
+
 export interface ExploreHistoryItem {
   id: string
   sourceName: string | null
   sourceUrl: string | null
+  sourceMetadata?: ExploreSourceMetadata | null
   text: string
   richHtml: string | null
   chunkCards: ChunkCard[]
