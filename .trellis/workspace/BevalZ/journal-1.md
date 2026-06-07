@@ -170,3 +170,36 @@
 ### Next Steps
 
 - None - task complete
+
+
+## Session 6: Fix duplicate Explore images and source chrome
+
+**Date**: 2026-06-07
+**Task**: Fix duplicate Explore images and source chrome
+**Branch**: `main`
+
+### Summary
+
+Fixed duplicate Explore image handling, source metadata UI, frameless titlebar controls, hidden scrollbars, and startup sound asset/registry.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e4b1c8e` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
