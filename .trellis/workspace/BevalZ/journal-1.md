@@ -203,3 +203,37 @@ Fixed duplicate Explore image handling, source metadata UI, frameless titlebar c
 ### Next Steps
 
 - None - task complete
+
+
+## Session 7: Merge short Explore paragraphs and polish completion UI
+
+**Date**: 2026-06-07
+**Task**: Merge short Explore paragraphs and polish completion UI
+**Branch**: `main`
+
+### Summary
+
+Merged short Explore paragraphs into coherent 200-400 character analysis blocks, naturalized generated summary openings, added completion confetti, and tightened result card sizing around actual content.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d89e2e6` | (see git log) |
+| `7f2d3b6` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

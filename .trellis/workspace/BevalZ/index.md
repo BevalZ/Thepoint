@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 6
+- **Total Sessions**: 7
 - **Last Active**: 2026-06-07
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~205 | Active |
+| `journal-1.md` | ~239 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 7 | 2026-06-07 | Merge short Explore paragraphs and polish completion UI | `d89e2e6`, `7f2d3b6` | `main` |
 | 6 | 2026-06-07 | Fix duplicate Explore images and source chrome | `e4b1c8e` | `main` |
 | 5 | 2026-06-05 | 设置页 Tab 重构 + 服务商优化 + JSON 编辑器 | `b4598b2` | `main` |
 | 4 | 2026-06-05 | Step 8: 行为统计图表（雷达图+折线图） | `7ab6b3e` | `main` |
