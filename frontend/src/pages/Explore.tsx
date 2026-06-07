@@ -33,6 +33,8 @@ import type { AppConfig, ChunkCard, ExploreHistoryItem, ExploreSourceMetadata } 
 const URL_RE = /^https?:\/\/[^\s]+$/
 const SUPPORTED_EXTS = ['txt','md','markdown','rst','csv','docx','odt','html','htm']
 const BLOCK_PREVIEW_LIMIT = 320
+const INFO_BLOCK_MIN_CHARS = 200
+const INFO_BLOCK_MAX_CHARS = 400
 const STAGE_GAP = 150
 const STAGE_WINDOW = 3
 const STAGE_ADVANCE_MS = 720
@@ -83,34 +85,44 @@ function splitIntoInfoBlocks(text: string): string[] {
   const cleaned = text.replace(/\r\n/g, '\n').trim()
   if (!cleaned) return []
 
-  const units = cleaned
+  const paragraphs = cleaned
     .split(/\n+/)
-    .flatMap((part) => splitLongInfoPart(part))
+    .map((part) => part.trim())
     .filter(Boolean)
 
   const blocks: string[] = []
   let current = ''
+  let currentLength = 0
 
   const flush = () => {
     if (current) {
       blocks.push(current)
       current = ''
+      currentLength = 0
     }
   }
 
-  for (const part of units.length > 0 ? units : splitLongInfoPart(cleaned)) {
-    if (shouldKeepStandaloneBlock(part)) {
-      flush()
-      blocks.push(part)
-      continue
-    }
+  for (const paragraph of paragraphs.length > 0 ? paragraphs : [cleaned]) {
+    const parts = splitLongInfoPart(paragraph)
+    for (const part of parts) {
+      if (shouldKeepStandaloneBlock(part)) {
+        flush()
+        blocks.push(part)
+        continue
+      }
 
-    const next = current ? `${current} ${part}` : part
-    if (next.length > BLOCK_PREVIEW_LIMIT && current) {
-      flush()
-      current = part
-    } else {
-      current = next
+      const partLength = Array.from(part).length
+      const separator = current ? '\n\n' : ''
+      const nextLength = currentLength + partLength
+      if (current && nextLength > INFO_BLOCK_MAX_CHARS) {
+        flush()
+      }
+
+      current = current ? `${current}${separator}${part}` : part
+      currentLength += partLength
+      if (currentLength >= INFO_BLOCK_MIN_CHARS) {
+        flush()
+      }
     }
   }
 
@@ -128,13 +140,14 @@ function splitLongInfoPart(part: string): string[] {
   for (const sentence of sentenceParts) {
     const trimmed = sentence.trim()
     if (!trimmed) continue
-    if (trimmed.length <= BLOCK_PREVIEW_LIMIT) {
+    if (Array.from(trimmed).length <= INFO_BLOCK_MAX_CHARS) {
       chunks.push(trimmed)
       continue
     }
 
-    for (let start = 0; start < trimmed.length; start += BLOCK_PREVIEW_LIMIT) {
-      chunks.push(trimmed.slice(start, start + BLOCK_PREVIEW_LIMIT))
+    const chars = Array.from(trimmed)
+    for (let start = 0; start < chars.length; start += INFO_BLOCK_MAX_CHARS) {
+      chunks.push(chars.slice(start, start + INFO_BLOCK_MAX_CHARS).join(''))
     }
   }
 
@@ -147,7 +160,7 @@ function normalizedText(text: string): string {
 
 function isMetadataTextBlock(normalized: string): boolean {
   if (/^(作者|撰文|来源|发布|日期|时间|编辑|译者|摄影|图|图注|标题|by|source|date|updated|published)\s*[：:]/i.test(normalized)) return true
-  if (/^\d{4}[-年]\d{1,2}([-/月]\d{1,2})?/.test(normalized)) return true
+  if (/^\d{4}[-年]\d{1,2}([-/月]\d{1,2})?\s*$/.test(normalized)) return true
   return false
 }
 
@@ -172,7 +185,7 @@ function looksLikeHeadingText(normalized: string): boolean {
 
 function shouldKeepStandaloneBlock(text: string): boolean {
   const normalized = normalizedText(text)
-  return !isValuableTextBlock(normalized) || looksLikeHeadingText(normalized)
+  return isMetadataTextBlock(normalized) || looksLikeHeadingText(normalized)
 }
 
 function isValuableTextBlock(text: string): boolean {
@@ -197,6 +210,7 @@ function parseSourceBlocks(richHtml: string | null, fallbackText: string, baseUr
   const parser = new DOMParser()
   const doc = parser.parseFromString(richHtml, 'text/html')
   const blocks: SourceBlock[] = []
+  const pendingText: string[] = []
   const handledImageIndexes = new Map<string, number>()
   const blockTags = new Set([
     'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
@@ -204,12 +218,20 @@ function parseSourceBlocks(richHtml: string | null, fallbackText: string, baseUr
   ])
 
   const pushText = (text: string) => {
-    for (const part of splitIntoInfoBlocks(text)) {
+    const normalized = text.trim()
+    if (normalized) pendingText.push(normalized)
+  }
+
+  const flushText = () => {
+    if (pendingText.length === 0) return
+    for (const part of splitIntoInfoBlocks(pendingText.join('\n\n'))) {
       blocks.push({ type: 'text', text: part })
     }
+    pendingText.length = 0
   }
 
   const pushImage = (img: HTMLImageElement, caption: string | null) => {
+    flushText()
     const rawSrc = img.getAttribute('src')?.trim()
     if (!rawSrc) return
     const resolvedSrc = resolveImageSrc(rawSrc, baseUrl)
@@ -272,6 +294,7 @@ function parseSourceBlocks(richHtml: string | null, fallbackText: string, baseUr
   }
 
   doc.body.childNodes.forEach(visit)
+  flushText()
   return blocks.length > 0
     ? blocks
     : splitIntoInfoBlocks(fallbackText).map((text) => ({ type: 'text', text }))

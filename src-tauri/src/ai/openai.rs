@@ -47,7 +47,8 @@ const CHUNK_EXTRACT_SYSTEM: &str = "你是一个观点提取助手。请从给�
 同时为每个 point 提取 anchor：原文中对应的那句话或短语（15-80字，尽量精确，不要改写）。\
 只返回 JSON 对象，格式为 {\"points\": [{\"content\": \"...\", \"tagType\": \"...\", \"anchor\": \"...\"}]}，不要包含其他文字。";
 
-const LOCAL_BLOCK_LIMIT: usize = 320;
+const LOCAL_BLOCK_MIN_CHARS: usize = 200;
+const LOCAL_BLOCK_MAX_CHARS: usize = 400;
 
 fn normalize_inline(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
@@ -69,7 +70,7 @@ fn split_long_info_part(part: &str) -> Vec<String> {
     for ch in normalized.chars() {
         current.push(ch);
         let len = current.chars().count();
-        if (is_sentence_break(ch) && len >= 40) || len >= LOCAL_BLOCK_LIMIT {
+        if (is_sentence_break(ch) && len >= LOCAL_BLOCK_MIN_CHARS) || len >= LOCAL_BLOCK_MAX_CHARS {
             let trimmed = current.trim();
             if !trimmed.is_empty() {
                 chunks.push(trimmed.to_string());
@@ -87,10 +88,48 @@ fn split_long_info_part(part: &str) -> Vec<String> {
 }
 
 fn split_candidate_chunks(text: &str) -> Vec<String> {
-    text.replace("\r\n", "\n")
+    let normalized = text.replace("\r\n", "\n");
+    let paragraphs: Vec<String> = normalized
         .split('\n')
-        .flat_map(split_long_info_part)
-        .collect()
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .map(ToString::to_string)
+        .collect();
+
+    let mut chunks = Vec::new();
+    let mut current = String::new();
+    let mut current_len = 0usize;
+
+    let flush = |current: &mut String, current_len: &mut usize, chunks: &mut Vec<String>| {
+        let trimmed = current.trim();
+        if !trimmed.is_empty() {
+            chunks.push(trimmed.to_string());
+        }
+        current.clear();
+        *current_len = 0;
+    };
+
+    for paragraph in paragraphs {
+        for part in split_long_info_part(&paragraph) {
+            let part_len = part.chars().count();
+            if !current.is_empty() && current_len + part_len > LOCAL_BLOCK_MAX_CHARS {
+                flush(&mut current, &mut current_len, &mut chunks);
+            }
+
+            if !current.is_empty() {
+                current.push_str("\n\n");
+            }
+            current.push_str(&part);
+            current_len += part_len;
+
+            if current_len >= LOCAL_BLOCK_MIN_CHARS {
+                flush(&mut current, &mut current_len, &mut chunks);
+            }
+        }
+    }
+
+    flush(&mut current, &mut current_len, &mut chunks);
+    chunks
 }
 
 fn has_metadata_prefix(normalized: &str) -> bool {
@@ -118,7 +157,10 @@ fn starts_with_date(normalized: &str) -> bool {
     if !first_four_are_digits {
         return false;
     }
-    chars.next().is_some_and(|ch| ch == '-' || ch == '年')
+    if !chars.next().is_some_and(|ch| ch == '-' || ch == '年') {
+        return false;
+    }
+    normalized.chars().all(|ch| ch.is_ascii_digit() || matches!(ch, '-' | '/' | '年' | '月' | '日' | ' '))
 }
 
 fn has_analysis_signal(normalized: &str) -> bool {
@@ -184,7 +226,7 @@ fn is_valuable_text_block(text: &str) -> bool {
 fn valuable_chunks(chunks: Vec<String>) -> Vec<String> {
     chunks
         .into_iter()
-        .map(|chunk| normalize_inline(&chunk))
+        .map(|chunk| chunk.trim().to_string())
         .filter(|chunk| is_valuable_text_block(chunk))
         .collect()
 }
@@ -385,4 +427,35 @@ pub async fn analyze_chunk(
         anyhow::bail!("文本块无足够分析价值");
     }
     Ok(ChunkCard { index: 0, text: chunk.to_string(), summary: p.summary, hot_take: p.hot_take, labels: p.labels })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn split_candidate_chunks_merges_short_paragraphs_preserving_breaks() {
+        let text = [
+            "我在杭州工作，周末通常去爬山。",
+            "2016年9月，这里将举办盛大的 G20 峰会。",
+            "全城都在忙绿地筹备，山路上也不例外。",
+            "距离西湖最近的一圈山头，都在安装照明设备，准备在夜间亮灯。",
+            "那些灯柱都是铸铁做的，高度六七米，非常沉重。",
+            "施工队使用骡子，将灯柱从山脚运到峰顶。",
+            "我在山路上遇过好几次驮运设备的骡子。",
+            "它们背上两边各绑着一根极重的灯柱，默默地低着头，蹒跚地踩在石阶上。",
+            "等爬到峰顶，卸下设备以后，又返回山脚，驮运下一批。",
+            "每头骡子的屁股后面，都跟着一个拿着木棍、看管它的施工人员，防止它走错路。",
+            "这种安排让临时工程能进入车辆到不了的山道，也让城市筹备显得格外具体。",
+        ]
+        .join("\n");
+
+        let chunks = split_candidate_chunks(&text);
+
+        assert!(chunks.len() < 11);
+        assert!(chunks[0].contains("2016年9月，这里将举办盛大的 G20 峰会。"));
+        assert!(chunks[0].contains("\n\n"));
+        assert!(chunks[0].chars().count() >= LOCAL_BLOCK_MIN_CHARS);
+        assert!(chunks[0].chars().count() <= LOCAL_BLOCK_MAX_CHARS);
+    }
 }
