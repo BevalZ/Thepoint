@@ -378,7 +378,7 @@ pub async fn extract_points(
 
 const ANALYZE_SYSTEM: &str = "你是一个文本分析助手。请对给定的文本主题块完成以下三项分析，只返回 JSON 对象：\
 只分析有独立信息价值的正文。若文本只是标题、作者、日期、来源、图注、URL、导航、版权、极短过渡句或没有独立观点/事实价值的短句，应返回空 summary、空 hot_take 和空 labels。\
-1. summary: 一句话总结（20-60字，用原文语言）\
+1. summary: 一句话总结（20-60字，用原文语言）。必须像人读完后自然概括内容，直接说正文事实/观点；不要以“文章”“本文”“该文本”“这段文字”“内容”“作者”等元叙述开头，不要写“讲述了/描述了/介绍了/表达了”。\
 2. hot_take: 以指定评论员风格生成的辣评（50-100字，用原文语言）\
 3. labels: 信息分类标签数组，每项含 category（五大类之一）和 sub（最匹配子类）\
 五大类及子类：\
@@ -388,6 +388,55 @@ const ANALYZE_SYSTEM: &str = "你是一个文本分析助手。请对给定的�
 规范性/分析性[道德/法律规范,逻辑/数学真理,定义约定,语法规则,同义反复,先验真理]\
 修辞性[隐喻,类比,夸张,反问,反讽/讽刺,委婉表达,思想实验]\
 格式：{\"summary\":\"...\",\"hot_take\":\"...\",\"labels\":[{\"category\":\"...\",\"sub\":\"...\"}]}";
+
+fn naturalize_summary_start(summary: &str) -> String {
+    let mut normalized = summary.trim().to_string();
+    let prefixes = [
+        "这篇文章",
+        "这篇文本",
+        "这段文字",
+        "这段文本",
+        "该文章",
+        "该文本",
+        "该内容",
+        "本文",
+        "文章",
+        "文本",
+        "内容",
+        "作者",
+    ];
+    let verbs = [
+        "主要讲述了",
+        "主要描述了",
+        "主要介绍了",
+        "主要表达了",
+        "讲述了",
+        "描述了",
+        "介绍了",
+        "表达了",
+        "认为",
+        "指出",
+        "强调",
+        "通过",
+        "以",
+        "将",
+    ];
+
+    for prefix in prefixes {
+        if let Some(rest) = normalized.strip_prefix(prefix) {
+            let rest = rest.trim_start_matches(['，', ',', '：', ':', ' ', '　']);
+            for verb in verbs {
+                if let Some(after_verb) = rest.strip_prefix(verb) {
+                    normalized = after_verb.trim_start_matches(['，', ',', '：', ':', ' ', '　']).to_string();
+                    break;
+                }
+            }
+            break;
+        }
+    }
+
+    normalized
+}
 
 /// Analyze a chunk: summary + hot_take (in commentator's style) + info-type labels.
 pub async fn analyze_chunk(
@@ -426,7 +475,7 @@ pub async fn analyze_chunk(
     if p.summary.trim().is_empty() && p.hot_take.trim().is_empty() {
         anyhow::bail!("文本块无足够分析价值");
     }
-    Ok(ChunkCard { index: 0, text: chunk.to_string(), summary: p.summary, hot_take: p.hot_take, labels: p.labels })
+    Ok(ChunkCard { index: 0, text: chunk.to_string(), summary: naturalize_summary_start(&p.summary), hot_take: p.hot_take, labels: p.labels })
 }
 
 #[cfg(test)]
@@ -457,5 +506,17 @@ mod tests {
         assert!(chunks[0].contains("\n\n"));
         assert!(chunks[0].chars().count() >= LOCAL_BLOCK_MIN_CHARS);
         assert!(chunks[0].chars().count() <= LOCAL_BLOCK_MAX_CHARS);
+    }
+
+    #[test]
+    fn naturalize_summary_start_removes_meta_openings() {
+        assert_eq!(
+            naturalize_summary_start("该文本将大公司软件工程师比作螺子，强调个体被动使用。"),
+            "大公司软件工程师比作螺子，强调个体被动使用。"
+        );
+        assert_eq!(
+            naturalize_summary_start("文章以登山运灯柱为例，呈现城市筹备背后的具体劳动。"),
+            "登山运灯柱为例，呈现城市筹备背后的具体劳动。"
+        );
     }
 }

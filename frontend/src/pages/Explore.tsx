@@ -61,6 +61,20 @@ const STAR_BURST = [
   { x: -18, y: 18, rotate: -46, size: 5 },
   { x: 4, y: 27, rotate: 12, size: 6 },
 ]
+const CONFETTI_PIECES = [
+  { x: -240, y: -120, r: -160, c: 'bg-amber-300', w: 7, h: 18, d: 0 },
+  { x: -198, y: -52, r: 140, c: 'bg-cyan-300', w: 5, h: 16, d: 0.03 },
+  { x: -166, y: 88, r: -90, c: 'bg-fuchsia-300', w: 8, h: 12, d: 0.06 },
+  { x: -126, y: -154, r: 110, c: 'bg-emerald-300', w: 6, h: 18, d: 0.02 },
+  { x: -88, y: 136, r: -130, c: 'bg-sky-300', w: 7, h: 14, d: 0.08 },
+  { x: -42, y: -108, r: 180, c: 'bg-rose-300', w: 5, h: 18, d: 0.05 },
+  { x: 0, y: 118, r: -180, c: 'bg-amber-300', w: 8, h: 13, d: 0.01 },
+  { x: 46, y: -148, r: 120, c: 'bg-lime-300', w: 6, h: 16, d: 0.07 },
+  { x: 92, y: 96, r: -110, c: 'bg-cyan-300', w: 5, h: 15, d: 0.04 },
+  { x: 132, y: -76, r: 160, c: 'bg-fuchsia-300', w: 7, h: 17, d: 0.09 },
+  { x: 176, y: 46, r: -150, c: 'bg-emerald-300', w: 8, h: 12, d: 0.02 },
+  { x: 226, y: -126, r: 95, c: 'bg-rose-300', w: 6, h: 18, d: 0.05 },
+]
 
 type SourceBlock =
   | { type: 'text'; text: string }
@@ -738,6 +752,55 @@ function MarkdownContent({ content }: { content: string }) {
   )
 }
 
+function CompletionConfetti({ burstKey }: { burstKey: number }) {
+  return (
+    <motion.div
+      key={burstKey}
+      aria-hidden
+      className="pointer-events-none fixed inset-0 z-30 overflow-hidden"
+      initial={{ opacity: 1 }}
+      animate={{ opacity: 0 }}
+      transition={{ duration: 1.45, delay: 0.28, ease: 'easeOut' }}
+    >
+      <div className="absolute left-1/2 top-[42%] h-0 w-0">
+        <motion.div
+          className="absolute -left-10 -top-10 h-20 w-20 rounded-full border border-amber-300/60"
+          initial={{ opacity: 0.9, scale: 0.2 }}
+          animate={{ opacity: 0, scale: 3.4 }}
+          transition={{ duration: 0.9, ease: 'easeOut' }}
+        />
+        {CONFETTI_PIECES.map((piece, index) => (
+          <motion.span
+            key={`${piece.x}-${piece.y}-${index}`}
+            className={cn('absolute left-0 top-0 rounded-sm shadow-[0_0_16px_rgba(255,255,255,0.16)]', piece.c)}
+            style={{ width: piece.w, height: piece.h }}
+            initial={{ opacity: 0, x: 0, y: 0, rotate: 0, scale: 0.4 }}
+            animate={{
+              opacity: [0, 1, 1, 0],
+              x: [0, piece.x * 0.42, piece.x],
+              y: [0, piece.y * 0.35 - 70, piece.y + 220],
+              rotate: [0, piece.r * 0.55, piece.r],
+              scale: [0.45, 1.05, 0.9],
+            }}
+            transition={{ duration: 1.18, delay: piece.d, ease: 'easeOut' }}
+          />
+        ))}
+        {STAR_BURST.map((spark, index) => (
+          <motion.span
+            key={`finish-star-${index}`}
+            className="absolute left-0 top-0 text-amber-300"
+            initial={{ opacity: 0, x: 0, y: 0, scale: 0.2, rotate: 0 }}
+            animate={{ opacity: [0, 1, 0], x: spark.x * 3.4, y: spark.y * 2.8, scale: 1.15, rotate: spark.rotate * 2 }}
+            transition={{ duration: 0.86, delay: 0.05 + index * 0.035, ease: 'easeOut' }}
+          >
+            <Star size={spark.size + 5} fill="currentColor" />
+          </motion.span>
+        ))}
+      </div>
+    </motion.div>
+  )
+}
+
 // ── ThemeBlock ──────────────────────────────────────────────────────────────
 function ThemeBlock({ card, index, starred, onOpen, onToggleStar, displayText, muted = false }: {
   card: ChunkCard
@@ -754,10 +817,10 @@ function ThemeBlock({ card, index, starred, onOpen, onToggleStar, displayText, m
       initial={{ opacity: 0, y: 58, scale: 0.96 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       transition={{ type: 'spring', stiffness: 250, damping: 24 }}
-      className="group relative flex items-start gap-3"
+      className="group relative flex items-center gap-3"
     >
       <div className={cn(
-        'relative flex-1 overflow-hidden rounded-xl border border-border px-5 py-4 text-sm leading-relaxed',
+        'relative min-h-0 flex-1 overflow-hidden rounded-xl border border-border px-4 py-3 text-sm leading-relaxed shadow-[0_12px_34px_rgba(0,0,0,0.18)]',
         muted ? 'bg-bg/70 text-fg-muted' : 'bg-bg-elevated text-fg'
       )}>
         {!muted && (
@@ -782,12 +845,14 @@ function ThemeBlock({ card, index, starred, onOpen, onToggleStar, displayText, m
           onClick={onOpen}
           onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); starRef.current && onToggleStar(starRef.current) }}
           className={cn(
-            'mt-3 shrink-0 rounded-full p-1.5 transition-colors',
-            starred ? 'text-amber-400 bg-amber-400/15' : 'text-amber-400/50 hover:text-amber-400 hover:bg-amber-400/10'
+            'shrink-0 rounded-full border p-2 shadow-lg transition-colors',
+            starred
+              ? 'border-amber-400/50 bg-amber-400/15 text-amber-400'
+              : 'border-border bg-bg-elevated text-amber-400/60 hover:border-amber-400/40 hover:bg-amber-400/10 hover:text-amber-400'
           )}
           title={starred ? '右键取消采集' : '左键查看分析 / 右键采集'}
         >
-          <Star size={18} fill={starred ? 'currentColor' : 'none'} />
+          <Star size={20} fill={starred ? 'currentColor' : 'none'} />
         </motion.button>
       )}
     </motion.div>
@@ -1297,6 +1362,8 @@ export default function Explore() {
   const [revealedCount, setRevealedCount] = useState(0)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [imageDescriptions, setImageDescriptions] = useState<Record<string, string | null | undefined>>({})
+  const [generationInProgress, setGenerationInProgress] = useState(false)
+  const [completionBurstKey, setCompletionBurstKey] = useState<number | null>(null)
   // index → saved point id (once a chunk has been saved+starred)
   const [savedIds, setSavedIds] = useState<Record<number, string>>({})
 
@@ -1352,6 +1419,8 @@ export default function Explore() {
       setImageDescriptions({})
       setStageCompletedCount(0)
       setRevealedCount(0)
+      setGenerationInProgress(true)
+      setCompletionBurstKey(null)
     }
   }, [analyzing, parsing])
 
@@ -1390,6 +1459,15 @@ export default function Explore() {
     return () => timers.forEach((timer) => window.clearTimeout(timer))
   }, [showProcessing, resultTargetCount])
 
+  useEffect(() => {
+    if (!generationInProgress || showProcessing || resultTargetCount === 0 || revealedCount < resultTargetCount) return
+
+    setCompletionBurstKey(Date.now())
+    setGenerationInProgress(false)
+    const timer = window.setTimeout(() => setCompletionBurstKey(null), 1700)
+    return () => window.clearTimeout(timer)
+  }, [generationInProgress, revealedCount, resultTargetCount, showProcessing])
+
   const handleToggleStar = useCallback(async (index: number, card: ChunkCard, el: HTMLButtonElement) => {
     const existing = savedIds[index]
     if (existing) {
@@ -1425,6 +1503,8 @@ export default function Explore() {
     setStageCompletedCount(0)
     setRevealedCount(0)
     setImageDescriptions({})
+    setGenerationInProgress(false)
+    setCompletionBurstKey(null)
   }
 
   const handleActivateHistory = (id: string) => {
@@ -1433,6 +1513,8 @@ export default function Explore() {
     setActiveCard(null)
     setStageCompletedCount(Number.MAX_SAFE_INTEGER)
     setRevealedCount(Number.MAX_SAFE_INTEGER)
+    setGenerationInProgress(false)
+    setCompletionBurstKey(null)
   }
 
   // ── Drag & drop ──────────────────────────────────────────────────────────
@@ -1622,6 +1704,7 @@ export default function Explore() {
       </div>
 
       <AnimatePresence>
+        {completionBurstKey !== null && <CompletionConfetti burstKey={completionBurstKey} />}
         {historyOpen && (
           <>
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
