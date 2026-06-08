@@ -109,7 +109,7 @@ flowchart TD
 | 🌐 网页解析 | HTML 源码正文抽取、噪音清洗、LLM 辅助裁剪 |
 | 📊 图表 | ECharts |
 | 🤖 AI 接口 | OpenAI-compatible HTTP API / Ollama 兼容接口 |
-| 🚀 打包 | GitHub Actions 多平台构建 |
+| 🚀 打包 | Tauri CLI 跨平台打包 |
 
 ---
 
@@ -164,22 +164,19 @@ cargo tauri build
 
 ---
 
-## 📥 发布与下载
+## 📥 下载
 
-Release 由 GitHub Actions 自动构建，目标平台包括：
+<p align="center">
+  <a href="https://github.com/BevalZ/Thepoint/releases/latest">
+    <img alt="Latest Release" src="https://img.shields.io/github/v/release/BevalZ/Thepoint?label=Latest%20Release&style=for-the-badge">
+  </a>
+</p>
+
+前往 [Latest Release](https://github.com/BevalZ/Thepoint/releases/latest) 下载对应平台安装包：
 
 - 🪟 Windows: `.msi` / `.exe`
 - 🍎 macOS: Apple Silicon / Intel
 - 🐧 Linux: `.deb` / `.AppImage` / `.rpm`
-
-推送 tag 即可触发构建：
-
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
-
-也可以在 GitHub Actions 页面手动运行 `Build and Release` workflow。
 
 ---
 
