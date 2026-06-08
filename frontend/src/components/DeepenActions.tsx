@@ -53,9 +53,7 @@ export function DeepenActions({ point, className }: DeepenActionsProps) {
   const [similarSearched, setSimilarSearched] = useState(false)
   const [factOpen, setFactOpen] = useState(false)
   const [factChecking, setFactChecking] = useState(false)
-  const [factResult, setFactResult] = useState<FactCheckResult | null>(null)
   const [factError, setFactError] = useState<string | null>(null)
-  const [factSaved, setFactSaved] = useState(false)
 
   const busy = deepening[point.id] ?? false
   const recs = recommendations[point.id] ?? []
@@ -106,9 +104,8 @@ export function DeepenActions({ point, className }: DeepenActionsProps) {
     setFactError(null)
     try {
       const result = await factCheckClaim(point.content, factCheckContext)
-      setFactResult(result)
       await addFactCheck(point, formatFactCheckContent(result, sourceExcerpt))
-      setFactSaved(true)
+      setFactOpen(false)
     } catch (error: unknown) {
       setFactError(error instanceof Error ? error.message : '事实审查失败')
     } finally {
@@ -119,7 +116,7 @@ export function DeepenActions({ point, className }: DeepenActionsProps) {
   const openFactCheck = async () => {
     const next = !factOpen
     setFactOpen(next)
-    if (next && !factResult) await runFactCheck()
+    if (next) await runFactCheck()
   }
 
   const jumpToPoint = (id: string) => {
@@ -242,14 +239,11 @@ export function DeepenActions({ point, className }: DeepenActionsProps) {
               <div className="mb-2 flex items-center justify-between gap-2">
                 <div>
                   <p className="text-xs font-medium text-accent">事实审查</p>
-                  {factSaved && <p className="mt-0.5 text-[11px] text-emerald-300">已保存为子块</p>}
                   <p className="mt-0.5 line-clamp-2 text-[11px] leading-relaxed text-fg-faint">{point.content}</p>
                 </div>
                 <button
                   type="button"
                   onClick={() => {
-                    setFactResult(null)
-                    setFactSaved(false)
                     void runFactCheck()
                   }}
                   disabled={factChecking}
@@ -275,39 +269,6 @@ export function DeepenActions({ point, className }: DeepenActionsProps) {
               {factError && !factChecking && (
                 <div className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs leading-relaxed text-red-300">
                   {factError}
-                </div>
-              )}
-              {factResult && !factChecking && (
-                <div className="space-y-2">
-                  <div className="rounded-md border border-border bg-bg-elevated px-3 py-2">
-                    <p className="text-sm leading-relaxed text-fg">{factResult.answer}</p>
-                  </div>
-                  {factResult.extra.length > 0 && (
-                    <div className="space-y-1">
-                      {factResult.extra.slice(0, 4).map((item, index) => (
-                        <p key={index} className="text-xs leading-relaxed text-fg-muted">· {item}</p>
-                      ))}
-                    </div>
-                  )}
-                  {factResult.sources.length > 0 && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs text-fg-faint">来源</span>
-                      <div className="flex flex-wrap gap-1.5">
-                        {factResult.sources.map((source, index) => (
-                          <a
-                            key={`${source.url}-${index}`}
-                            href={source.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            title={`${source.title}\n${source.url}\n${source.snippet}`}
-                            className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-accent/35 bg-accent/10 text-[11px] font-medium text-accent transition-colors hover:bg-accent/20"
-                          >
-                            {index + 1}
-                          </a>
-                        ))}
-                      </div>
-                    </div>
-                  )}
                 </div>
               )}
             </div>
