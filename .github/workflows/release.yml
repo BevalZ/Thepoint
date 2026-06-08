@@ -1,0 +1,84 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag, for example v0.1.0. Leave empty to use the current ref.'
+        required: false
+        type: string
+      prerelease:
+        description: 'Mark the GitHub Release as prerelease'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build:
+    name: Build installers
+    uses: ./.github/workflows/build.yml
+    permissions:
+      contents: read
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        run: |
+          TAG="${{ inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          if [ -z "$TAG" ]; then
+            echo "Release tag is required." >&2
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Download installers
+        uses: actions/download-artifact@v8
+        with:
+          pattern: deep-explorer-*
+          merge-multiple: true
+          path: release-assets
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ steps.release.outputs.tag }}
+          name: Deep Explorer ${{ steps.release.outputs.tag }}
+          prerelease: ${{ inputs.prerelease || false }}
+          generate_release_notes: true
+          body: |
+            ## Deep Explorer ${{ steps.release.outputs.tag }}
+
+            本次发布包含 Windows、macOS 和 Linux 安装包。
+
+            ### 安装包
+            - Windows: `.msi` / `.exe`
+            - macOS: `.dmg`，分别提供 Apple Silicon 与 Intel 构建
+            - Linux: `.deb` / `.AppImage` / `.rpm`
+
+            ### 近期更新
+            - 优化探索页分块、星标采集、事实审查和本地关联体验。
+            - 支持事实审查结果保存为知识库子块，并保留解析块原文和来源链接。
+            - 改进知识研报、AI 生图配置、搜索模型配置和多平台打包流程。
+
+            ### 使用提示
+            首次启动后请在设置中配置聊天模型、搜索模型和图片模型。密钥仅保存在本地。
+          files: release-assets/**/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

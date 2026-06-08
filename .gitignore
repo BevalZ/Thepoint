@@ -21,7 +21,6 @@ Thumbs.db
 .claude/
 .cursor/
 .trellis/
-.github/workflows/
 AGENTS.md
 CLAUDE.md
 DeepSeek_*.md
