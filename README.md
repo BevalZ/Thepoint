@@ -1,60 +1,124 @@
 # Deep Explorer
 
-> 把文本、网页和图片变成可以追问、审查、收藏和再组织的知识块。
+<p align="center">
+  <strong>深度探索助手 · 本地优先的 AI 阅读、审查与知识沉淀桌面应用</strong>
+</p>
 
-Deep Explorer 是一款桌面端 AI 阅读与知识分析软件。它从文档、网页、粘贴文本或图片中抽取信息块，逐块生成分析卡片，支持星标采集、事实审查、评论员解读、框架解读、知识研报和 AI 生图。
+<p align="center">
+  <a href="https://github.com/BevalZ/Thepoint/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/BevalZ/Thepoint?style=social"></a>
+  <a href="https://github.com/BevalZ/Thepoint/releases"><img alt="Release" src="https://img.shields.io/github/v/release/BevalZ/Thepoint?include_prereleases"></a>
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT%20%2B%20Commons%20Clause-blue"></a>
+  <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-24c8db">
+  <img alt="React" src="https://img.shields.io/badge/React-18-61dafb">
+  <img alt="Rust" src="https://img.shields.io/badge/Rust-native-b7410e">
+</p>
 
-本项目为完整自我开发项目，没有借鉴或复刻其他项目的代码、交互或设计实现。
+> 从文档到洞见，让每一次探索都有迹可循。
 
-## 功能概览
+Deep Explorer 是一款完整自我开发的桌面端 AI 阅读与知识分析软件。它可以从文本、网页、文件和图片中提取信息块，逐块生成 Point，支持星标采集、事实审查、评论员解读、框架解读、知识研报和 AI 生图。
 
-- **探索页分块解析**：导入文件、网页或粘贴文本后，按主题拆分为信息块，逐块动画生成分析结果。
-- **知识库沉淀**：将有价值的观点、事实、疑问、评论和事实审查保存为可展开的树状知识块。
-- **事实审查**：对事实陈述调用搜索模型核查，并保存为独立子块，保留来源链接和解析块原文。
-- **评论员系统**：可让 LLM 根据文本内容选择合适的预设评论员进行评论。
-- **框架解读**：支持内置和自定义思维框架，对知识块进行结构化解读。
-- **星标采集与研报**：收集多个 star 后生成知识研报，并记录引用来源。
-- **AI 生图**：支持艺术性生图与知识性生图两种模式，可为图片模型单独配置 API。
-- **本地优先**：配置和数据保存在本地；API Key 不上传到第三方服务器。
+项目坚持本地优先：配置、历史、知识库、存档和 API Key 均保存在本地，不上传到项目服务器。
 
-## 截图
+---
 
-项目仍在快速迭代中，建议以 Release 中的实际应用界面为准。
+## 为什么做它
 
-## 下载
+传统阅读工具擅长保存材料，但不擅长把材料变成可追问、可审查、可复用的知识结构。Deep Explorer 的目标是把一次阅读拆成连续的探索过程：
 
-前往 GitHub Releases 下载对应平台安装包：
+1. 导入材料。
+2. 按主题切成信息块。
+3. 逐块生成可验证的 Point。
+4. 对事实陈述做搜索核查。
+5. 收集 star，生成知识研报。
+6. 把结果沉淀到本地知识库。
 
-- Windows: `.msi` / `.exe`
-- macOS: `.dmg`
-- Linux: `.deb` / `.AppImage` / `.rpm`
+---
 
-Release 会由 GitHub Actions 自动构建并发布。
+## 核心能力
 
-## 使用方式
+| 模块 | 能力 |
+| --- | --- |
+| 探索页 | 支持粘贴文本、拖拽文件、网页抓取和图片导入，按主题拆分信息块并逐块动画解析 |
+| Point 生成 | 自动判断信息块价值，短文本不主动生成，允许手动触发 AI 解读 |
+| Star 采集 | 将重要观点采集到圆环，支持来源占比、清空、生成知识研报 |
+| 事实审查 | 对事实陈述调用搜索模型，结果保存为独立子块，保留解析块原文与来源链接 |
+| 评论员系统 | 由 LLM 根据文本内容选择合适评论员，再一次调用完成评论 |
+| 框架解读 | 支持内置框架和用户自定义框架，用结构化方式重读文本 |
+| AI 生图 | 支持艺术性生图与知识性生图，图片模型可单独配置 |
+| 知识库 | 支持树状子块、原文查看、元信息保留、存档、重新激活和搜索 |
+| 动效体验 | 启动动画、星空背景、星标飞行动画、卡片堆叠、光效提示和桌面窗口控制 |
 
-1. 打开软件，进入设置。
-2. 配置聊天模型 API。
-3. 如需事实审查，配置搜索模型 API。
-4. 如需 AI 生图，配置图片模型 API。
-5. 回到探索页，导入文件、网页或粘贴文本。
-6. 等待分块解析完成，按需 star、事实审查、框架解读或生成研报。
+---
 
-## 开发
+## 技术架构
+
+```mermaid
+flowchart TD
+  A[用户输入<br/>文本 / 文件 / 网页 / 图片] --> B[探索页导入层]
+  B --> C[解析与清洗<br/>正文抽取 / 噪音过滤 / 元信息识别]
+  C --> D[主题分块引擎<br/>标题优先 / 自然段合并 / 价值判断]
+  D --> E[逐块解析队列<br/>动画展示 / 中央聚焦 / 生成状态]
+
+  E --> F[聊天模型<br/>Point / 评论员 / 框架解读]
+  E --> G[搜索模型<br/>事实审查 / 来源核验]
+  E --> H[图片模型<br/>艺术图 / 知识图]
+
+  F --> I[Point 卡片]
+  G --> J[事实审查子块]
+  H --> K[图库与缩略图]
+
+  I --> L[Star 采集圆环]
+  J --> M[本地知识库]
+  K --> M
+  L --> N[知识研报生成]
+  N --> M
+
+  M --> O[(SQLite + FTS5)]
+  P[设置中心<br/>模型配置 / 外观 / 评论员 / 框架] --> F
+  P --> G
+  P --> H
+```
+
+---
+
+## 技术栈
+
+| 层级 | 选型 |
+| --- | --- |
+| 桌面框架 | Tauri 2 + Rust |
+| 前端 | React 18 + Vite + TailwindCSS |
+| UI 与动效 | shadcn/ui 风格组件 + Framer Motion |
+| 后端逻辑 | Rust Tauri commands |
+| 数据库 | SQLite + rusqlite + FTS5 |
+| 文档解析 | lopdf, docx-rs, pptx-rs 等解析链路 |
+| 网页解析 | HTML 源码正文抽取、噪音清洗、LLM 辅助裁剪 |
+| 图表 | ECharts |
+| AI 接口 | OpenAI-compatible HTTP API / Ollama 兼容接口 |
+| 打包 | GitHub Actions 多平台构建 |
+
+---
+
+## 快速开始
 
 ### 环境要求
 
 - Node.js 20+
 - Rust stable
-- Tauri 2 依赖环境
+- Tauri 2 桌面依赖
 
-Linux 还需要 WebKit / GTK 相关系统依赖，详见 Tauri 官方文档。
+Linux 需要额外安装 WebKit / GTK / AppIndicator / librsvg 等 Tauri 依赖。
 
 ### 安装依赖
 
 ```bash
 cd frontend
 npm ci
+```
+
+### 开发运行
+
+```bash
+cargo tauri dev
 ```
 
 ### 前端构建
@@ -64,49 +128,65 @@ cd frontend
 npm run build
 ```
 
-### 运行 Tauri 开发环境
-
-```bash
-cargo tauri dev
-```
-
-### 打包
+### 桌面打包
 
 ```bash
 cargo tauri build
 ```
 
-## GitHub Actions 发布
+---
 
-推送 tag 即可触发多平台打包和 Release 发布：
+## 模型配置
+
+首次启动后请进入设置：
+
+1. 配置聊天模型，用于 Point、评论员、框架解读和研报生成。
+2. 配置搜索模型，用于事实审查。
+3. 配置图片模型，用于艺术性生图和知识性生图。
+4. 按需添加评论员、框架和外观主题。
+
+所有 API Key 均保存在本地。
+
+---
+
+## 发布与下载
+
+Release 由 GitHub Actions 自动构建，目标平台包括：
+
+- Windows: `.msi` / `.exe`
+- macOS: Apple Silicon / Intel
+- Linux: `.deb` / `.AppImage` / `.rpm`
+
+推送 tag 即可触发构建：
 
 ```bash
 git tag v0.1.0
 git push origin v0.1.0
 ```
 
-也可以在 GitHub Actions 页面手动运行 `Build and Release` workflow，并填写 release tag。
+也可以在 GitHub Actions 页面手动运行 `Build and Release` workflow。
 
-## 技术栈
+---
 
-| 层级 | 技术 |
-| --- | --- |
-| 桌面框架 | Tauri 2 |
-| 前端 | React 18, Vite, TailwindCSS |
-| 动效 | Framer Motion |
-| 后端 | Rust, Tauri commands |
-| 数据库 | SQLite, rusqlite, FTS5 |
-| 文档/网页解析 | Rust parser stack, scraper |
-| 图表 | ECharts |
-| AI 接入 | OpenAI-compatible HTTP APIs |
+## Star History
 
-## 目录
+<a href="https://star-history.com/#BevalZ/Thepoint&Date">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=BevalZ/Thepoint&type=Date&theme=dark" />
+    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=BevalZ/Thepoint&type=Date" />
+    <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=BevalZ/Thepoint&type=Date" />
+  </picture>
+</a>
+
+---
+
+## 项目结构
 
 ```text
-frontend/      React 前端
-src-tauri/     Tauri / Rust 后端与打包配置
-docs/          设计、架构和接口文档
-Skills/        人物 Skill 原始资料
+frontend/      React 前端与交互动画
+src-tauri/     Tauri / Rust 后端、权限和打包配置
+docs/          产品、架构、接口和开发文档
+Skills/        蒸馏人格 Skill 原始资料
 ```
 
 ## 文档
@@ -118,24 +198,26 @@ Skills/        人物 Skill 原始资料
 - [开发环境](docs/dev-setup.md)
 - [贡献说明](docs/contributing.md)
 
+---
+
 ## 鸣谢
 
 感谢所有已经支持、测试和反馈这个项目的人。
 
-感谢 Unity2 中转站的资助支持：https://unity2.ai/
+感谢 [Unity2 中转站](https://unity2.ai/) 的资助支持。
+
+感谢 linux.do 社区的讨论、反馈与支持。
+
+特别感谢 linux.do 几位佬提供 token 支持：@Member、@picpi、@Rawchat。
 
 感谢山姆·奥特曼的慷慨。
 
+---
+
 ## License
 
-本项目不使用 MIT License。
+Deep Explorer 使用 **MIT License + Commons Clause**。
 
-Deep Explorer 使用自定义的 **Non-Commercial Source License**：
-
-- 个人使用不受限制。
-- 允许学习、研究、非商业修改和二次开发。
-- 允许非商业分发修改版本，但必须明确标注源代码来源和原项目地址。
-- 禁止任何商业用途，包括但不限于售卖、商业 SaaS、企业内部商业部署、商业集成、付费分发或作为商业产品的一部分。
-- 如需商业授权，请联系项目作者。
+你可以自由地学习、使用、修改和二次开发本项目代码，但不得在未获得授权的情况下销售本软件、托管商业服务、出售修改版本，或将本项目作为商业产品的一部分进行商业化。
 
 完整条款见 [LICENSE](LICENSE)。

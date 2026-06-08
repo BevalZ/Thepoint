@@ -80,6 +80,7 @@ function AppTitleBar() {
 
   const handleDrag = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
     if (!tauriRuntime || event.button !== 0) return
+    if (event.detail > 1) return
     void getCurrentWindow().startDragging().catch(() => undefined)
   }, [tauriRuntime])
 
@@ -105,6 +106,7 @@ function AppTitleBar() {
       <div
         className="flex h-full min-w-0 flex-1 cursor-default items-center gap-2 px-3"
         onPointerDown={handleDrag}
+        onDoubleClick={handleToggleMaximize}
         data-tauri-drag-region
       >
         <div className="relative flex h-5 w-5 shrink-0 items-center justify-center rounded-md border border-accent/35 bg-accent/10 text-accent">

@@ -1,70 +1,46 @@
-Deep Explorer Non-Commercial Source License
-Version 1.0
+MIT License + Commons Clause
 
 Copyright (c) 2026 Deep Explorer contributors
 
-This license governs use of the Deep Explorer source code and software.
+MIT License
 
-1. Personal Use
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions and the Commons
+Clause condition below:
 
-You may use the software for personal, non-commercial purposes without
-restriction.
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-2. Study, Modification, and Non-Commercial Redistribution
+Commons Clause License Condition v1.0
 
-You may read, study, modify, and build upon the source code for learning,
-research, personal use, and other non-commercial purposes.
+The Software is provided to you by the Licensor under the License, as defined
+below, subject to the following condition.
 
-You may redistribute modified or unmodified non-commercial versions, provided
-that you:
+Without limiting other conditions in the License, the grant of rights under
+the License will not include, and the License does not grant to you, the right
+to Sell the Software.
 
-- keep this license with the redistributed copy;
-- clearly state that your work is based on Deep Explorer;
-- clearly identify the original source code repository or project source;
-- do not imply endorsement by the original author or contributors.
+For purposes of the foregoing, "Sell" means practicing any or all of the
+rights granted to you under the License to provide to third parties, for a fee
+or other consideration, a product or service whose value derives, entirely or
+substantially, from the functionality of the Software. Any license notice or
+attribution required by the License must also include this Commons Clause
+License Condition notice.
 
-3. Source Attribution Requirement
+Software: Deep Explorer
 
-Any derivative work, fork, modified copy, redistributed package, public demo,
-article, tutorial, or repository based on this project must visibly state the
-source of the original code.
+License: MIT License
 
-Attribution must include the project name "Deep Explorer" and a link or clear
-reference to the original source repository.
+Licensor: Deep Explorer contributors
 
-4. Commercial Use Prohibited
-
-Commercial use is not permitted without separate written permission from the
-copyright holder.
-
-Commercial use includes, but is not limited to:
-
-- selling the software or modified versions;
-- offering the software as a paid service;
-- using the software inside a commercial SaaS or hosted product;
-- bundling the software with a commercial product;
-- using the software for paid client work;
-- enterprise or internal business deployment for commercial operations;
-- paid distribution, resale, sublicensing, or marketplace publication;
-- using substantial parts of the source code in commercial software.
-
-5. No Trademark Rights
-
-This license does not grant rights to use the project name, logos, marks, or
-branding for endorsement, promotion, or commercial identity.
-
-6. No Warranty
-
-The software is provided "as is", without warranty of any kind, express or
-implied, including but not limited to the warranties of merchantability, fitness
-for a particular purpose, and non-infringement.
-
-In no event shall the authors or copyright holders be liable for any claim,
-damages, or other liability arising from the software or the use of the
-software.
-
-7. Commercial Licensing
-
-For commercial use, enterprise deployment, paid integration, or any use outside
-this license, you must obtain separate written permission from the copyright
-holder.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
