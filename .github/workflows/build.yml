@@ -1,42 +1,59 @@
-# Deep Explorer — cross-platform Tauri build
-#
-# 触发方式：仅手动（Actions → Run workflow），不会自动运行。
-# 启用自动构建时，取消注释下方 push / pull_request 块。
-#
-# on:
-#   push:
-#     tags: ['v*']
-#   pull_request:
-#     branches: [main]
+name: Build and Release
 
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
-      release:
-        description: '是否创建 GitHub Release'
+      tag:
+        description: 'Release tag, for example v0.1.0. Leave empty to use the current ref.'
+        required: false
+        type: string
+      prerelease:
+        description: 'Mark the GitHub Release as prerelease'
+        required: false
         type: boolean
         default: false
 
-name: Build
+permissions:
+  contents: write
 
 jobs:
   build:
+    name: Build ${{ matrix.platform.name }}
+    runs-on: ${{ matrix.platform.os }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: windows-latest
-            name: windows
-          - os: macos-latest
-            name: macos
-          - os: ubuntu-22.04
-            name: linux
-
-    runs-on: ${{ matrix.os }}
-    name: Build (${{ matrix.name }})
+        platform:
+          - name: windows-x64
+            os: windows-latest
+            target: ''
+          - name: macos-apple-silicon
+            os: macos-14
+            target: ''
+          - name: macos-intel
+            os: macos-13
+            target: ''
+          - name: linux-x64
+            os: ubuntu-22.04
+            target: ''
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -45,61 +62,96 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Install frontend deps
+      - name: Install frontend dependencies
         run: npm ci
         working-directory: frontend
 
       - name: Install Rust stable
+        if: matrix.platform.target == ''
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Rust cache
+      - name: Install Rust stable with target
+        if: matrix.platform.target != ''
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform.target }}
+
+      - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri
 
-      - name: Install Linux system deps
-        if: matrix.os == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev \
-            librsvg2-dev patchelf
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli --locked
 
       - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          projectPath: .
-          args: --verbose
+        shell: bash
+        run: |
+          if [ -n "${{ matrix.platform.target }}" ]; then
+            cargo tauri build --target "${{ matrix.platform.target }}"
+          else
+            cargo tauri build
+          fi
 
-      - name: Upload artifacts
+      - name: Upload platform installers
         uses: actions/upload-artifact@v4
         with:
-          name: deep-explorer-${{ matrix.name }}
+          name: deep-explorer-${{ matrix.platform.name }}
           path: |
-            src-tauri/target/release/bundle/**/*.msi
-            src-tauri/target/release/bundle/**/*.exe
-            src-tauri/target/release/bundle/**/*.dmg
-            src-tauri/target/release/bundle/**/*.deb
-            src-tauri/target/release/bundle/**/*.AppImage
-          if-no-files-found: warn
+            src-tauri/target/**/bundle/**/*.msi
+            src-tauri/target/**/bundle/**/*.exe
+            src-tauri/target/**/bundle/**/*.dmg
+            src-tauri/target/**/bundle/**/*.deb
+            src-tauri/target/**/bundle/**/*.AppImage
+            src-tauri/target/**/bundle/**/*.rpm
+          if-no-files-found: error
 
   release:
+    name: Publish GitHub Release
     needs: build
     runs-on: ubuntu-latest
-    if: ${{ inputs.release == true }}
-    permissions:
-      contents: write
     steps:
-      - uses: actions/download-artifact@v4
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        run: |
+          TAG="${{ inputs.tag }}"
+          if [ -z "$TAG" ]; then
+            TAG="${GITHUB_REF_NAME}"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Download installers
+        uses: actions/download-artifact@v4
         with:
           pattern: deep-explorer-*
           merge-multiple: true
-          path: dist/
+          path: release-assets
 
-      - name: Create Release
+      - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/**/*
+          tag_name: ${{ steps.release.outputs.tag }}
+          name: Deep Explorer ${{ steps.release.outputs.tag }}
+          prerelease: ${{ inputs.prerelease || false }}
           generate_release_notes: true
+          body: |
+            ## Deep Explorer ${{ steps.release.outputs.tag }}
+
+            本次发布由 GitHub Actions 自动构建，包含 Windows、macOS 和 Linux 安装包。
+
+            ### 安装包
+            - Windows: `.msi` / `.exe`
+            - macOS: `.dmg`，分别提供 Apple Silicon 与 Intel 构建
+            - Linux: `.deb` / `.AppImage` / `.rpm`
+
+            ### 近期更新
+            - 优化探索页分块、星标采集、事实审查和本地关联体验。
+            - 支持事实审查结果保存为知识库子块，并保留解析块原文和来源链接。
+            - 改进知识研报、AI 生图配置、搜索模型配置和多平台打包流程。
+
+            ### 使用提示
+            首次启动后请在设置中配置聊天模型、搜索模型和图片模型。密钥仅保存在本地。
+          files: release-assets/**/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
