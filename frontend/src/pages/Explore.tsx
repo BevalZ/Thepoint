@@ -1397,7 +1397,6 @@ function CommentAnnotationMark({ claim, annotation, colors }: {
   return (
     <span className="relative inline">
       <span
-        title={comment}
         className={cn('transition-colors', manualAnnotationClass(annotation.kind))}
         style={manualAnnotationStyle(annotation.kind, colors)}
       >
@@ -1524,7 +1523,6 @@ function AnnotatedTextContent({ content, blockIndex, onFactCheck, userAnnotation
         : (
           <span
             key={annotation.id}
-            title={annotation.comment}
             className={cn('transition-colors', manualAnnotationClass(annotation.kind))}
             style={manualAnnotationStyle(annotation.kind, colors)}
           >
