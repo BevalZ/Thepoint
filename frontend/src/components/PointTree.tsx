@@ -65,6 +65,11 @@ function linkDigestReferences(content: string, refs: DigestReference[]): string 
   })
 }
 
+function createdTime(point: StoredPoint): number {
+  const time = new Date(point.createdAt).getTime()
+  return Number.isNaN(time) ? 0 : time
+}
+
 function shouldRenderMarkdown(point: StoredPoint): boolean {
   if (point.tagType === '研报摘要') return true
   if (point.tagType === '事实审查') return true
@@ -189,6 +194,12 @@ export function buildTree(points: StoredPoint[]): TreeNode[] {
       roots.push(node)
     }
   }
+  const sortNode = (node: TreeNode) => {
+    node.children.sort((left, right) => createdTime(right.point) - createdTime(left.point))
+    node.children.forEach(sortNode)
+  }
+  roots.sort((left, right) => createdTime(right.point) - createdTime(left.point))
+  roots.forEach(sortNode)
   return roots
 }
 

@@ -587,6 +587,8 @@ function describeRelatedPoint(current: StoredPoint, point: StoredPoint) {
 
 function formatFactCheckContent(result: FactCheckResult, sourceExcerpt: string) {
   const lines = [
+    '### 事实审查',
+    '',
     result.answer.trim(),
     '',
     ...result.extra.slice(0, 4).map(item => `- ${item.trim()}`).filter(line => line !== '- '),
