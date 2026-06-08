@@ -174,6 +174,7 @@ export function StarRing({ onNavigateGallery }: StarRingProps) {
   const [digest, setDigest] = useState<string | null>(null)
   const [digestPoints, setDigestPoints] = useState<StoredPoint[]>([])
   const [panelOpen, setPanelOpen] = useState(false)
+  const [digestError, setDigestError] = useState<string | null>(null)
   const [imagePromptOpen, setImagePromptOpen] = useState(false)
   const [imagePromptDraft, setImagePromptDraft] = useState('')
   const [imageMode, setImageMode] = useState<GalleryImageMode>('artwork')
@@ -242,15 +243,17 @@ export function StarRing({ onNavigateGallery }: StarRingProps) {
     }
     if (!canGenerate || generating) return
     setGenerating(true)
-    setPanelOpen(false)
+    setDigestError(null)
     const pointsForDigest = points
     try {
       const result = await generateDigest()
       setDigestPoints(pointsForDigest)
       setDigest(result)
+      setPanelOpen(false)
       await init()
-    } catch {
-      // silent — user can retry
+    } catch (error) {
+      setDigestError(error instanceof Error ? error.message : '生成研报失败，请稍后重试。')
+      setPanelOpen(true)
     } finally {
       setGenerating(false)
     }
@@ -516,6 +519,11 @@ export function StarRing({ onNavigateGallery }: StarRingProps) {
                     {imageError && (
                       <p className="mt-3 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs leading-relaxed text-red-300">
                         {imageError}
+                      </p>
+                    )}
+                    {digestError && (
+                      <p className="mt-3 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs leading-relaxed text-red-300">
+                        {digestError}
                       </p>
                     )}
                     <div className="mt-3 rounded-lg border border-border bg-bg p-1">

@@ -30,6 +30,7 @@ import { cn } from '@/lib/utils'
 import { useStarFly } from '@/hooks/useStarFly'
 import { analyzeTextBlock, describeImage, factCheckClaim, savePoints } from '@/api'
 import type { AppConfig, ChunkCard, ExploreHistoryItem, ExploreSourceMetadata, FactCheckResult } from '@/api/types'
+import { ExternalLinkPreview } from '@/components/ExternalLinkPreview'
 
 const URL_RE = /^https?:\/\/[^\s]+$/
 const SUPPORTED_EXTS = ['txt','md','markdown','rst','csv','docx','odt','html','htm']
@@ -1573,6 +1574,7 @@ function AnnotatedTextContent({ content, blockIndex, onFactCheck, userAnnotation
 
 function FactCheckBubble({ bubble, onClose, onSave }: { bubble: FactBubbleState; onClose: () => void; onSave: () => void }) {
   const contentRef = useRef<HTMLDivElement>(null)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const viewportWidth = typeof window === 'undefined' ? 1024 : window.innerWidth
   const viewportHeight = typeof window === 'undefined' ? 720 : window.innerHeight
   const left = Math.min(Math.max(bubble.x - 150, 16), Math.max(viewportWidth - 388, 16))
@@ -1628,16 +1630,15 @@ function FactCheckBubble({ bubble, onClose, onSave }: { bubble: FactBubbleState;
                 <p className="mb-2 text-xs text-fg-faint">来源</p>
                 <div className="flex flex-wrap gap-2">
                   {bubble.result.sources.map((source, index) => (
-                    <a
+                    <button
                       key={`${source.url}-${index}`}
-                      href={source.url}
-                      target="_blank"
-                      rel="noreferrer"
+                      type="button"
+                      onClick={() => setPreviewUrl(source.url)}
                       title={`${source.title}\n${source.url}\n${source.snippet}`}
                       className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-accent/35 bg-accent/10 text-xs font-medium text-accent transition-colors hover:bg-accent/20"
                     >
                       {index + 1}
-                    </a>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -1660,6 +1661,7 @@ function FactCheckBubble({ bubble, onClose, onSave }: { bubble: FactBubbleState;
         )}
       </div>
       <ScrollMoreHint visible={showMore} />
+      <ExternalLinkPreview url={previewUrl} onClose={() => setPreviewUrl(null)} />
     </motion.div>
   )
 }
