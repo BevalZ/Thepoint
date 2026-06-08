@@ -206,7 +206,12 @@ Skills/        蒸馏人格 Skill 原始资料
 
 感谢 [Unity2 中转站](https://unity2.ai/) 的资助支持。
 
-感谢 linux.do 社区的讨论、反馈与支持。
+<p>
+  <a href="https://linux.do">
+    <img src="https://cdn3.ldstatic.com/original/4X/d/6/5/d65def8cc0c413f318bee2bcd1c774bc4ad109a8.png" alt="linux.do" width="28" align="absmiddle">
+  </a>
+  感谢 <a href="https://linux.do">linux.do</a> 社区的讨论、反馈与支持。
+</p>
 
 特别感谢 linux.do 几位佬提供 token 支持：@Member、@picpi、@Rawchat。
 
