@@ -4,7 +4,13 @@ import { FileText, Image, Loader2, Sparkles, Star, Trash2, X } from 'lucide-reac
 import { useExploreHistoryStore, useExploreStore, useGalleryStore, useStarStore } from '@/store'
 import { generateDigest } from '@/api'
 import { DigestModal } from './DigestModal'
-import type { ExploreHistoryItem, StoredPoint } from '@/api/types'
+import type {
+  ChunkCard,
+  ExploreHistoryItem,
+  GalleryImageMode,
+  GalleryKnowledgeContext,
+  StoredPoint,
+} from '@/api/types'
 
 const SIZE = 56
 const R = 22
@@ -69,6 +75,78 @@ function preview(text: string): string {
   return normalized.length > 58 ? `${normalized.slice(0, 58)}…` : normalized
 }
 
+function pointIdKey(ids: string[]): string {
+  return [...ids].sort().join('|')
+}
+
+function chunkLabels(card: ChunkCard): string[] {
+  return card.labels.map(label => `${label.category}/${label.sub}`)
+}
+
+function knowledgeStar(point: StoredPoint) {
+  return {
+    id: point.id,
+    content: point.content,
+    tagType: point.tagType,
+    sourceExcerpt: point.sourceExcerpt,
+  }
+}
+
+function contextFromHistoryItem(item: ExploreHistoryItem, starredPoints: StoredPoint[]): GalleryKnowledgeContext {
+  return {
+    sourceName: item.sourceName || '未命名来源',
+    sourceUrl: item.sourceUrl,
+    originalText: item.text,
+    chunkCards: item.chunkCards.map(card => ({
+      index: card.index,
+      text: card.text,
+      summary: card.summary,
+      hotTake: card.hotTake,
+      labels: chunkLabels(card),
+    })),
+    starredPoints: starredPoints.map(knowledgeStar),
+  }
+}
+
+function buildKnowledgeContexts(
+  groups: SourceGroup[],
+  active: {
+    sourceName: string | null
+    sourceUrl: string | null
+    text: string
+    chunkCards: ChunkCard[]
+  }
+): GalleryKnowledgeContext[] {
+  return groups.map((group) => {
+    const useActive = group.isCurrent && active.text.trim() && active.chunkCards.length > 0
+    if (useActive) {
+      return {
+        sourceName: active.sourceName || group.name,
+        sourceUrl: active.sourceUrl,
+        originalText: active.text,
+        chunkCards: active.chunkCards.map(card => ({
+          index: card.index,
+          text: card.text,
+          summary: card.summary,
+          hotTake: card.hotTake,
+          labels: chunkLabels(card),
+        })),
+        starredPoints: group.points.map(knowledgeStar),
+      }
+    }
+    if (group.historyItem) {
+      return contextFromHistoryItem(group.historyItem, group.points)
+    }
+    return {
+      sourceName: group.name,
+      sourceUrl: null,
+      originalText: group.points.map(point => point.sourceExcerpt || point.content).join('\n\n'),
+      chunkCards: [],
+      starredPoints: group.points.map(knowledgeStar),
+    }
+  }).filter(context => context.originalText.trim() || context.starredPoints.length > 0)
+}
+
 interface StarRingProps {
   onNavigateGallery?: () => void
 }
@@ -84,7 +162,12 @@ export function StarRing({ onNavigateGallery }: StarRingProps) {
     error: imageError,
     promptPreview,
   } = useGalleryStore()
-  const { sourceName: currentSourceName } = useExploreStore()
+  const {
+    sourceName: currentSourceName,
+    sourceUrl: currentSourceUrl,
+    text: currentText,
+    chunkCards: currentChunkCards,
+  } = useExploreStore()
   const history = useExploreHistoryStore()
   const [generating, setGenerating] = useState(false)
   const [clearing, setClearing] = useState(false)
@@ -93,6 +176,7 @@ export function StarRing({ onNavigateGallery }: StarRingProps) {
   const [panelOpen, setPanelOpen] = useState(false)
   const [imagePromptOpen, setImagePromptOpen] = useState(false)
   const [imagePromptDraft, setImagePromptDraft] = useState('')
+  const [imageMode, setImageMode] = useState<GalleryImageMode>('artwork')
   const clickTimerRef = useRef<number | null>(null)
   const ringRef = useRef<HTMLButtonElement | null>(null)
   const panelRef = useRef<HTMLDivElement | null>(null)
@@ -120,6 +204,19 @@ export function StarRing({ onNavigateGallery }: StarRingProps) {
   const groups = useMemo(
     () => groupPoints(points, history.items, currentSourceName),
     [currentSourceName, history.items, points]
+  )
+  const currentStarKey = useMemo(
+    () => pointIdKey(points.map(point => point.id)),
+    [points]
+  )
+  const knowledgeContexts = useMemo(
+    () => buildKnowledgeContexts(groups, {
+      sourceName: currentSourceName,
+      sourceUrl: currentSourceUrl,
+      text: currentText,
+      chunkCards: currentChunkCards,
+    }),
+    [currentChunkCards, currentSourceName, currentSourceUrl, currentText, groups]
   )
   const { progress, strokeW, fillOpacity } = ringParams(count)
   const canGenerate = count > 0
@@ -183,7 +280,11 @@ export function StarRing({ onNavigateGallery }: StarRingProps) {
     }
     if (!canGenerateImage || generating || clearing || imageGenerating || preparingPrompt) return
     try {
-      const preview = promptPreview ?? await preparePrompt()
+      const canReusePreview = promptPreview?.mode === imageMode
+        && pointIdKey(promptPreview.pointIds) === currentStarKey
+      const preview = canReusePreview
+        ? promptPreview
+        : await preparePrompt(imageMode, imageMode === 'knowledge' ? knowledgeContexts : undefined)
       setImagePromptDraft(preview.prompt)
       setImagePromptOpen(true)
     } catch {
@@ -417,6 +518,26 @@ export function StarRing({ onNavigateGallery }: StarRingProps) {
                         {imageError}
                       </p>
                     )}
+                    <div className="mt-3 rounded-lg border border-border bg-bg p-1">
+                      {([
+                        ['artwork', '艺术图'],
+                        ['knowledge', '知识图'],
+                      ] as const).map(([mode, label]) => (
+                        <button
+                          key={mode}
+                          type="button"
+                          onClick={() => setImageMode(mode)}
+                          disabled={imageGenerating || preparingPrompt}
+                          className={`w-1/2 rounded-md px-2.5 py-1.5 text-xs transition-colors ${
+                            imageMode === mode
+                              ? 'bg-accent/15 text-accent'
+                              : 'text-fg-muted hover:bg-bg-hover hover:text-fg'
+                          } disabled:opacity-50`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
                     <div className="mt-3 grid grid-cols-3 gap-2">
                       <button
                         type="button"
@@ -433,10 +554,10 @@ export function StarRing({ onNavigateGallery }: StarRingProps) {
                         disabled={!canGenerateImage || generating || clearing || imageGenerating || preparingPrompt}
                         onClick={() => void handleGenerateImage()}
                         className="flex items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs text-fg-muted transition-colors hover:border-accent/40 hover:bg-bg-hover hover:text-fg disabled:opacity-50"
-                        title={canGenerateImage ? '使用当前采集生成图片' : `至少需要 10 个 point，当前 ${count} 个`}
+                        title={canGenerateImage ? `使用当前采集生成${imageMode === 'knowledge' ? '知识图' : '图片'}` : `至少需要 10 个 point，当前 ${count} 个`}
                       >
                         {imageGenerating || preparingPrompt ? <Loader2 size={13} className="animate-spin" /> : <Image size={13} />}
-                        {preparingPrompt ? '准备中' : '生成图片'}
+                        {preparingPrompt ? '准备中' : imageMode === 'knowledge' ? '生成知识图' : '生成图片'}
                       </button>
                       <button
                         type="button"
@@ -446,7 +567,7 @@ export function StarRing({ onNavigateGallery }: StarRingProps) {
                         title="点击生成知识研报"
                       >
                         {generating ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
-                        点击生成研报
+                        生成研报
                       </button>
                     </div>
                   </div>
@@ -487,7 +608,9 @@ export function StarRing({ onNavigateGallery }: StarRingProps) {
               <div className="flex items-start justify-between border-b border-border px-4 py-3">
                 <div>
                   <p className="text-sm font-semibold text-fg">确认图片 Prompt</p>
-                  <p className="mt-0.5 text-xs text-fg-faint">确认后才会调用图片模型</p>
+                  <p className="mt-0.5 text-xs text-fg-faint">
+                    {promptPreview?.mode === 'knowledge' ? '知识图模式，确认后才会调用图片模型' : '确认后才会调用图片模型'}
+                  </p>
                 </div>
                 <button
                   type="button"

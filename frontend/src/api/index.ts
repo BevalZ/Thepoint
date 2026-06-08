@@ -10,7 +10,10 @@ import type {
   FactCheckResult,
   FileMetadata,
   FrameworkRecommendation,
+  GalleryFileDiagnostic,
+  GalleryImageMode,
   GalleryItem,
+  GalleryKnowledgeContext,
   GalleryPromptPreview,
   GallerySourcePoint,
   GenerateSuggestionResult,
@@ -142,7 +145,13 @@ export const factCheckClaim = (claim: string, context: string) =>
 export const generateDigest = () => invoke<string>('generate_digest')
 
 export const generateImage = () => invoke<GalleryItem>('generate_image')
-export const prepareGalleryImagePrompt = () => invoke<GalleryPromptPreview>('prepare_gallery_image_prompt')
+export const prepareGalleryImagePrompt = (
+  mode?: GalleryImageMode,
+  knowledgeContexts?: GalleryKnowledgeContext[]
+) => invoke<GalleryPromptPreview>('prepare_gallery_image_prompt', {
+  mode: mode ?? null,
+  knowledgeContexts: knowledgeContexts ?? null,
+})
 export const generateImageFromPrompt = (
   prompt: string,
   pointIds: string[],
@@ -151,6 +160,8 @@ export const generateImageFromPrompt = (
 export const listGallery = () => invoke<GalleryItem[]>('list_gallery')
 export const deleteGalleryItem = (id: string) => invoke<void>('delete_gallery_item', { id })
 export const retryDownload = (id: string) => invoke<GalleryItem>('retry_download', { id })
+export const diagnoseGalleryFile = (filePath: string) =>
+  invoke<GalleryFileDiagnostic>('diagnose_gallery_file', { filePath })
 export const starPoint = (pointId: string) => invoke<number>('star_point', { pointId })
 export const unstarPoint = (pointId: string) => invoke<number>('unstar_point', { pointId })
 export const getStarredCount = () => invoke<number>('get_starred_count')

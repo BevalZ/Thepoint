@@ -6,6 +6,9 @@ export interface AppConfig {
   imageApiKey: string
   imageModel: string
   imageProviderKey: string
+  imageCustomEndpoint: string
+  imageSize: string
+  imageKnowledgeStylePrompt: string
   providerKey: string
   customEndpoint: string
   customProviderName: string
@@ -48,6 +51,16 @@ export interface ConfigProfile {
   imageBaseUrl?: string
   imageApiKey?: string
   imageModel?: string
+  imageProviderKey?: string
+  imageCustomEndpoint?: string
+  imageSize?: string
+  imageKnowledgeStylePrompt?: string
+  searchEnabled?: boolean
+  searchBaseUrl?: string
+  searchApiKey?: string
+  searchModel?: string
+  searchProviderKey?: string
+  searchCustomEndpoint?: string
 }
 
 export interface ExtractedPoint {
@@ -145,10 +158,45 @@ export interface GallerySourcePoint {
   sourceDocName?: string | null
 }
 
+export type GalleryImageMode = 'artwork' | 'knowledge'
+
+export interface GalleryKnowledgeChunk {
+  index: number
+  text: string
+  summary: string
+  hotTake: string
+  labels: string[]
+}
+
+export interface GalleryKnowledgeStar {
+  id: string
+  content: string
+  tagType?: string | null
+  sourceExcerpt?: string | null
+}
+
+export interface GalleryKnowledgeContext {
+  sourceName: string
+  sourceUrl?: string | null
+  originalText: string
+  chunkCards: GalleryKnowledgeChunk[]
+  starredPoints: GalleryKnowledgeStar[]
+}
+
 export interface GalleryPromptPreview {
   prompt: string
   pointIds: string[]
   sourcePoints: GallerySourcePoint[]
+  mode: GalleryImageMode
+}
+
+export interface GalleryFileDiagnostic {
+  filePath: string
+  exists: boolean
+  sizeBytes?: number | null
+  imageWidth?: number | null
+  imageHeight?: number | null
+  error?: string | null
 }
 
 export interface FileMetadata {

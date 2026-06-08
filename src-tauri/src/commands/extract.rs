@@ -8,6 +8,8 @@ use tauri::Wry;
 
 use crate::ai::{openai, ExtractedPoint};
 
+const EDGE_REVIEW_CHARS: usize = 220;
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FetchedPage {
@@ -18,6 +20,17 @@ pub struct FetchedPage {
     pub author: Option<String>,
     pub published_at: Option<String>,
     pub reading_time: Option<String>,
+}
+
+struct PagePart {
+    html: String,
+    text: Option<String>,
+}
+
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
+struct EdgeTrim {
+    head: usize,
+    tail: usize,
 }
 
 #[derive(Serialize)]
@@ -95,7 +108,8 @@ fn parse_fact_check_content(content: &str, claim: &str, context: &str) -> FactCh
 
 /// Fetch a URL and extract readable content (rich HTML + plain text + title).
 #[tauri::command]
-pub async fn fetch_url(url: String) -> Result<FetchedPage, String> {
+pub async fn fetch_url(app: tauri::AppHandle<Wry>, url: String) -> Result<FetchedPage, String> {
+    let config = crate::commands::config::get_config(app.clone())?;
     let resp = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (compatible; DeepExplorer/1.0)")
         .build()
@@ -107,7 +121,8 @@ pub async fn fetch_url(url: String) -> Result<FetchedPage, String> {
 
     let final_url = resp.url().clone();
     let raw = resp.text().await.map_err(|e| e.to_string())?;
-    Ok(extract_page_content(&raw, &final_url))
+    let page = extract_page_content(&raw, &final_url);
+    Ok(clean_page_edges_with_ai(&config, page).await)
 }
 
 #[tauri::command]
@@ -199,7 +214,7 @@ fn extract_page_content(raw: &str, base_url: &reqwest::Url) -> FetchedPage {
     let img_sel = Selector::parse("img").ok();
     let caption_sel = Selector::parse("figcaption").ok();
 
-    let mut html_parts: Vec<String> = Vec::new();
+    let mut parts: Vec<PagePart> = Vec::new();
     let mut text_lines: Vec<String> = Vec::new();
     let mut seen_images: HashMap<String, SeenImage> = HashMap::new();
 
@@ -234,7 +249,7 @@ fn extract_page_content(raw: &str, base_url: &reqwest::Url) -> FetchedPage {
                         .map(|c| c.text().collect::<String>().trim().to_string())
                         .filter(|s| !s.is_empty());
                     push_image_html(
-                        &mut html_parts,
+                        &mut parts,
                         &mut seen_images,
                         &src,
                         alt,
@@ -246,7 +261,7 @@ fn extract_page_content(raw: &str, base_url: &reqwest::Url) -> FetchedPage {
             if let Some(src) = image_src(&el) {
                 let src = absolutize_src(&src, base_url);
                 let alt = el.value().attr("alt").unwrap_or("");
-                push_image_html(&mut html_parts, &mut seen_images, &src, alt, None);
+                push_image_html(&mut parts, &mut seen_images, &src, alt, None);
             }
         } else {
             let text: String = el.text().collect::<String>();
@@ -267,13 +282,18 @@ fn extract_page_content(raw: &str, base_url: &reqwest::Url) -> FetchedPage {
             ) {
                 continue;
             }
-            html_parts.push(format!("<{tag}>{}</{tag}>", escape_html_text(&text)));
+            parts.push(PagePart {
+                html: format!("<{tag}>{}</{tag}>", escape_html_text(&text)),
+                text: Some(text.clone()),
+            });
             text_lines.push(text);
         }
     }
 
+    apply_deterministic_edge_trim(&mut parts, &mut text_lines);
+
     FetchedPage {
-        html: html_parts.join("\n"),
+        html: parts.into_iter().map(|part| part.html).collect::<Vec<_>>().join("\n"),
         text: text_lines.join("\n"),
         title,
         url: base_url.to_string(),
@@ -315,6 +335,285 @@ fn select_article_root<'a>(
     }
 
     body_sel.and_then(|selector| doc.select(selector).next())
+}
+
+fn apply_deterministic_edge_trim(parts: &mut Vec<PagePart>, text_lines: &mut Vec<String>) {
+    let trim = deterministic_edge_trim(text_lines);
+    apply_edge_trim(parts, text_lines, trim);
+}
+
+fn deterministic_edge_trim(text_lines: &[String]) -> EdgeTrim {
+    let head = text_lines
+        .iter()
+        .take_while(|line| is_edge_noise_text(line))
+        .count();
+    let tail = text_lines
+        .iter()
+        .rev()
+        .take_while(|line| is_edge_noise_text(line))
+        .count();
+    EdgeTrim { head, tail }
+}
+
+fn apply_edge_trim(parts: &mut Vec<PagePart>, text_lines: &mut Vec<String>, trim: EdgeTrim) {
+    if text_lines.is_empty() {
+        return;
+    }
+    let max_trim = text_lines.len().saturating_sub(1);
+    let head = trim.head.min(max_trim);
+    let tail = trim.tail.min(max_trim.saturating_sub(head));
+    if head == 0 && tail == 0 {
+        return;
+    }
+
+    let keep_start = head;
+    let keep_end = text_lines.len().saturating_sub(tail);
+    let mut text_index = 0_usize;
+    parts.retain(|part| {
+        if part.text.is_none() {
+            return text_index >= keep_start && text_index < keep_end;
+        }
+        let keep = text_index >= keep_start && text_index < keep_end;
+        text_index += 1;
+        keep
+    });
+    *text_lines = text_lines[keep_start..keep_end].to_vec();
+}
+
+fn trim_fetched_page_edges(mut page: FetchedPage, trim: EdgeTrim) -> FetchedPage {
+    if trim.head == 0 && trim.tail == 0 {
+        return page;
+    }
+    let mut parts = page
+        .html
+        .lines()
+        .map(|html| PagePart {
+            html: html.to_string(),
+            text: html_text_line(html),
+        })
+        .collect::<Vec<_>>();
+    let mut text_lines = page
+        .text
+        .lines()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    apply_edge_trim(&mut parts, &mut text_lines, trim);
+    page.html = parts.into_iter().map(|part| part.html).collect::<Vec<_>>().join("\n");
+    page.text = text_lines.join("\n");
+    page
+}
+
+fn html_text_line(html: &str) -> Option<String> {
+    let trimmed = html.trim();
+    if trimmed.starts_with("<img") || trimmed.starts_with("<figure") {
+        return None;
+    }
+    let mut out = String::new();
+    let mut in_tag = false;
+    for ch in trimmed.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ if !in_tag => out.push(ch),
+            _ => {}
+        }
+    }
+    let text = out
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .trim()
+        .to_string();
+    (!text.is_empty()).then_some(text)
+}
+
+fn is_edge_noise_text(text: &str) -> bool {
+    let normalized = normalize_inline(text);
+    let lower = normalized.to_lowercase();
+    let len = normalized.chars().count();
+    if normalized.is_empty() {
+        return true;
+    }
+    if len <= 2 && normalized.chars().all(|ch| matches!(ch, '←' | '→' | '↑' | '↓' | '<' | '>' | '›' | '‹')) {
+        return true;
+    }
+    if len <= 18 && matches!(
+        normalized.as_str(),
+        "分类" | "分类:" | "分类：" | "上一篇" | "下一篇" | "最近内容" | "推荐" | "相关阅读" | "周刊"
+    ) {
+        return true;
+    }
+    let edge_patterns = [
+        "上一篇",
+        "下一篇",
+        "最近内容",
+        "相关文章",
+        "相关阅读",
+        "返回首页",
+        "rss符号",
+        "rss 图标",
+        "rss图标",
+        "订阅源",
+        "获取网站内容的更新",
+    ];
+    edge_patterns.iter().any(|pattern| lower.contains(pattern))
+}
+
+async fn clean_page_edges_with_ai(
+    config: &crate::commands::config::AppConfig,
+    page: FetchedPage,
+) -> FetchedPage {
+    if config.openai_api_key.trim().is_empty() || page.text.chars().count() < 240 {
+        return page;
+    }
+    match suggest_edge_trim(config, &page.text).await {
+        Ok(trim) => trim_fetched_page_edges(page, trim),
+        Err(error) => {
+            println!("[Extract] edge cleanup skipped: {error}");
+            page
+        }
+    }
+}
+
+async fn suggest_edge_trim(
+    config: &crate::commands::config::AppConfig,
+    text: &str,
+) -> anyhow::Result<EdgeTrim> {
+    #[derive(Deserialize)]
+    struct Resp {
+        choices: Vec<Choice>,
+    }
+    #[derive(Deserialize)]
+    struct Choice {
+        message: Msg,
+    }
+    #[derive(Deserialize)]
+    struct Msg {
+        content: String,
+    }
+
+    let lines = text
+        .lines()
+        .map(normalize_inline)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>();
+    if lines.len() < 4 {
+        return Ok(EdgeTrim::default());
+    }
+
+    let head = edge_review_lines(lines.iter(), EDGE_REVIEW_CHARS);
+    let tail = edge_review_lines(lines.iter().rev(), EDGE_REVIEW_CHARS);
+    let max_head = head.len();
+    let max_tail = tail.len();
+    let user = format!(
+        "请判断网页正文抽取结果的开头和结尾是否仍混入无意义页眉/页脚/导航噪音。只允许裁剪连续的首部行和连续的尾部行，不要裁剪正文。返回 JSON：{{\"head\":数字,\"tail\":数字}}。\n\n开头候选：\n{}\n\n结尾候选：\n{}",
+        numbered_lines(&head),
+        numbered_lines(&tail.into_iter().rev().collect::<Vec<_>>())
+    );
+    let endpoint = crate::commands::config::completions_endpoint(
+        &config.openai_base_url,
+        &config.provider_key,
+        &config.custom_endpoint,
+    );
+    let body = serde_json::json!({
+        "model": config.openai_model,
+        "messages": [
+            {
+                "role": "system",
+                "content": "你是网页正文边界清理器。噪音包括：RSS说明、上一篇/下一篇、分类、推荐、最近内容、导航箭头、站点菜单、广告和无意义图标说明。正文包括文章标题之后的真实段落、论点、叙述、数据和引用。只能返回 JSON，不要解释。"
+            },
+            { "role": "user", "content": user }
+        ],
+        "response_format": { "type": "json_object" },
+        "temperature": 0.0
+    });
+    let mut builder = reqwest::Client::new()
+        .post(&endpoint)
+        .bearer_auth(&config.openai_api_key)
+        .json(&body);
+    if let Ok(map) =
+        serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&config.extra_headers)
+    {
+        for (key, value) in &map {
+            if let Some(value) = value.as_str() {
+                builder = builder.header(key.as_str(), value);
+            }
+        }
+    }
+
+    let resp = builder.send().await?;
+    let status = resp.status();
+    let raw = resp.text().await?;
+    if !status.is_success() {
+        anyhow::bail!("AI edge trim failed ({status}): {raw}");
+    }
+    let parsed: Resp = serde_json::from_str(&raw)?;
+    let content = parsed
+        .choices
+        .into_iter()
+        .next()
+        .map(|choice| choice.message.content)
+        .unwrap_or_default();
+    parse_edge_trim(&content, max_head, max_tail)
+}
+
+fn edge_review_lines<'a, I>(lines: I, char_limit: usize) -> Vec<String>
+where
+    I: Iterator<Item = &'a String>,
+{
+    let mut out = Vec::new();
+    let mut chars = 0_usize;
+    for line in lines {
+        let len = line.chars().count();
+        if !out.is_empty() && chars + len > char_limit {
+            break;
+        }
+        chars += len;
+        out.push(line.clone());
+        if out.len() >= 8 {
+            break;
+        }
+    }
+    out
+}
+
+fn numbered_lines(lines: &[String]) -> String {
+    lines
+        .iter()
+        .enumerate()
+        .map(|(index, line)| format!("{}: {}", index + 1, line))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn parse_edge_trim(content: &str, max_head: usize, max_tail: usize) -> anyhow::Result<EdgeTrim> {
+    #[derive(Deserialize)]
+    struct Payload {
+        #[serde(default)]
+        head: usize,
+        #[serde(default)]
+        tail: usize,
+    }
+
+    let trimmed = content.trim();
+    let json_text = if trimmed.starts_with('{') {
+        trimmed
+    } else {
+        let start = trimmed
+            .find('{')
+            .ok_or_else(|| anyhow::anyhow!("missing edge trim json"))?;
+        let end = trimmed
+            .rfind('}')
+            .ok_or_else(|| anyhow::anyhow!("missing edge trim json"))?;
+        &trimmed[start..=end]
+    };
+    let payload: Payload = serde_json::from_str(json_text)?;
+    Ok(EdgeTrim {
+        head: payload.head.min(max_head),
+        tail: payload.tail.min(max_tail),
+    })
 }
 
 fn article_candidate_score(
@@ -589,12 +888,16 @@ struct SeenImage {
 }
 
 fn push_image_html(
-    html_parts: &mut Vec<String>,
+    parts: &mut Vec<PagePart>,
     seen_images: &mut HashMap<String, SeenImage>,
     src: &str,
     alt: &str,
     caption: Option<&str>,
 ) {
+    if is_noise_image(src, alt, caption) {
+        return;
+    }
+
     let key = normalize_image_src_key(src);
     if key.is_empty() {
         return;
@@ -616,14 +919,17 @@ fn push_image_html(
             }
         }
         if changed {
-            html_parts[existing.part_index] =
+            parts[existing.part_index].html =
                 image_html(&existing.src, &existing.alt, existing.caption.as_deref());
         }
         return;
     }
 
-    let part_index = html_parts.len();
-    html_parts.push(image_html(src, alt, caption));
+    let part_index = parts.len();
+    parts.push(PagePart {
+        html: image_html(src, alt, caption),
+        text: None,
+    });
     seen_images.insert(
         key,
         SeenImage {
@@ -633,6 +939,27 @@ fn push_image_html(
             caption: caption.map(ToString::to_string),
         },
     );
+}
+
+fn is_noise_image(src: &str, alt: &str, caption: Option<&str>) -> bool {
+    let joined = [src, alt, caption.unwrap_or("")]
+        .join(" ")
+        .to_lowercase();
+    if [
+        "rss",
+        "subscribe",
+        "订阅源",
+        "订阅",
+    ]
+    .iter()
+    .any(|needle| joined.contains(needle)) {
+        return true;
+    }
+
+    let alt_caption_len = format!("{}{}", alt.trim(), caption.unwrap_or("").trim())
+        .chars()
+        .count();
+    alt_caption_len <= 20 && ["logo", "icon", "favicon"].iter().any(|needle| joined.contains(needle))
 }
 
 fn has_ancestor_tag(el: &scraper::ElementRef<'_>, tag_name: &str) -> bool {
@@ -1106,8 +1433,50 @@ mod tests {
         assert!(page.text.contains("工作制度只是工资"));
         assert!(page.text.contains("制度性疲惫"));
         assert!(!page.text.contains("RSS符号"));
+        assert!(!page.html.contains("rss.png"));
         assert!(!page.text.contains("上一篇"));
         assert!(!page.text.contains("分类"));
         assert!(!page.text.contains("←"));
+    }
+
+    #[test]
+    fn trim_fetched_page_edges_keeps_html_and_text_in_sync() {
+        let page = FetchedPage {
+            html: [
+                r#"<img src="https://example.com/rss.png" alt="RSS" />"#,
+                "<p>站点订阅源说明</p>",
+                "<p>真正的第一段正文，提出了核心问题。</p>",
+                "<p>真正的第二段正文，补充了论证。</p>",
+                "<p>上一篇：科技爱好者周刊</p>",
+            ]
+            .join("\n"),
+            text: [
+                "站点订阅源说明",
+                "真正的第一段正文，提出了核心问题。",
+                "真正的第二段正文，补充了论证。",
+                "上一篇：科技爱好者周刊",
+            ]
+            .join("\n"),
+            title: None,
+            url: "https://example.com/story".to_string(),
+            author: None,
+            published_at: None,
+            reading_time: None,
+        };
+
+        let cleaned = trim_fetched_page_edges(page, EdgeTrim { head: 1, tail: 1 });
+
+        assert!(!cleaned.html.contains("rss.png"));
+        assert!(!cleaned.text.contains("订阅源"));
+        assert!(!cleaned.text.contains("上一篇"));
+        assert!(cleaned.html.contains("真正的第一段正文"));
+        assert!(cleaned.text.starts_with("真正的第一段正文"));
+    }
+
+    #[test]
+    fn parse_edge_trim_extracts_json_and_clamps() {
+        let trim = parse_edge_trim("```json\n{\"head\":3,\"tail\":9}\n```", 2, 4).unwrap();
+
+        assert_eq!(trim, EdgeTrim { head: 2, tail: 4 });
     }
 }

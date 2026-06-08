@@ -13,6 +13,9 @@ const KEY_IMAGE_BASE_URL: &str = "image_base_url";
 const KEY_IMAGE_API_KEY: &str = "image_api_key";
 const KEY_IMAGE_MODEL: &str = "image_model";
 const KEY_IMAGE_PROVIDER_KEY: &str = "image_provider_key";
+const KEY_IMAGE_CUSTOM_ENDPOINT: &str = "image_custom_endpoint";
+const KEY_IMAGE_SIZE: &str = "image_size";
+const KEY_IMAGE_KNOWLEDGE_STYLE_PROMPT: &str = "image_knowledge_style_prompt";
 const KEY_PROFILES: &str = "config_profiles";
 const KEY_PROVIDER_KEY: &str = "provider_key";
 const KEY_CUSTOM_ENDPOINT: &str = "custom_endpoint";
@@ -34,6 +37,24 @@ const KEY_COMMENTATOR_EMOJI: &str = "commentator_emoji";
 const KEY_COMMENTATOR_PROFILES: &str = "commentator_profiles";
 const KEY_CUSTOM_MENTAL_MODELS: &str = "custom_mental_models";
 const DEFAULT_MODEL: &str = "gpt-4o-mini";
+pub const DEFAULT_IMAGE_KNOWLEDGE_STYLE_PROMPT: &str = r#"# 角色
+你是一位知识可视化与信息架构专家，擅长将复杂辩论、观点或论证文本转化为高密度、学术风格的知识图谱画面。不要使用流程图、树状图、UML、Mermaid、Graphviz 或任何箭头流程图语法。
+
+# 核心任务
+根据用户提供的原文、解析卡牌和已采集 star，设计一张非流程图样式、信息密集、适合快速浏览与记忆的知识可视化图片。画面应学术严谨、关系明确、层次清晰，在有限空间中呈现关键概念、立场、论据、反驳、证据及逻辑关联。
+
+# 可选表现
+可使用概念-命题网络、双向矩阵、编号知识单元+关系脚注、语义三元组群组、图尔敏/IBIS 论证框架、超维文本图、同心圆/网格/射线式 ASCII 布局的视觉化改造；可以混合使用，但不要形成自上而下或自左向右的流程图。
+
+# 设计原则
+- 不依赖视觉流向，不画流程箭头。
+- 可读性优先，使用分区、编号、符号、标签、矩阵、交叉引用组织信息。
+- 知识密度高，每个实体和关系都携带信息，避免空泛装饰。
+- 风格偏学术信息图：深色或纸面底色均可，细线、网格、注释、编号、关系词、少量强调色。
+- 图片模型可能不擅长小字，请把文字控制为短标签、编号和关键词，不要塞长段落。
+
+# 最终图像 Prompt 要求
+直接输出一段可交给图片模型的中文 prompt，说明画面布局、知识单元、关系系统、配色、材质、信息层级和应出现的关键短标签。不要输出 Markdown 分析，不要解释过程。"#;
 
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -45,6 +66,10 @@ pub struct AppConfig {
     pub image_api_key: String,
     pub image_model: String,
     pub image_provider_key: String,
+    pub image_custom_endpoint: String,
+    pub image_size: String,
+    #[serde(default = "default_image_knowledge_style_prompt")]
+    pub image_knowledge_style_prompt: String,
     pub provider_key: String,
     pub custom_endpoint: String,
     pub custom_provider_name: String,
@@ -66,6 +91,10 @@ pub struct AppConfig {
     pub commentator_profiles: Vec<CommentatorProfile>,
     #[serde(default)]
     pub custom_mental_models: Vec<MentalModel>,
+}
+
+fn default_image_knowledge_style_prompt() -> String {
+    DEFAULT_IMAGE_KNOWLEDGE_STYLE_PROMPT.to_string()
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -109,6 +138,16 @@ pub struct ConfigProfile {
     pub image_base_url: Option<String>,
     pub image_api_key: Option<String>,
     pub image_model: Option<String>,
+    pub image_provider_key: Option<String>,
+    pub image_custom_endpoint: Option<String>,
+    pub image_size: Option<String>,
+    pub image_knowledge_style_prompt: Option<String>,
+    pub search_enabled: Option<bool>,
+    pub search_base_url: Option<String>,
+    pub search_api_key: Option<String>,
+    pub search_model: Option<String>,
+    pub search_provider_key: Option<String>,
+    pub search_custom_endpoint: Option<String>,
 }
 
 pub fn default_commentator_profiles() -> Vec<CommentatorProfile> {
@@ -241,6 +280,15 @@ pub fn get_config(app: tauri::AppHandle<Wry>) -> Result<AppConfig, String> {
         image_provider_key: store.get(KEY_IMAGE_PROVIDER_KEY)
             .and_then(|v| v.as_str().map(String::from))
             .unwrap_or_else(|| "openai-compatible".to_string()),
+        image_custom_endpoint: store.get(KEY_IMAGE_CUSTOM_ENDPOINT)
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_default(),
+        image_size: store.get(KEY_IMAGE_SIZE)
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_else(|| "1024x1024".to_string()),
+        image_knowledge_style_prompt: store.get(KEY_IMAGE_KNOWLEDGE_STYLE_PROMPT)
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_else(|| DEFAULT_IMAGE_KNOWLEDGE_STYLE_PROMPT.to_string()),
         provider_key: store.get(KEY_PROVIDER_KEY)
             .and_then(|v| v.as_str().map(String::from))
             .unwrap_or_else(|| "openai-compat".to_string()),
@@ -307,6 +355,9 @@ pub fn set_config(app: tauri::AppHandle<Wry>, config: AppConfig) -> Result<(), S
     store.set(KEY_IMAGE_API_KEY, config.image_api_key.as_str());
     store.set(KEY_IMAGE_MODEL, config.image_model.as_str());
     store.set(KEY_IMAGE_PROVIDER_KEY, config.image_provider_key.as_str());
+    store.set(KEY_IMAGE_CUSTOM_ENDPOINT, config.image_custom_endpoint.as_str());
+    store.set(KEY_IMAGE_SIZE, config.image_size.as_str());
+    store.set(KEY_IMAGE_KNOWLEDGE_STYLE_PROMPT, config.image_knowledge_style_prompt.as_str());
     store.set(KEY_PROVIDER_KEY, config.provider_key.as_str());
     store.set(KEY_CUSTOM_ENDPOINT, config.custom_endpoint.as_str());
     store.set(KEY_CUSTOM_PROVIDER_NAME, config.custom_provider_name.as_str());

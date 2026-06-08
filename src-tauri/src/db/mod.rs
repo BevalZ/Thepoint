@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use rusqlite::{params, Connection};
+use rusqlite::{params, params_from_iter, Connection};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, Wry};
 
@@ -253,39 +253,155 @@ pub fn find_similar_points(
     keywords: &[String],
     limit: usize,
 ) -> Result<Vec<StoredPoint>> {
-    if keywords.is_empty() {
+    if keywords.is_empty() || limit == 0 {
         return Ok(Vec::new());
     }
 
-    // Build an OR query for FTS5: each keyword as a quoted phrase so special
-    // chars are treated literally.
-    let fts_query = keywords
+    // FTS5 uses the trigram tokenizer here; two-character CJK terms cannot
+    // produce stable MATCH results, so keep those for the local fallback.
+    let fts_keywords = keywords
         .iter()
-        .map(|kw| format!("\"{}\"", kw.replace('"', " ")))
-        .collect::<Vec<_>>()
-        .join(" OR ");
+        .filter(|kw| kw.chars().count() >= 3)
+        .collect::<Vec<_>>();
 
-    let sql = "WITH RECURSIVE descendants(id) AS (
-            SELECT ?1
+    let mut out = if fts_keywords.is_empty() {
+        Vec::new()
+    } else {
+        // Build an OR query for FTS5: each keyword as a quoted phrase so special
+        // chars are treated literally.
+        let fts_query = fts_keywords
+            .iter()
+            .map(|kw| format!("\"{}\"", kw.replace('"', " ")))
+            .collect::<Vec<_>>()
+            .join(" OR ");
+
+        let sql = "WITH RECURSIVE descendants(id) AS (
+                SELECT ?1
+                UNION ALL
+                SELECT p.id FROM points p JOIN descendants d ON p.parent_id = d.id
+            )
+            SELECT p.id, p.content, p.tag_type, p.parent_id, p.source_doc_name, p.source_excerpt, p.created_at, p.archived, p.starred
+            FROM points_fts f
+            JOIN points p ON p.id = f.id
+            WHERE points_fts MATCH ?2
+              AND p.archived = 0
+              AND p.id NOT IN (SELECT id FROM descendants)
+            ORDER BY rank
+            LIMIT ?3";
+
+        let mut stmt = conn.prepare(sql)?;
+        let rows = stmt.query_map(params![point_id, fts_query, limit as i64], map_point_row)?;
+
+        let mut rows_out = Vec::new();
+        for row in rows {
+            rows_out.push(row?);
+        }
+        rows_out
+    };
+
+    if out.len() < limit {
+        let seen = out.iter().map(|point| point.id.clone()).collect::<HashSet<_>>();
+        let mut fallback = find_similar_points_by_keyword_overlap(
+            conn,
+            point_id,
+            keywords,
+            limit - out.len(),
+            &seen,
+        )?;
+        out.append(&mut fallback);
+    }
+
+    Ok(out)
+}
+
+fn find_similar_points_by_keyword_overlap(
+    conn: &Connection,
+    point_id: &str,
+    keywords: &[String],
+    limit: usize,
+    seen: &HashSet<String>,
+) -> Result<Vec<StoredPoint>> {
+    if limit == 0 {
+        return Ok(Vec::new());
+    }
+
+    let like_terms = keywords
+        .iter()
+        .filter(|kw| kw.chars().count() >= 2)
+        .take(12)
+        .map(|kw| format!("%{}%", escape_like(kw)))
+        .collect::<Vec<_>>();
+
+    if like_terms.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut sql = String::from(
+        "WITH RECURSIVE descendants(id) AS (
+            SELECT ?
             UNION ALL
             SELECT p.id FROM points p JOIN descendants d ON p.parent_id = d.id
         )
         SELECT p.id, p.content, p.tag_type, p.parent_id, p.source_doc_name, p.source_excerpt, p.created_at, p.archived, p.starred
-        FROM points_fts f
-        JOIN points p ON p.id = f.id
-        WHERE points_fts MATCH ?2
-          AND p.id NOT IN (SELECT id FROM descendants)
-        ORDER BY rank
-        LIMIT ?3";
+        FROM points p
+        WHERE p.archived = 0
+          AND p.id NOT IN (SELECT id FROM descendants)",
+    );
 
-    let mut stmt = conn.prepare(sql)?;
-    let rows = stmt.query_map(params![point_id, fts_query, limit as i64], map_point_row)?;
-
-    let mut out = Vec::new();
-    for row in rows {
-        out.push(row?);
+    let mut values = vec![point_id.to_string()];
+    if !seen.is_empty() {
+        let placeholders = std::iter::repeat("?")
+            .take(seen.len())
+            .collect::<Vec<_>>()
+            .join(", ");
+        sql.push_str(&format!(" AND p.id NOT IN ({placeholders})"));
+        values.extend(seen.iter().cloned());
     }
-    Ok(out)
+
+    let like_clause = std::iter::repeat("p.content LIKE ? ESCAPE '\\'")
+        .take(like_terms.len())
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    sql.push_str(&format!(" AND ({like_clause}) ORDER BY p.created_at DESC LIMIT 250"));
+    values.extend(like_terms);
+
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(params_from_iter(values.iter()), map_point_row)?;
+    let mut scored = Vec::new();
+    for row in rows {
+        let point = row?;
+        let score = keyword_overlap_score(&point.content, keywords);
+        if score > 0 {
+            scored.push((score, point));
+        }
+    }
+
+    scored.sort_by(|(left_score, left), (right_score, right)| {
+        right_score
+            .cmp(left_score)
+            .then_with(|| right.created_at.cmp(&left.created_at))
+    });
+
+    Ok(scored
+        .into_iter()
+        .take(limit)
+        .map(|(_, point)| point)
+        .collect())
+}
+
+fn keyword_overlap_score(content: &str, keywords: &[String]) -> usize {
+    keywords
+        .iter()
+        .filter(|kw| kw.chars().count() >= 2 && content.contains(kw.as_str()))
+        .map(|kw| kw.chars().count().min(6))
+        .sum()
+}
+
+fn escape_like(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
 }
 
 /// FTS5 keyword search over all points. Empty query returns empty vec.
@@ -349,8 +465,8 @@ pub fn record_explore_action(
     Ok(())
 }
 
-/// Derive rough keywords from a point's content: CJK character bigrams plus
-/// latin word tokens. Deliberately simple — this feeds LIKE matching only.
+/// Derive rough keywords from a point's content: CJK trigrams/bigrams plus
+/// latin word tokens. Deliberately simple — this feeds local similarity search.
 pub fn extract_keywords(content: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     let mut seen: HashSet<String> = HashSet::new();
@@ -369,13 +485,19 @@ pub fn extract_keywords(content: &str) -> Vec<String> {
             .iter()
             .any(|c| ('\u{4E00}'..='\u{9FFF}').contains(c));
         if is_cjk {
+            for window in chars.windows(3) {
+                let trigram: String = window.iter().collect();
+                if seen.insert(trigram.clone()) {
+                    out.push(trigram);
+                }
+            }
             for window in chars.windows(2) {
                 let bigram: String = window.iter().collect();
                 if seen.insert(bigram.clone()) {
                     out.push(bigram);
                 }
             }
-        } else if chars.len() >= 2 {
+        } else if chars.len() >= 3 {
             let word: String = chars.iter().collect::<String>().to_lowercase();
             if seen.insert(word.clone()) {
                 out.push(word);
@@ -383,7 +505,7 @@ pub fn extract_keywords(content: &str) -> Vec<String> {
         }
     }
 
-    out.truncate(10);
+    out.truncate(18);
     out
 }
 
@@ -637,4 +759,81 @@ pub fn list_recent_suggestion_summaries(conn: &Connection, limit: u32) -> Result
     let mut out = Vec::new();
     for row in rows { out.push(row?); }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn memory_db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        init_db(&conn).unwrap();
+        conn
+    }
+
+    fn insert_point(
+        conn: &Connection,
+        id: &str,
+        content: &str,
+        parent_id: Option<&str>,
+        created_at: &str,
+    ) {
+        conn.execute(
+            "INSERT INTO points
+                (id, content, tag_type, parent_id, source_doc_name, source_excerpt, created_at, archived, starred)
+             VALUES (?1, ?2, '作者观点', ?3, '测试文档', NULL, ?4, 0, 0)",
+            params![id, content, parent_id, created_at],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn extract_keywords_includes_cjk_trigrams_for_fts() {
+        let keywords = extract_keywords("养老金改革影响年轻人，养老金制度需要调整。");
+
+        assert!(keywords.iter().any(|keyword| keyword == "养老金"));
+        assert!(keywords.iter().any(|keyword| keyword == "养老"));
+    }
+
+    #[test]
+    fn find_similar_points_falls_back_to_keyword_overlap() {
+        let conn = memory_db();
+        insert_point(
+            &conn,
+            "current",
+            "养老金不够了，需要提高缴费比例。",
+            None,
+            "2026-06-08T00:00:00Z",
+        );
+        insert_point(
+            &conn,
+            "related",
+            "公开报道提到养老资金压力，各省会调整具体比例。",
+            None,
+            "2026-06-08T00:01:00Z",
+        );
+        insert_point(
+            &conn,
+            "child",
+            "养老资金压力这个子节点不应返回。",
+            Some("current"),
+            "2026-06-08T00:02:00Z",
+        );
+        insert_point(
+            &conn,
+            "unrelated",
+            "城市文旅消费正在恢复。",
+            None,
+            "2026-06-08T00:03:00Z",
+        );
+
+        let keywords = vec!["养老".to_string(), "比例".to_string()];
+        let matches = find_similar_points(&conn, "current", &keywords, 8).unwrap();
+        let ids = matches
+            .into_iter()
+            .map(|point| point.id)
+            .collect::<Vec<_>>();
+
+        assert_eq!(ids, vec!["related"]);
+    }
 }

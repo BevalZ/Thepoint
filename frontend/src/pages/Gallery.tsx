@@ -5,6 +5,7 @@ import { useGalleryStore } from '@/store'
 import { cn } from '@/lib/utils'
 import type { GalleryItem } from '@/api/types'
 import { convertFileSrc } from '@tauri-apps/api/core'
+import { diagnoseGalleryFile } from '@/api'
 
 type Granularity = 'day' | 'month' | 'year'
 
@@ -22,14 +23,58 @@ function autoGranularity(items: GalleryItem[]): Granularity {
   return 'year'
 }
 
+function describeDiagnostic(diag: Awaited<ReturnType<typeof diagnoseGalleryFile>>) {
+  return [
+    `exists=${diag.exists}`,
+    `bytes=${diag.sizeBytes ?? 'n/a'}`,
+    `size=${diag.imageWidth && diag.imageHeight ? `${diag.imageWidth}x${diag.imageHeight}` : 'n/a'}`,
+    diag.error ? `error=${diag.error}` : null,
+  ].filter(Boolean).join(' | ')
+}
+
+async function logImageLoadFailure(
+  log: ReturnType<typeof useGalleryStore.getState>['log'],
+  label: string,
+  item: GalleryItem,
+  filePath: string,
+  assetSrc: string
+) {
+  log({
+    level: 'error',
+    message: `${label}加载失败`,
+    detail: `id=${item.id} | path=${filePath || 'empty'} | asset=${assetSrc || 'empty'}`,
+  })
+  if (!filePath) return
+  try {
+    const diag = await diagnoseGalleryFile(filePath)
+    log({
+      level: diag.exists && !diag.error ? 'warn' : 'error',
+      message: `${label}文件诊断`,
+      detail: describeDiagnostic(diag),
+    })
+  } catch (error) {
+    log({
+      level: 'error',
+      message: `${label}文件诊断失败`,
+      detail: error instanceof Error ? error.message : String(error),
+    })
+  }
+}
+
 // ── Image tile ───────────────────────────────────────────────────────────────
 function Tile({ item, onDelete, onClick }: { item: GalleryItem; onDelete: () => void; onClick: () => void }) {
+  const { log } = useGalleryStore()
   const src = convertFileSrc(item.downloadStatus === 'ok' ? item.thumbnailPath : '')
   return (
     <div className="group relative rounded-lg overflow-hidden cursor-pointer bg-bg-elevated border border-border"
       onClick={onClick}>
       {item.downloadStatus === 'ok'
-        ? <img src={src} alt={item.prompt} className="w-full aspect-video object-cover" />
+        ? <img
+            src={src}
+            alt={item.prompt}
+            className="w-full aspect-video object-cover"
+            onError={() => { void logImageLoadFailure(log, '缩略图', item, item.thumbnailPath, src) }}
+          />
         : <div className="w-full aspect-video flex items-center justify-center text-xs text-fg-faint">下载失败</div>
       }
       <button
@@ -50,7 +95,7 @@ function Tile({ item, onDelete, onClick }: { item: GalleryItem; onDelete: () => 
 // ── Day stack ────────────────────────────────────────────────────────────────
 function DayStack({ date, items, onSelect }: { date: string; items: GalleryItem[]; onSelect: (item: GalleryItem) => void }) {
   const [open, setOpen] = useState(false)
-  const { remove, retry } = useGalleryStore()
+  const { remove, retry, log } = useGalleryStore()
 
   return (
     <div>
@@ -78,7 +123,12 @@ function DayStack({ date, items, onSelect }: { date: string; items: GalleryItem[
             <div key={item.id} className="absolute rounded-lg overflow-hidden border border-border bg-bg-elevated"
               style={{ top: i * 6, left: i * 8, right: -(i * 8), zIndex: 3 - i, opacity: 1 - i * 0.2 }}>
               {item.downloadStatus === 'ok' && (
-                <img src={convertFileSrc(item.thumbnailPath)} alt="" className="w-full h-20 object-cover" />
+                <img
+                  src={convertFileSrc(item.thumbnailPath)}
+                  alt=""
+                  className="w-full h-20 object-cover"
+                  onError={() => { void logImageLoadFailure(log, '堆叠缩略图', item, item.thumbnailPath, convertFileSrc(item.thumbnailPath)) }}
+                />
               )}
             </div>
           ))}
@@ -91,13 +141,19 @@ function DayStack({ date, items, onSelect }: { date: string; items: GalleryItem[
 // ── Lightbox ─────────────────────────────────────────────────────────────────
 function Lightbox({ item, onClose, onDelete }: { item: GalleryItem; onClose: () => void; onDelete: () => void }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const { log } = useGalleryStore()
+  const src = convertFileSrc(item.filePath)
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center"
       onClick={onClose}>
       <div className="relative max-w-4xl w-full mx-4" onClick={e => e.stopPropagation()}>
-        <img src={convertFileSrc(item.filePath)} alt={item.prompt}
-          className="w-full rounded-xl object-contain max-h-[80vh]" />
+        <img
+          src={src}
+          alt={item.prompt}
+          className="w-full rounded-xl object-contain max-h-[80vh]"
+          onError={() => { void logImageLoadFailure(log, '原图', item, item.filePath, src) }}
+        />
         <div className="absolute top-3 right-3 flex gap-2">
           {confirmDelete ? (
             <>
@@ -146,9 +202,10 @@ function Lightbox({ item, onClose, onDelete }: { item: GalleryItem; onClose: () 
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 export default function Gallery() {
-  const { items, fetch } = useGalleryStore()
+  const { items, fetch, logs, clearLogs } = useGalleryStore()
   const [granularity, setGranularity] = useState<Granularity | null>(null)
   const [selected, setSelected] = useState<GalleryItem | null>(null)
+  const [showLogs, setShowLogs] = useState(false)
   const { remove } = useGalleryStore()
 
   useEffect(() => { fetch() }, [fetch])
@@ -161,24 +218,19 @@ export default function Gallery() {
     return groupBy(items, i => i.generatedAt.slice(0, 4))
   })()
 
-  if (items.length === 0) {
-    return (
-      <div className="flex h-full items-center justify-center text-sm text-fg-faint">
-        <div className="text-center space-y-2">
-          <Image size={32} className="mx-auto opacity-30" />
-          <p>暂无 AI 生成图片</p>
-          <p className="text-xs">采集 ≥10 个 star 后，在圆环面板里生成图片</p>
-        </div>
-      </div>
-    )
-  }
-
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
       <div className="flex items-center gap-2 border-b border-border px-6 py-3">
         <span className="text-sm font-medium text-fg flex-1">AI 画廊</span>
         <div className="flex gap-1">
+          <button
+            onClick={() => setShowLogs(value => !value)}
+            className={cn('rounded px-2.5 py-1 text-xs transition-colors',
+              showLogs ? 'bg-accent/15 text-accent' : 'text-fg-muted hover:text-fg hover:bg-bg-hover')}
+          >
+            日志 {logs.length > 0 ? logs.length : ''}
+          </button>
           {(['day', 'month', 'year'] as Granularity[]).map(g => (
             <button key={g} onClick={() => setGranularity(g === effective && granularity ? null : g)}
               className={cn('rounded px-2.5 py-1 text-xs transition-colors',
@@ -189,9 +241,63 @@ export default function Gallery() {
         </div>
       </div>
 
+      <AnimatePresence initial={false}>
+        {showLogs && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.18, ease: 'easeOut' }}
+            className="overflow-hidden border-b border-border bg-bg-elevated/50"
+          >
+            <div className="px-6 py-3">
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-xs font-medium text-fg-muted">生图诊断日志</p>
+                <button
+                  type="button"
+                  onClick={clearLogs}
+                  className="rounded px-2 py-1 text-xs text-fg-faint transition-colors hover:bg-bg-hover hover:text-fg"
+                >
+                  清空
+                </button>
+              </div>
+              <div className="max-h-44 space-y-1 overflow-y-auto pr-1 text-[11px] leading-relaxed [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none' }}>
+                {logs.length === 0 ? (
+                  <p className="text-fg-faint">暂无日志。生成图片或图片加载失败时会记录在这里。</p>
+                ) : logs.map(entry => (
+                  <div
+                    key={entry.id}
+                    className={cn(
+                      'rounded-md border px-2 py-1.5',
+                      entry.level === 'error'
+                        ? 'border-red-500/25 bg-red-500/8 text-red-200'
+                        : entry.level === 'warn'
+                          ? 'border-amber-500/25 bg-amber-500/8 text-amber-200'
+                          : 'border-border bg-bg text-fg-muted'
+                    )}
+                  >
+                    <span className="mr-2 text-fg-faint">{entry.time}</span>
+                    <span>{entry.message}</span>
+                    {entry.detail && <p className="mt-0.5 break-all text-fg-faint">{entry.detail}</p>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Content */}
       <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6 [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none' }}>
-        {Object.entries(groups).sort((a, b) => b[0].localeCompare(a[0])).map(([key, groupItems]) => (
+        {items.length === 0 ? (
+          <div className="flex h-full items-center justify-center text-sm text-fg-faint">
+            <div className="text-center space-y-2">
+              <Image size={32} className="mx-auto opacity-30" />
+              <p>暂无 AI 生成图片</p>
+              <p className="text-xs">采集 ≥10 个 star 后，在圆环面板里生成图片</p>
+            </div>
+          </div>
+        ) : Object.entries(groups).sort((a, b) => b[0].localeCompare(a[0])).map(([key, groupItems]) => (
           <div key={key}>
             {effective === 'day'
               ? <DayStack date={key} items={groupItems} onSelect={setSelected} />

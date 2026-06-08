@@ -215,11 +215,10 @@ interface TreeRowProps {
 
 function TreeRow({ node, depth, index, onArchive }: TreeRowProps) {
   const { point, children } = node
-  const { expanded, toggleExpanded, similar, deletePoint } = useLibraryStore()
+  const { expanded, toggleExpanded, deletePoint } = useLibraryStore()
   const hasChildren = children.length > 0
   const isOpen = expanded[point.id] ?? false
   const tagClass = (point.tagType && TAG_STYLES[point.tagType]) || TAG_FALLBACK
-  const matches = similar[point.id] ?? []
 
   const handleDelete = () => {
     if (window.confirm('确认删除该节点及其所有子节点？')) {
@@ -230,6 +229,7 @@ function TreeRow({ node, depth, index, onArchive }: TreeRowProps) {
   return (
     <div>
       <motion.div
+        data-point-id={point.id}
         initial={{ opacity: 0, y: 4 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.18, delay: Math.min(index * 0.02, 0.2) }}
@@ -297,24 +297,6 @@ function TreeRow({ node, depth, index, onArchive }: TreeRowProps) {
             )}
 
             <DeepenActions point={point} />
-
-            {matches.length > 0 && (
-              <div className="mt-3 rounded-md border border-border bg-bg p-3">
-                <p className="mb-2 text-xs text-fg-muted">
-                  相似观点（{matches.length}）
-                </p>
-                <div className="space-y-1.5">
-                  {matches.map((match) => (
-                    <p
-                      key={match.id}
-                      className="rounded border border-border bg-bg-elevated px-2.5 py-1.5 text-xs leading-relaxed text-fg-muted"
-                    >
-                      {match.content}
-                    </p>
-                  ))}
-                </div>
-              </div>
-            )}
           </div>
         </div>
       </motion.div>

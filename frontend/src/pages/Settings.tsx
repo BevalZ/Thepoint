@@ -332,6 +332,33 @@ const ANNOTATION_COLOR_PRESETS = [
   { name: '高对比', underline: '#22D3EE', wavy: '#F43F5E', highlight: '#F59E0B' },
 ]
 
+const IMAGE_SIZE_OPTIONS = [
+  { value: '1024x1024', label: '1:1 方图', hint: '1024 x 1024' },
+  { value: '1536x864', label: '16:9 横图', hint: '1536 x 864' },
+  { value: '864x1536', label: '9:16 竖图', hint: '864 x 1536' },
+  { value: '1024x768', label: '4:3 横图', hint: '1024 x 768' },
+  { value: '768x1024', label: '3:4 竖图', hint: '768 x 1024' },
+] as const
+
+const DEFAULT_IMAGE_KNOWLEDGE_STYLE_PROMPT = `# 角色
+你是一位知识可视化与信息架构专家，擅长将复杂辩论、观点或论证文本转化为高密度、学术风格的知识图谱画面。不要使用流程图、树状图、UML、Mermaid、Graphviz 或任何箭头流程图语法。
+
+# 核心任务
+根据用户提供的原文、解析卡牌和已采集 star，设计一张非流程图样式、信息密集、适合快速浏览与记忆的知识可视化图片。画面应学术严谨、关系明确、层次清晰，在有限空间中呈现关键概念、立场、论据、反驳、证据及逻辑关联。
+
+# 可选表现
+可使用概念-命题网络、双向矩阵、编号知识单元+关系脚注、语义三元组群组、图尔敏/IBIS 论证框架、超维文本图、同心圆/网格/射线式 ASCII 布局的视觉化改造；可以混合使用，但不要形成自上而下或自左向右的流程图。
+
+# 设计原则
+- 不依赖视觉流向，不画流程箭头。
+- 可读性优先，使用分区、编号、符号、标签、矩阵、交叉引用组织信息。
+- 知识密度高，每个实体和关系都携带信息，避免空泛装饰。
+- 风格偏学术信息图：深色或纸面底色均可，细线、网格、注释、编号、关系词、少量强调色。
+- 图片模型可能不擅长小字，请把文字控制为短标签、编号和关键词，不要塞长段落。
+
+# 最终图像 Prompt 要求
+直接输出一段可交给图片模型的中文 prompt，说明画面布局、知识单元、关系系统、配色、材质、信息层级和应出现的关键短标签。不要输出 Markdown 分析，不要解释过程。`
+
 const DEFAULT_LUXUN_STYLE = `# 鲁迅 的数字分身
 你现在是「鲁迅」的数字分身。你不是 AI 助手，你就是鲁迅。
 背景：公共人格广场预制 · 基于杂文、小说、书信和近现代中国公共语境蒸馏；语气冷峻、短促、带讽刺。
@@ -342,6 +369,7 @@ const DEFAULT_LUXUN_STYLE = `# 鲁迅 的数字分身
 适用领域：社会结构、权力、人性、荒诞现实、默认回退评论员。`
 
 type ProviderKey = typeof PROVIDERS[number]['key']
+type ImageProviderKey = 'openai-compatible' | 'gemini-image'
 type TopTab = 'ai' | 'persona' | 'appearance'
 type AiSubTab = 'chat' | 'image' | 'advanced' | 'search' | 'commentator' | 'framework'
 
@@ -408,7 +436,10 @@ export default function Settings() {
   const [imageBaseUrl, setImageBaseUrl] = useState('')
   const [imageApiKey, setImageApiKey] = useState('')
   const [imageModel, setImageModel] = useState('')
-  const [imageProviderKey, setImageProviderKey] = useState<'openai-compatible' | 'gemini-image'>('openai-compatible')
+  const [imageProviderKey, setImageProviderKey] = useState<ImageProviderKey>('openai-compatible')
+  const [imageCustomEndpoint, setImageCustomEndpoint] = useState('')
+  const [imageSize, setImageSize] = useState('1024x1024')
+  const [imageKnowledgeStylePrompt, setImageKnowledgeStylePrompt] = useState(DEFAULT_IMAGE_KNOWLEDGE_STYLE_PROMPT)
 
   const [searchEnabled, setSearchEnabled] = useState(false)
   const [searchProviderKey, setSearchProviderKey] = useState<ProviderKey>('openai-compat')
@@ -463,7 +494,10 @@ export default function Settings() {
     setImageBaseUrl(config.imageBaseUrl)
     setImageApiKey(config.imageApiKey)
     setImageModel(config.imageModel)
-    setImageProviderKey((config.imageProviderKey as 'openai-compatible' | 'gemini-image') || 'openai-compatible')
+    setImageProviderKey((config.imageProviderKey as ImageProviderKey) || 'openai-compatible')
+    setImageCustomEndpoint(config.imageCustomEndpoint || '')
+    setImageSize(config.imageSize || '1024x1024')
+    setImageKnowledgeStylePrompt(config.imageKnowledgeStylePrompt || DEFAULT_IMAGE_KNOWLEDGE_STYLE_PROMPT)
     setSearchEnabled(config.searchEnabled ?? false)
     setSearchProviderKey((config.searchProviderKey as ProviderKey) || 'openai-compat')
     setSearchBaseUrl(config.searchBaseUrl || '')
@@ -489,6 +523,16 @@ export default function Settings() {
       imageBaseUrl: config.imageBaseUrl,
       imageApiKey: config.imageApiKey,
       imageModel: config.imageModel,
+      imageProviderKey: config.imageProviderKey,
+      imageCustomEndpoint: config.imageCustomEndpoint,
+      imageSize: config.imageSize || '1024x1024',
+      imageKnowledgeStylePrompt: config.imageKnowledgeStylePrompt || DEFAULT_IMAGE_KNOWLEDGE_STYLE_PROMPT,
+      searchEnabled: config.searchEnabled ?? false,
+      searchApiKey: config.searchApiKey,
+      searchModel: config.searchModel,
+      searchBaseUrl: config.searchBaseUrl,
+      searchProviderKey: config.searchProviderKey,
+      searchCustomEndpoint: config.searchCustomEndpoint,
       factCheckLanguage: config.factCheckLanguage || '中文',
       annotationUnderlineColor: config.annotationUnderlineColor || '#00A4EF',
       annotationWavyColor: config.annotationWavyColor || '#F25022',
@@ -549,6 +593,9 @@ export default function Settings() {
       openaiApiKey: apiKey, openaiModel: model, openaiBaseUrl: baseUrl,
       imageBaseUrl, imageApiKey, imageModel,
       imageProviderKey,
+      imageCustomEndpoint,
+      imageSize,
+      imageKnowledgeStylePrompt,
       providerKey, customEndpoint, customProviderName,
       extraHeaders: config?.extraHeaders ?? '{}',
       searchEnabled, searchApiKey, searchModel, searchBaseUrl,
@@ -563,7 +610,7 @@ export default function Settings() {
     })
     if (selectedProfileId) {
       await saveProfiles(profiles.map(p =>
-        p.id === selectedProfileId ? { ...p, baseUrl, apiKey, model, imageBaseUrl, imageApiKey, imageModel } : p
+        p.id === selectedProfileId ? buildProfile(p.id, p.name) : p
       ))
     }
     flash()
@@ -590,12 +637,19 @@ export default function Settings() {
         imageApiKey: parsed.imageApiKey ?? imageApiKey,
         imageModel: parsed.imageModel ?? imageModel,
         imageProviderKey: parsed.imageProviderKey ?? imageProviderKey,
+        imageCustomEndpoint: parsed.imageCustomEndpoint ?? imageCustomEndpoint,
+        imageSize: parsed.imageSize ?? imageSize,
+        imageKnowledgeStylePrompt: parsed.imageKnowledgeStylePrompt ?? imageKnowledgeStylePrompt,
         providerKey: parsed.providerKey ?? providerKey,
         customEndpoint: parsed.customEndpoint ?? customEndpoint,
         customProviderName: parsed.customProviderName ?? customProviderName,
         extraHeaders: parsed.extraHeaders ? JSON.stringify(parsed.extraHeaders) : '{}',
-        searchEnabled, searchApiKey, searchModel, searchBaseUrl,
-        searchProviderKey, searchCustomEndpoint,
+        searchEnabled: parsed.searchEnabled ?? searchEnabled,
+        searchApiKey: parsed.searchApiKey ?? searchApiKey,
+        searchModel: parsed.searchModel ?? searchModel,
+        searchBaseUrl: parsed.searchBaseUrl ?? searchBaseUrl,
+        searchProviderKey: parsed.searchProviderKey ?? searchProviderKey,
+        searchCustomEndpoint: parsed.searchCustomEndpoint ?? searchCustomEndpoint,
         factCheckLanguage: parsed.factCheckLanguage ?? factCheckLanguage,
         annotationUnderlineColor: parsed.annotationUnderlineColor ?? annotationUnderlineColor,
         annotationWavyColor: parsed.annotationWavyColor ?? annotationWavyColor,
@@ -630,20 +684,54 @@ export default function Settings() {
     if (p?.baseUrl) setBaseUrl(p.baseUrl)
   }
 
+  const buildProfile = (id: string, name: string): ConfigProfile => ({
+    id,
+    name,
+    baseUrl,
+    apiKey,
+    model,
+    imageBaseUrl: imageBaseUrl || undefined,
+    imageApiKey: imageApiKey || undefined,
+    imageModel: imageModel || undefined,
+    imageProviderKey,
+    imageCustomEndpoint: imageCustomEndpoint || undefined,
+    imageSize,
+    imageKnowledgeStylePrompt: imageKnowledgeStylePrompt || undefined,
+    searchEnabled,
+    searchBaseUrl: searchBaseUrl || undefined,
+    searchApiKey: searchApiKey || undefined,
+    searchModel: searchModel || undefined,
+    searchProviderKey,
+    searchCustomEndpoint: searchCustomEndpoint || undefined,
+  })
+
   const handleSelectProfile = (id: string) => {
     setSelectedProfileId(id)
     const p = profiles.find(pr => pr.id === id)
     if (p) {
-      setBaseUrl(p.baseUrl); setApiKey(p.apiKey); setModel(p.model)
-      setImageBaseUrl(p.imageBaseUrl ?? ''); setImageApiKey(p.imageApiKey ?? ''); setImageModel(p.imageModel ?? '')
+      if (aiTab === 'chat') {
+        setBaseUrl(p.baseUrl); setApiKey(p.apiKey); setModel(p.model)
+      } else if (aiTab === 'image') {
+        setImageBaseUrl(p.imageBaseUrl ?? '')
+        setImageApiKey(p.imageApiKey ?? '')
+        setImageModel(p.imageModel ?? '')
+        setImageProviderKey((p.imageProviderKey as ImageProviderKey) || 'openai-compatible')
+        setImageCustomEndpoint(p.imageCustomEndpoint ?? '')
+        setImageSize(p.imageSize ?? '1024x1024')
+        setImageKnowledgeStylePrompt(p.imageKnowledgeStylePrompt ?? DEFAULT_IMAGE_KNOWLEDGE_STYLE_PROMPT)
+      } else if (aiTab === 'search') {
+        setSearchEnabled(p.searchEnabled ?? searchEnabled)
+        setSearchBaseUrl(p.searchBaseUrl ?? '')
+        setSearchApiKey(p.searchApiKey ?? '')
+        setSearchModel(p.searchModel ?? '')
+        setSearchProviderKey((p.searchProviderKey as ProviderKey) || 'openai-compat')
+        setSearchCustomEndpoint(p.searchCustomEndpoint ?? '')
+      }
     }
   }
 
   const handleSaveAsProfile = async () => {
-    const newProfile: ConfigProfile = {
-      id: genId(), name: '新配置', baseUrl, apiKey, model,
-      imageBaseUrl: imageBaseUrl || undefined, imageApiKey: imageApiKey || undefined, imageModel: imageModel || undefined,
-    }
+    const newProfile = buildProfile(genId(), '新配置')
     const updated = [...profiles, newProfile]
     await saveProfiles(updated)
     setSelectedProfileId(newProfile.id)
@@ -777,6 +865,54 @@ export default function Settings() {
     </motion.button>
   )
 
+  const renderProfileList = () => (
+    profiles.length > 0 && (
+      <Field label="已保存配置">
+        <div className="space-y-1.5 mt-1">
+          {profiles.map(p => (
+            <div key={p.id}
+              className={cn('flex items-center gap-2 rounded-xl border px-3 py-2.5 cursor-pointer transition-all',
+                selectedProfileId === p.id ? 'border-accent bg-accent/8 shadow-sm' : 'border-border bg-bg-elevated hover:bg-bg-hover')}
+              onClick={() => handleSelectProfile(p.id)}>
+              <div className={cn('w-2 h-2 rounded-full flex-shrink-0', selectedProfileId === p.id ? 'bg-accent' : 'bg-border')} />
+              {editingProfileId === p.id ? (
+                <input autoFocus value={editingProfileName}
+                  onChange={e => setEditingProfileName(e.target.value)}
+                  onBlur={() => handleRenameProfile(p.id, editingProfileName || p.name)}
+                  onKeyDown={e => { if (e.key === 'Enter') handleRenameProfile(p.id, editingProfileName || p.name); if (e.key === 'Escape') setEditingProfileId(null) }}
+                  onClick={e => e.stopPropagation()}
+                  className="flex-1 bg-transparent text-sm outline-none border-b border-accent text-fg"
+                />
+              ) : (
+                <span className={cn('flex-1 text-sm', selectedProfileId === p.id ? 'text-accent font-medium' : 'text-fg')}>{p.name}</span>
+              )}
+              <div className="flex items-center gap-1 ml-auto" onClick={e => e.stopPropagation()}>
+                <button onClick={() => { setEditingProfileId(p.id); setEditingProfileName(p.name) }}
+                  className="p-1.5 rounded-lg text-fg-muted hover:text-fg hover:bg-bg-hover transition-colors">
+                  <Pencil size={13} />
+                </button>
+                <button onClick={() => handleDeleteProfile(p.id)}
+                  className="p-1.5 rounded-lg text-fg-muted hover:text-red-400 hover:bg-red-500/10 transition-colors">
+                  <X size={13} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      </Field>
+    )
+  )
+
+  const renderSaveActions = () => (
+    <div className="flex items-center gap-3 pt-2">
+      <SaveBtn onClick={handleSave} />
+      <button onClick={handleSaveAsProfile}
+        className="rounded-lg border border-border bg-bg-elevated px-4 py-2 text-sm text-fg-muted hover:bg-bg-hover transition-colors">
+        保存为新配置
+      </button>
+    </div>
+  )
+
   return (
     <div className="mx-auto max-w-2xl px-6 py-10">
       {/* Header */}
@@ -840,41 +976,7 @@ export default function Settings() {
             {aiTab === 'chat' && (
               <>
                 {/* Profiles */}
-                {profiles.length > 0 && (
-                  <Field label="已保存配置">
-                    <div className="space-y-1.5 mt-1">
-                      {profiles.map(p => (
-                        <div key={p.id}
-                          className={cn('flex items-center gap-2 rounded-xl border px-3 py-2.5 cursor-pointer transition-all',
-                            selectedProfileId === p.id ? 'border-accent bg-accent/8 shadow-sm' : 'border-border bg-bg-elevated hover:bg-bg-hover')}
-                          onClick={() => handleSelectProfile(p.id)}>
-                          <div className={cn('w-2 h-2 rounded-full flex-shrink-0', selectedProfileId === p.id ? 'bg-accent' : 'bg-border')} />
-                          {editingProfileId === p.id ? (
-                            <input autoFocus value={editingProfileName}
-                              onChange={e => setEditingProfileName(e.target.value)}
-                              onBlur={() => handleRenameProfile(p.id, editingProfileName || p.name)}
-                              onKeyDown={e => { if (e.key === 'Enter') handleRenameProfile(p.id, editingProfileName || p.name); if (e.key === 'Escape') setEditingProfileId(null) }}
-                              onClick={e => e.stopPropagation()}
-                              className="flex-1 bg-transparent text-sm outline-none border-b border-accent text-fg"
-                            />
-                          ) : (
-                            <span className={cn('flex-1 text-sm', selectedProfileId === p.id ? 'text-accent font-medium' : 'text-fg')}>{p.name}</span>
-                          )}
-                          <div className="flex items-center gap-1 ml-auto" onClick={e => e.stopPropagation()}>
-                            <button onClick={() => { setEditingProfileId(p.id); setEditingProfileName(p.name) }}
-                              className="p-1.5 rounded-lg text-fg-muted hover:text-fg hover:bg-bg-hover transition-colors">
-                              <Pencil size={13} />
-                            </button>
-                            <button onClick={() => handleDeleteProfile(p.id)}
-                              className="p-1.5 rounded-lg text-fg-muted hover:text-red-400 hover:bg-red-500/10 transition-colors">
-                              <X size={13} />
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </Field>
-                )}
+                {renderProfileList()}
 
                 {/* Provider */}
                 <Field label="服务商">
@@ -939,19 +1041,14 @@ export default function Settings() {
                   {models.length > 0 && !fetchErr && <p className="mt-1 text-xs text-fg-faint">已加载 {models.length} 个可用模型</p>}
                 </Field>
 
-                <div className="flex items-center gap-3 pt-2">
-                  <SaveBtn onClick={handleSave} />
-                  <button onClick={handleSaveAsProfile}
-                    className="rounded-lg border border-border bg-bg-elevated px-4 py-2 text-sm text-fg-muted hover:bg-bg-hover transition-colors">
-                    保存为新配置
-                  </button>
-                </div>
+                {renderSaveActions()}
               </>
             )}
 
             {/* Image sub-tab */}
             {aiTab === 'image' && (
               <>
+                {renderProfileList()}
                 <p className="text-sm text-fg-muted rounded-xl bg-bg-elevated border border-border px-4 py-3">
                   为图片生成功能配置独立的服务接入信息，留空则复用聊天模型配置。
                 </p>
@@ -972,21 +1069,20 @@ export default function Settings() {
                   </p>
                 </Field>
                 <Field label="Image Base URL">
-                  <div className="flex gap-2 mb-1.5">
-                    <button
-                      onClick={() => {
-                        setImageProviderKey('openai-compatible')
-                        setImageBaseUrl('https://narralucky.c0ffee.space')
-                        setImageModel('gpt-image-1')
-                      }}
-                      className="rounded border border-border bg-bg-elevated px-2.5 py-1 text-xs text-fg-muted hover:border-fg-muted hover:text-fg transition-colors">
-                      🎨 Narralucky
-                    </button>
-                  </div>
                   <input type="text" value={imageBaseUrl} onChange={e => setImageBaseUrl(e.target.value)}
                     placeholder={imageProviderKey === 'gemini-image' ? 'https://api.nanobananai.com' : '留空则复用聊天模型地址'}
                     className="w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm outline-none placeholder:text-fg-faint focus:border-accent transition-colors" />
                 </Field>
+                {imageProviderKey !== 'gemini-image' && (
+                  <Field
+                    label="自定义后缀"
+                    hint="可填 /v1/images/generations 或 /v1/chat/completions；也可填完整 endpoint。留空默认使用 /v1/images/generations。"
+                  >
+                    <input type="text" value={imageCustomEndpoint} onChange={e => setImageCustomEndpoint(e.target.value)}
+                      placeholder="/v1/images/generations"
+                      className="w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm outline-none placeholder:text-fg-faint focus:border-accent transition-colors" />
+                  </Field>
+                )}
                 <Field label="Image API Key">
                   <SecretInput value={imageApiKey} onChange={setImageApiKey} placeholder="留空则复用聊天 Key" />
                 </Field>
@@ -995,13 +1091,52 @@ export default function Settings() {
                     placeholder={imageProviderKey === 'gemini-image' ? 'gemini-3-pro-image-preview' : 'dall-e-3'}
                     className="w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm outline-none placeholder:text-fg-faint focus:border-accent transition-colors" />
                 </Field>
-                <div className="pt-2"><SaveBtn onClick={handleSave} /></div>
+                <Field label="图片画幅" hint="接口只支持 1:1、16:9、9:16、4:3、3:4；旧的 1792x1024 会自动改为 16:9。">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+                    {IMAGE_SIZE_OPTIONS.map(option => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setImageSize(option.value)}
+                        className={cn(
+                          'rounded-lg border px-2.5 py-2 text-left transition-all',
+                          imageSize === option.value
+                            ? 'border-accent bg-accent/10 text-accent shadow-sm'
+                            : 'border-border bg-bg-elevated text-fg-muted hover:border-fg-muted hover:text-fg'
+                        )}
+                      >
+                        <span className="block text-xs font-medium">{option.label}</span>
+                        <span className="mt-0.5 block text-[10px] text-fg-faint">{option.hint}</span>
+                      </button>
+                    ))}
+                  </div>
+                </Field>
+                <Field label="知识性生图样式 Prompt" hint="用于圆环面板的“知识图”模式；留空时后端会使用默认知识图谱风格。">
+                  <div className="mb-2 flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => setImageKnowledgeStylePrompt(DEFAULT_IMAGE_KNOWLEDGE_STYLE_PROMPT)}
+                      className="rounded border border-border bg-bg-elevated px-2.5 py-1 text-xs text-fg-muted transition-colors hover:border-fg-muted hover:text-fg"
+                    >
+                      恢复默认
+                    </button>
+                  </div>
+                  <textarea
+                    value={imageKnowledgeStylePrompt}
+                    onChange={event => setImageKnowledgeStylePrompt(event.target.value)}
+                    rows={12}
+                    className="w-full resize-y rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm leading-relaxed outline-none placeholder:text-fg-faint focus:border-accent transition-colors"
+                    placeholder={DEFAULT_IMAGE_KNOWLEDGE_STYLE_PROMPT}
+                  />
+                </Field>
+                {renderSaveActions()}
               </>
             )}
 
             {/* Search sub-tab */}
             {aiTab === 'search' && (
               <>
+                {renderProfileList()}
                 <div className="flex items-center justify-between rounded-xl border border-border bg-bg-elevated px-4 py-3">
                   <div>
                     <p className="text-sm font-medium text-fg">启用搜索模型</p>
@@ -1143,7 +1278,7 @@ export default function Settings() {
                   {jsonError && aiTab === 'search' && <p className="mt-2 text-xs text-red-400">{jsonError}</p>}
                 </Field>
 
-                <div className="pt-2"><SaveBtn onClick={handleSave} /></div>
+                {renderSaveActions()}
               </>
             )}
 

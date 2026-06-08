@@ -53,6 +53,7 @@ pub fn run() {
             commands::gallery::list_gallery,
             commands::gallery::delete_gallery_item,
             commands::gallery::retry_download,
+            commands::gallery::diagnose_gallery_file,
             commands::analytics::get_analytics,
             commands::analytics::get_explore_suggestions,
             commands::suggestions::generate_suggestion,
