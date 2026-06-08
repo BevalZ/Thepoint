@@ -60,6 +60,10 @@ export function DeepenActions({ point, className }: DeepenActionsProps) {
   const recs = recommendations[point.id] ?? []
   const loadingRecs = recommending[point.id] ?? false
   const matches = similar[point.id] ?? []
+  const sourceExcerpt = point.sourceExcerpt ? point.sourceExcerpt.trim() : ''
+  const factCheckContext = sourceExcerpt
+    ? `【提取出的事实陈述】\n${point.content}\n\n【解析块原文】\n${sourceExcerpt}`
+    : `【提取出的事实陈述】\n${point.content}`
   const relatedItems = useMemo(
     () => matches.map(match => describeRelatedPoint(point, match)),
     [matches, point]
@@ -100,8 +104,7 @@ export function DeepenActions({ point, className }: DeepenActionsProps) {
     setFactChecking(true)
     setFactError(null)
     try {
-      const context = [point.content, point.sourceExcerpt].filter(Boolean).join('\n\n')
-      const result = await factCheckClaim(point.content, context)
+      const result = await factCheckClaim(point.content, factCheckContext)
       setFactResult(result)
     } catch (error: unknown) {
       setFactError(error instanceof Error ? error.message : '事实审查失败')
@@ -250,6 +253,14 @@ export function DeepenActions({ point, className }: DeepenActionsProps) {
                   重新审查
                 </button>
               </div>
+              {sourceExcerpt && (
+                <div className="mb-2 rounded-md border border-border bg-bg-elevated px-3 py-2">
+                  <p className="mb-1 text-[11px] font-medium text-fg-muted">解析块原文</p>
+                  <p className="max-h-28 overflow-y-auto whitespace-pre-wrap pr-1 text-xs leading-relaxed text-fg-muted [&::-webkit-scrollbar]:hidden">
+                    {sourceExcerpt}
+                  </p>
+                </div>
+              )}
               {factChecking && (
                 <div className="flex items-center gap-2 rounded-md border border-border bg-bg-elevated px-3 py-2 text-xs text-fg-muted">
                   <Loader2 size={13} className="animate-spin text-accent" />
