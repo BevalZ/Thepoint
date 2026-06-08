@@ -5,6 +5,10 @@
 </p>
 
 <p align="center">
+  <em>Your point is great! Now it's mine!</em>
+</p>
+
+<p align="center">
   <a href="https://github.com/BevalZ/Thepoint/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/BevalZ/Thepoint?style=social"></a>
   <a href="https://github.com/BevalZ/Thepoint/releases"><img alt="Release" src="https://img.shields.io/github/v/release/BevalZ/Thepoint?include_prereleases"></a>
   <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT%20%2B%20Commons%20Clause-blue"></a>
