@@ -10,6 +10,7 @@ import { Markdown } from './Markdown'
 
 const TAG_STYLES: Record<string, string> = {
   事实陈述: 'border-sky-500/30 bg-sky-500/10 text-sky-300',
+  事实审查: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300',
   作者观点: 'border-violet-500/30 bg-violet-500/10 text-violet-300',
   待验证疑问: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
 }
@@ -66,11 +67,13 @@ function linkDigestReferences(content: string, refs: DigestReference[]): string 
 
 function shouldRenderMarkdown(point: StoredPoint): boolean {
   if (point.tagType === '研报摘要') return true
+  if (point.tagType === '事实审查') return true
   return /(^|\s)(#{1,6}\s|\*\*|>\s|[-*]\s|\d+\.\s)/.test(point.content)
 }
 
 function shouldCollapsePoint(point: StoredPoint): boolean {
   if (point.tagType === '研报摘要') return true
+  if (point.tagType === '事实审查') return true
   return point.content.length > 360 || point.content.split(/\r?\n/).length > 5
 }
 

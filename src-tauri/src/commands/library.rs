@@ -65,6 +65,33 @@ pub async fn save_manual_point(
     .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub async fn save_fact_check_point(
+    app: tauri::AppHandle<Wry>,
+    parent_id: String,
+    content: String,
+) -> Result<Vec<StoredPoint>, String> {
+    let trimmed = content.trim().to_string();
+    if trimmed.is_empty() {
+        return Err("事实审查内容不能为空".to_string());
+    }
+
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<StoredPoint>> {
+        let mut conn = db::open_db(&path)?;
+        db::save_child_points(
+            &mut conn,
+            Some(parent_id.as_str()),
+            "fact_check",
+            None,
+            &[(trimmed, "事实审查".to_string())],
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
 /// Delete a point and all its descendants.
 #[tauri::command]
 pub async fn delete_point(app: tauri::AppHandle<Wry>, point_id: String) -> Result<(), String> {

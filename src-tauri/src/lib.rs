@@ -30,6 +30,7 @@ pub fn run() {
             commands::extract::fact_check_claim,
             commands::library::save_points,
             commands::library::save_manual_point,
+            commands::library::save_fact_check_point,
             commands::library::list_points,
             commands::library::search_points,
             commands::library::delete_point,

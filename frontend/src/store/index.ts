@@ -42,6 +42,7 @@ import {
   listGallery,
   deleteGalleryItem,
   retryDownload,
+  saveFactCheckPoint,
 } from '@/api'
 import type { GalleryItem } from '@/api/types'
 import { saveSourceMetadataRecord } from '@/lib/sourceMetadataRegistry'
@@ -413,6 +414,7 @@ interface LibraryStore {
   toggleExpanded: (pointId: string) => void
   deepen: (point: StoredPoint, action: DeepenAction, frameworkKey?: string) => Promise<void>
   addManualThought: (point: StoredPoint, content: string) => Promise<void>
+  addFactCheck: (point: StoredPoint, content: string) => Promise<void>
   findSimilarFor: (point: StoredPoint) => Promise<StoredPoint[]>
   deletePoint: (id: string) => Promise<void>
   archiveMany: (ids: string[]) => Promise<void>
@@ -501,6 +503,28 @@ export const useLibraryStore = create<LibraryStore>((set, get) => ({
     }))
     try {
       const children = await saveManualPoint(point.id, trimmed)
+      set((s) => ({
+        points: [...s.points, ...children],
+        expanded: { ...s.expanded, [point.id]: true },
+        deepening: { ...s.deepening, [point.id]: false },
+      }))
+    } catch (e) {
+      set((s) => ({
+        deepening: { ...s.deepening, [point.id]: false },
+        error: errorMessage(e),
+      }))
+      throw e
+    }
+  },
+  addFactCheck: async (point, content) => {
+    const trimmed = content.trim()
+    if (!trimmed || get().deepening[point.id]) return
+    set((s) => ({
+      deepening: { ...s.deepening, [point.id]: true },
+      error: null,
+    }))
+    try {
+      const children = await saveFactCheckPoint(point.id, trimmed)
       set((s) => ({
         points: [...s.points, ...children],
         expanded: { ...s.expanded, [point.id]: true },

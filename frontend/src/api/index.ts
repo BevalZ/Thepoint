@@ -55,6 +55,9 @@ export const savePoints = (
 export const saveManualPoint = (parentId: string, content: string) =>
   invoke<StoredPoint[]>('save_manual_point', { parentId, content })
 
+export const saveFactCheckPoint = (parentId: string, content: string) =>
+  invoke<StoredPoint[]>('save_fact_check_point', { parentId, content })
+
 export const listPoints = () => invoke<StoredPoint[]>('list_points')
 
 export const archivePoint = (pointId: string) => invoke<void>('archive_point', { pointId })

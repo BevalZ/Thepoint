@@ -33,7 +33,7 @@ const BASIC_ACTIONS = [
 ] as const
 
 export function DeepenActions({ point, className }: DeepenActionsProps) {
-  const { deepen, addManualThought, findSimilarFor, deepening, similar } = useLibraryStore()
+  const { deepen, addManualThought, addFactCheck, findSimilarFor, deepening, similar } = useLibraryStore()
   const {
     mentalModels,
     recommendations,
@@ -55,6 +55,7 @@ export function DeepenActions({ point, className }: DeepenActionsProps) {
   const [factChecking, setFactChecking] = useState(false)
   const [factResult, setFactResult] = useState<FactCheckResult | null>(null)
   const [factError, setFactError] = useState<string | null>(null)
+  const [factSaved, setFactSaved] = useState(false)
 
   const busy = deepening[point.id] ?? false
   const recs = recommendations[point.id] ?? []
@@ -106,6 +107,8 @@ export function DeepenActions({ point, className }: DeepenActionsProps) {
     try {
       const result = await factCheckClaim(point.content, factCheckContext)
       setFactResult(result)
+      await addFactCheck(point, formatFactCheckContent(result, sourceExcerpt))
+      setFactSaved(true)
     } catch (error: unknown) {
       setFactError(error instanceof Error ? error.message : '事实审查失败')
     } finally {
@@ -239,12 +242,14 @@ export function DeepenActions({ point, className }: DeepenActionsProps) {
               <div className="mb-2 flex items-center justify-between gap-2">
                 <div>
                   <p className="text-xs font-medium text-accent">事实审查</p>
+                  {factSaved && <p className="mt-0.5 text-[11px] text-emerald-300">已保存为子块</p>}
                   <p className="mt-0.5 line-clamp-2 text-[11px] leading-relaxed text-fg-faint">{point.content}</p>
                 </div>
                 <button
                   type="button"
                   onClick={() => {
                     setFactResult(null)
+                    setFactSaved(false)
                     void runFactCheck()
                   }}
                   disabled={factChecking}
@@ -578,6 +583,26 @@ function describeRelatedPoint(current: StoredPoint, point: StoredPoint) {
     reason: '关键词有交叉，可作为跨文章检索入口。',
     badgeClass: 'border-border bg-bg text-fg-muted',
   }
+}
+
+function formatFactCheckContent(result: FactCheckResult, sourceExcerpt: string) {
+  const lines = [
+    result.answer.trim(),
+    '',
+    ...result.extra.slice(0, 4).map(item => `- ${item.trim()}`).filter(line => line !== '- '),
+  ]
+  if (result.sources.length > 0) {
+    lines.push('', '来源')
+    result.sources.slice(0, 4).forEach((source, index) => {
+      const title = source.title.trim() || `来源 ${index + 1}`
+      const snippet = source.snippet.trim()
+      lines.push(`${index + 1}. [${title}](${source.url})${snippet ? ` - ${snippet}` : ''}`)
+    })
+  }
+  if (sourceExcerpt) {
+    lines.push('', '解析块原文', sourceExcerpt)
+  }
+  return lines.join('\n').trim()
 }
 
 interface ActionButtonProps {
