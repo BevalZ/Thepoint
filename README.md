@@ -40,6 +40,7 @@ Deep Explorer 是一款完整自我开发的桌面端 AI 阅读与知识分析�
 
 
 
+https://github.com/user-attachments/assets/726111cd-10fe-479c-94f3-dc6649ef0d65
 
 
 如果 GitHub 页面没有自动渲染视频，可以直接打开：[Deep Explorer 使用演示视频](https://pub-333fca0c6c334353ae4185f9accd0547.r2.dev/Video_2026-06-08_175111_with_music.mp4)。
