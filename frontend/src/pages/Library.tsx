@@ -54,9 +54,10 @@ export default function Library() {
   const handleUnarchive = async (id: string) => { await unarchivePoint(id); fetchArchived() }
 
   const activePoints = showArchived ? archivedPoints : points
+  const visibleSearchResults = searchResults ? withTreeContext(searchResults, points) : null
 
   return (
-    <div className="mx-auto flex h-full max-w-3xl flex-col px-8 py-10">
+    <div className="mx-auto flex h-full max-w-4xl flex-col px-8 py-10">
       <header>
         <h1 className="text-lg font-semibold">知识库</h1>
         <p className="mt-1 text-sm text-fg-muted">已保存的全部观点，按来源文档分组。</p>
@@ -100,11 +101,11 @@ export default function Library() {
 
       <div className="mt-6 flex-1">
         {/* Search results */}
-        {searchResults !== null ? (
-          searchResults.length > 0 ? (
+        {visibleSearchResults !== null ? (
+          visibleSearchResults.length > 0 ? (
             <div className="pb-6">
-              <p className="mb-3 text-xs text-fg-faint">共 {searchResults.length} 条结果</p>
-              <PointTree points={searchResults} onArchive={handleArchive} />
+              <p className="mb-3 text-xs text-fg-faint">共 {searchResults?.length ?? 0} 条结果</p>
+              <PointTree points={visibleSearchResults} onArchive={handleArchive} />
             </div>
           ) : (
             <div className="flex h-full min-h-32 items-center justify-center text-sm text-fg-faint">无匹配结果</div>
@@ -146,4 +147,39 @@ export default function Library() {
       </div>
     </div>
   )
+}
+
+function withTreeContext(results: StoredPoint[], allPoints: StoredPoint[]): StoredPoint[] {
+  const byId = new Map(allPoints.map(point => [point.id, point]))
+  const childrenByParent = new Map<string, StoredPoint[]>()
+  allPoints.forEach(point => {
+    if (!point.parentId) return
+    const children = childrenByParent.get(point.parentId) ?? []
+    children.push(point)
+    childrenByParent.set(point.parentId, children)
+  })
+  const selected = new Map<string, StoredPoint>()
+  const addWithParents = (point: StoredPoint) => {
+    selected.set(point.id, point)
+    let parentId = point.parentId
+    while (parentId) {
+      const parent = byId.get(parentId)
+      if (!parent) break
+      selected.set(parent.id, parent)
+      parentId = parent.parentId
+    }
+  }
+  const addChildren = (pointId: string) => {
+    const children = childrenByParent.get(pointId) ?? []
+    children.forEach(child => {
+      selected.set(child.id, child)
+      addChildren(child.id)
+    })
+  }
+  results.forEach(point => {
+    const fullPoint = byId.get(point.id) ?? point
+    addWithParents(fullPoint)
+    addChildren(fullPoint.id)
+  })
+  return Array.from(selected.values())
 }

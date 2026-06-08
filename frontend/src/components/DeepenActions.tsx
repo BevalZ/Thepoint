@@ -181,7 +181,7 @@ export function DeepenActions({ point, className }: DeepenActionsProps) {
 
   return (
     <div className={cn('mt-3', className)}>
-      <div className="flex flex-wrap items-center gap-1.5">
+      <div className="flex items-center gap-1 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {BASIC_ACTIONS.map(({ action, label, icon: Icon }) => (
           <ActionButton
             key={action}
@@ -224,7 +224,7 @@ export function DeepenActions({ point, className }: DeepenActionsProps) {
             setThoughtError(null)
           }}
         />
-        {busy && <Loader2 size={14} className="ml-1 animate-spin text-fg-faint" />}
+        {busy && <Loader2 size={14} className="ml-1 shrink-0 animate-spin text-fg-faint" />}
       </div>
 
       <AnimatePresence>
@@ -588,7 +588,7 @@ function ActionButton({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        'flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs transition-colors',
+        'flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-xs transition-colors',
         disabled
           ? 'cursor-not-allowed border-border opacity-50'
           : active

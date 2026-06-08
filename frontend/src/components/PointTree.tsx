@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 import { DeepenActions } from './DeepenActions'
 import { SourceExcerptButton } from './SourceExcerptButton'
 import { Markdown } from './Markdown'
+import { buildTree, type TreeNode } from '@/lib/pointTree'
 
 const TAG_STYLES: Record<string, string> = {
   事实陈述: 'border-sky-500/30 bg-sky-500/10 text-sky-300',
@@ -63,11 +64,6 @@ function linkDigestReferences(content: string, refs: DigestReference[]): string 
     if (!available.has(index)) return full
     return `[[${index}]](#digest-ref-${index})`
   })
-}
-
-function createdTime(point: StoredPoint): number {
-  const time = new Date(point.createdAt).getTime()
-  return Number.isNaN(time) ? 0 : time
 }
 
 function shouldRenderMarkdown(point: StoredPoint): boolean {
@@ -170,37 +166,6 @@ function PointContent({ point }: { point: StoredPoint }) {
       )}
     </div>
   )
-}
-
-interface TreeNode {
-  point: StoredPoint
-  children: TreeNode[]
-}
-
-/** Build a forest from a flat list of points keyed by parentId. */
-export function buildTree(points: StoredPoint[]): TreeNode[] {
-  const byId = new Map<string, TreeNode>()
-  for (const point of points) {
-    byId.set(point.id, { point, children: [] })
-  }
-
-  const roots: TreeNode[] = []
-  for (const node of byId.values()) {
-    const parentId = node.point.parentId
-    const parent = parentId ? byId.get(parentId) : undefined
-    if (parent) {
-      parent.children.push(node)
-    } else {
-      roots.push(node)
-    }
-  }
-  const sortNode = (node: TreeNode) => {
-    node.children.sort((left, right) => createdTime(right.point) - createdTime(left.point))
-    node.children.forEach(sortNode)
-  }
-  roots.sort((left, right) => createdTime(right.point) - createdTime(left.point))
-  roots.forEach(sortNode)
-  return roots
 }
 
 interface PointTreeProps {
