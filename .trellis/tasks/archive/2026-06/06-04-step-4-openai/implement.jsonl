@@ -1,4 +1,0 @@
-{"file": ".trellis/spec/backend/directory-structure.md", "reason": "ai/ module layout, LLMClient pattern"}
-{"file": ".trellis/spec/backend/error-handling.md", "reason": "anyhow internally, Result<T,String> at command, no panic on bad JSON"}
-{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "no unwrap, secrets from store not SQLite"}
-{"file": ".trellis/spec/frontend/type-safety.md", "reason": "ExtractedPoint type in api/types.ts"}

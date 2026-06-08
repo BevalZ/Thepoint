@@ -1,4 +1,0 @@
-{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "新 command 注册、无 unwrap、DB 操作在 spawn_blocking"}
-{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "action_logs 写入用参数化查询，UUID 正确生成"}
-{"file": ".trellis/spec/frontend/state-management.md", "reason": "确认建议数据用 useState 而非全局 store"}
-{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "invoke 通过 api/index.ts 封装"}

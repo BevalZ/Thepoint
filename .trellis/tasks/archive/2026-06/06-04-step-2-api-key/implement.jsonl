@@ -1,7 +1,0 @@
-{"file": ".trellis/spec/backend/directory-structure.md", "reason": "where commands/config.rs goes, module rules"}
-{"file": ".trellis/spec/backend/error-handling.md", "reason": "commands return Result<T, String>"}
-{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "no unwrap, secrets via tauri-plugin-store not SQLite"}
-{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "api/index.ts encapsulation, pages/ layout"}
-{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "shadcn/ui + Tailwind + cn pattern"}
-{"file": ".trellis/spec/frontend/type-safety.md", "reason": "config type in api/types.ts"}
-{"file": ".trellis/spec/frontend/state-management.md", "reason": "Zustand for config state"}

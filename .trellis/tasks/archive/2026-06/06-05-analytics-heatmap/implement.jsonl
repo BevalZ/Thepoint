@@ -1,5 +1,0 @@
-{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "HeatmapChart 组件规范，inline style 仅用于动态值"}
-{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "组件放 components/，页面改动在 pages/Analytics.tsx"}
-{"file": ".trellis/spec/frontend/type-safety.md", "reason": "DailyActions 类型复用 api/types.ts"}
-{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "SQL 日期范围扩展为 365 天的查询写法"}
-{"file": ".trellis/spec/backend/error-handling.md", "reason": "analytics command 错误处理模式"}

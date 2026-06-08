@@ -17,6 +17,16 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Agent / development-only metadata
+.claude/
+.cursor/
+.trellis/
+.github/workflows/
+AGENTS.md
+CLAUDE.md
+DeepSeek_*.md
+Deepseek*.md
+
 # Secrets / local data
 *.env
 *.env.local

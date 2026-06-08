@@ -1,3 +1,0 @@
-{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Verify frontend wrapper usage, type safety, and animation/style conventions."}
-{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "Verify Rust command quality and no forbidden backend patterns."}
-{"file": ".trellis/spec/backend/error-handling.md", "reason": "Verify Tauri command error handling conventions."}

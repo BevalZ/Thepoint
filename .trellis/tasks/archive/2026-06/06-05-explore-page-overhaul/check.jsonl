@@ -1,5 +1,0 @@
-{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "无 unwrap，新 parser 格式错误友好处理"}
-{"file": ".trellis/spec/frontend/type-safety.md", "reason": "anchor 字段在 Rust/TS 两侧对齐，使用 Option/undefined"}
-{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "Popover 无内联样式滥用，ECharts 规范不影响此任务"}
-{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "invoke 通过 api/index.ts 封装，无 any 类型"}
-{"file": ".trellis/spec/frontend/state-management.md", "reason": "网页 HTML 状态在 useExploreStore 而非页面本地 state"}

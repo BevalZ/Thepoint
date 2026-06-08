@@ -1,9 +1,0 @@
-{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "points 表加 parent_id 列、新建 explore_actions 表、查询函数放 db/queries 的约定、UUID/时间戳/参数化查询规范"}
-{"file": ".trellis/spec/backend/error-handling.md", "reason": "Tauri command 返回 Result<T,String>、内部 anyhow + map_err、无 unwrap/panic 的错误处理模式"}
-{"file": ".trellis/spec/backend/directory-structure.md", "reason": "新增 commands/explore.rs、ai/explore.rs 的放置位置与模块组织约定"}
-{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "后端代码质量基线"}
-{"file": ".trellis/spec/frontend/type-safety.md", "reason": "禁止 any、StoredPoint 加 parentId、新增 MentalModel/FrameworkRecommendation/ExploreAction 类型的前后端 camelCase 对齐"}
-{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "PointCard 加动作栏、新建 PointTree 递归组件、框架推荐弹窗/面板的组件规范"}
-{"file": ".trellis/spec/frontend/state-management.md", "reason": "全局状态在 store/index.ts 按域切片、深挖 loading 态与 mental models 缓存管理"}
-{"file": ".trellis/spec/frontend/directory-structure.md", "reason": "新组件/页面文件放置约定"}
-{"file": "docs/database-schema.md", "reason": "points.parent_id 与 explore_actions 完整 schema 设计，本步实现其 MVP 子集时对齐列名"}

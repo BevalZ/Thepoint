@@ -1,3 +1,0 @@
-{"file": ".trellis/spec/backend/directory-structure.md", "reason": "parsers/ layout, parsers return String, structuring in extract.rs"}
-{"file": ".trellis/spec/backend/error-handling.md", "reason": "anyhow::Result internally, Result<T,String> at command boundary"}
-{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "no unwrap, unit tests for parsers, spawn_blocking for CPU-heavy parse"}
