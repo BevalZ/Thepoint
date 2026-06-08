@@ -38,10 +38,9 @@ Deep Explorer 是一款完整自我开发的桌面端 AI 阅读与知识分析�
 
 ## 🎬 使用演示
 
-<video controls preload="metadata" style="width: 100%; border-radius: 12px;">
-  <source src="https://pub-333fca0c6c334353ae4185f9accd0547.r2.dev/Video_2026-06-08_175111_with_music.mp4" type="video/mp4">
-  你的浏览器不支持 HTML5 video 标签。
-</video>
+
+
+
 
 如果 GitHub 页面没有自动渲染视频，可以直接打开：[Deep Explorer 使用演示视频](https://pub-333fca0c6c334353ae4185f9accd0547.r2.dev/Video_2026-06-08_175111_with_music.mp4)。
 
