@@ -1,12 +1,18 @@
 import { useEffect, useState } from 'react'
 import { AnimatePresence, motion, type Variants } from 'framer-motion'
-import ReactECharts from 'echarts-for-react'
+import ReactEChartsCore from 'echarts-for-react/lib/core'
+import * as echarts from 'echarts/core'
+import { RadarChart } from 'echarts/charts'
+import { TooltipComponent } from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
 import { Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getAnalytics, getExploreSuggestions, listMarkedDates } from '@/api'
 import type { AnalyticsData } from '@/api/types'
 import { HeatmapChart } from '@/components/HeatmapChart'
 import { ExploreSuggestions, SuggestionDayList, SuggestionViewModal } from '@/pages/ExploreSuggestions'
+
+echarts.use([RadarChart, TooltipComponent, CanvasRenderer])
 
 const RADAR_NAMES = ['深度指数', '反方关注度', '追问率', '解释偏好', '框架使用率']
 const ACTION_LABELS = {
@@ -246,7 +252,7 @@ export default function Analytics() {
                 <span className="text-xs text-fg-faint">5 维倾向</span>
               </div>
               <div className="grid min-h-[260px] items-center gap-4 lg:grid-cols-[minmax(260px,0.62fr)_minmax(220px,0.38fr)]">
-                <ReactECharts option={radarOption(data)} style={{ height: 250, minWidth: 260 }} />
+                <ReactEChartsCore echarts={echarts} option={radarOption(data)} style={{ height: 250, minWidth: 260 }} />
                 <div className="space-y-3 text-sm leading-relaxed text-fg-muted">
                   <p>
                     当前记录更集中在

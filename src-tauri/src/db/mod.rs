@@ -24,6 +24,82 @@ pub struct StoredPoint {
     pub starred: bool,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceDocumentRecord {
+    pub id: String,
+    pub kind: String,
+    pub title: Option<String>,
+    pub canonical_uri: String,
+    pub metadata_json: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct PointSourceLink {
+    pub point_id: String,
+    pub source_id: String,
+    pub chunk_index: i64,
+    pub anchor_text: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceChunkRecord {
+    pub id: String,
+    pub source_id: String,
+    pub chunk_index: i64,
+    pub heading_path: Option<String>,
+    pub text: String,
+    pub created_at: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceSummaryRecord {
+    pub id: String,
+    pub kind: String,
+    pub title: Option<String>,
+    pub canonical_uri: String,
+    pub metadata_json: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub chunk_count: i64,
+    pub point_count: i64,
+    pub star_count: i64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceWorkspaceRecord {
+    pub source: SourceSummaryRecord,
+    pub chunks: Vec<SourceChunkRecord>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct PointSourceContext {
+    pub point_id: String,
+    pub source: SourceSummaryRecord,
+    pub chunk_index: i64,
+    pub anchor_text: Option<String>,
+    pub chunks: Vec<SourceChunkRecord>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkspaceSearchResult {
+    pub kind: String,
+    pub id: String,
+    pub title: String,
+    pub snippet: String,
+    pub source_id: Option<String>,
+    pub chunk_index: Option<i64>,
+}
+
 /// Resolve the SQLite file path inside the app data dir, creating the dir if needed.
 pub fn db_path(app: &AppHandle<Wry>) -> Result<PathBuf> {
     let dir = app
@@ -98,6 +174,43 @@ pub fn init_db(conn: &Connection) -> Result<()> {
         [],
     )
     .context("failed to create parent index")?;
+
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS source_documents (
+            id             TEXT PRIMARY KEY,
+            kind           TEXT NOT NULL,
+            title          TEXT,
+            canonical_uri  TEXT NOT NULL,
+            metadata_json  TEXT NOT NULL,
+            created_at     TEXT NOT NULL,
+            updated_at     TEXT NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_source_documents_kind_uri
+            ON source_documents(kind, canonical_uri);
+        CREATE TABLE IF NOT EXISTS source_chunks (
+            id             TEXT PRIMARY KEY,
+            source_id      TEXT NOT NULL,
+            chunk_index    INTEGER NOT NULL,
+            heading_path   TEXT,
+            text           TEXT NOT NULL,
+            created_at     TEXT NOT NULL,
+            FOREIGN KEY(source_id) REFERENCES source_documents(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_source_chunks_source
+            ON source_chunks(source_id, chunk_index);
+        CREATE TABLE IF NOT EXISTS point_source_links (
+            point_id      TEXT PRIMARY KEY,
+            source_id     TEXT NOT NULL,
+            chunk_index   INTEGER NOT NULL,
+            anchor_text   TEXT,
+            created_at    TEXT NOT NULL,
+            FOREIGN KEY(point_id) REFERENCES points(id),
+            FOREIGN KEY(source_id) REFERENCES source_documents(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_point_source_links_source
+            ON point_source_links(source_id, chunk_index);",
+    )
+    .context("failed to create source tables")?;
 
     // FTS5 virtual table for full-text search over point content
     conn.execute_batch(
@@ -175,6 +288,268 @@ fn column_exists(conn: &Connection, table: &str, column: &str) -> Result<bool> {
         }
     }
     Ok(false)
+}
+
+pub fn upsert_source_document(
+    conn: &Connection,
+    kind: &str,
+    canonical_uri: &str,
+    title: Option<&str>,
+    metadata_json: &str,
+) -> Result<SourceDocumentRecord> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let mut existing = conn.prepare(
+        "SELECT id, kind, title, canonical_uri, metadata_json, created_at, updated_at
+         FROM source_documents
+         WHERE kind = ?1 AND canonical_uri = ?2",
+    )?;
+    let mut rows = existing.query(params![kind, canonical_uri])?;
+    if let Some(row) = rows.next()? {
+        let id: String = row.get(0)?;
+        let created_at: String = row.get(5)?;
+        conn.execute(
+            "UPDATE source_documents
+             SET title = ?1, metadata_json = ?2, updated_at = ?3
+             WHERE id = ?4",
+            params![title, metadata_json, now, id],
+        )?;
+        return Ok(SourceDocumentRecord {
+            id,
+            kind: kind.to_string(),
+            title: title.map(str::to_string),
+            canonical_uri: canonical_uri.to_string(),
+            metadata_json: metadata_json.to_string(),
+            created_at,
+            updated_at: now,
+        });
+    }
+
+    let id = uuid::Uuid::new_v4().to_string();
+    conn.execute(
+        "INSERT INTO source_documents (id, kind, title, canonical_uri, metadata_json, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![id, kind, title, canonical_uri, metadata_json, now, now],
+    )?;
+
+    Ok(SourceDocumentRecord {
+        id,
+        kind: kind.to_string(),
+        title: title.map(str::to_string),
+        canonical_uri: canonical_uri.to_string(),
+        metadata_json: metadata_json.to_string(),
+        created_at: now.clone(),
+        updated_at: now,
+    })
+}
+
+pub fn replace_source_chunks(conn: &mut Connection, source_id: &str, chunks: &[String]) -> Result<()> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+    tx.execute("DELETE FROM source_chunks WHERE source_id = ?1", params![source_id])?;
+    for (index, chunk) in chunks.iter().enumerate() {
+        tx.execute(
+            "INSERT INTO source_chunks (id, source_id, chunk_index, heading_path, text, created_at)
+             VALUES (?1, ?2, ?3, NULL, ?4, ?5)",
+            params![uuid::Uuid::new_v4().to_string(), source_id, index as i64, chunk, now],
+        )?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
+pub fn insert_point_source_link(
+    conn: &Connection,
+    point_id: &str,
+    source_id: &str,
+    chunk_index: i64,
+    anchor_text: Option<&str>,
+) -> Result<PointSourceLink> {
+    let exists: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM source_documents WHERE id = ?1)",
+        params![source_id],
+        |row| row.get(0),
+    )?;
+    if !exists {
+        anyhow::bail!("source document not found: {source_id}");
+    }
+
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT INTO point_source_links (point_id, source_id, chunk_index, anchor_text, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![point_id, source_id, chunk_index, anchor_text, now],
+    )?;
+
+    Ok(PointSourceLink {
+        point_id: point_id.to_string(),
+        source_id: source_id.to_string(),
+        chunk_index,
+        anchor_text: anchor_text.map(str::to_string),
+        created_at: now,
+    })
+}
+
+fn source_summary_by_id(conn: &Connection, source_id: &str) -> Result<Option<SourceSummaryRecord>> {
+    let mut stmt = conn.prepare(
+        "SELECT s.id, s.kind, s.title, s.canonical_uri, s.metadata_json, s.created_at, s.updated_at,
+                (SELECT COUNT(*) FROM source_chunks c WHERE c.source_id = s.id) AS chunk_count,
+                (SELECT COUNT(*) FROM point_source_links l WHERE l.source_id = s.id) AS point_count,
+                (SELECT COUNT(*)
+                 FROM point_source_links l
+                 JOIN points p ON p.id = l.point_id
+                 WHERE l.source_id = s.id AND p.starred = 1) AS star_count
+         FROM source_documents s
+         WHERE s.id = ?1",
+    )?;
+    let mut rows = stmt.query(params![source_id])?;
+    if let Some(row) = rows.next()? {
+        Ok(Some(map_source_summary_row(row)?))
+    } else {
+        Ok(None)
+    }
+}
+
+fn list_source_chunks(conn: &Connection, source_id: &str) -> Result<Vec<SourceChunkRecord>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, source_id, chunk_index, heading_path, text, created_at
+         FROM source_chunks
+         WHERE source_id = ?1
+         ORDER BY chunk_index",
+    )?;
+    let rows = stmt.query_map(params![source_id], map_source_chunk_row)?;
+    let mut chunks = Vec::new();
+    for row in rows {
+        chunks.push(row?);
+    }
+    Ok(chunks)
+}
+
+pub fn get_source_workspace(conn: &Connection, source_id: &str) -> Result<Option<SourceWorkspaceRecord>> {
+    let Some(source) = source_summary_by_id(conn, source_id)? else {
+        return Ok(None);
+    };
+    let chunks = list_source_chunks(conn, source_id)?;
+    Ok(Some(SourceWorkspaceRecord { source, chunks }))
+}
+
+pub fn get_source_workspace_summary(conn: &Connection, source_id: &str) -> Result<Option<SourceSummaryRecord>> {
+    source_summary_by_id(conn, source_id)
+}
+
+pub fn list_recent_sources(conn: &Connection, limit: usize) -> Result<Vec<SourceSummaryRecord>> {
+    let mut stmt = conn.prepare(
+        "SELECT s.id, s.kind, s.title, s.canonical_uri, s.metadata_json, s.created_at, s.updated_at,
+                (SELECT COUNT(*) FROM source_chunks c WHERE c.source_id = s.id) AS chunk_count,
+                (SELECT COUNT(*) FROM point_source_links l WHERE l.source_id = s.id) AS point_count,
+                (SELECT COUNT(*)
+                 FROM point_source_links l
+                 JOIN points p ON p.id = l.point_id
+                 WHERE l.source_id = s.id AND p.starred = 1) AS star_count
+         FROM source_documents s
+         ORDER BY s.updated_at DESC
+         LIMIT ?1",
+    )?;
+    let rows = stmt.query_map(params![limit as i64], map_source_summary_row)?;
+    let mut sources = Vec::new();
+    for row in rows {
+        sources.push(row?);
+    }
+    Ok(sources)
+}
+
+pub fn get_point_source_context(conn: &Connection, point_id: &str) -> Result<Option<PointSourceContext>> {
+    let mut stmt = conn.prepare(
+        "SELECT source_id, chunk_index, anchor_text
+         FROM point_source_links
+         WHERE point_id = ?1",
+    )?;
+    let mut rows = stmt.query(params![point_id])?;
+    let Some(row) = rows.next()? else {
+        return Ok(None);
+    };
+
+    let source_id: String = row.get(0)?;
+    let chunk_index: i64 = row.get(1)?;
+    let anchor_text: Option<String> = row.get(2)?;
+    let Some(source) = source_summary_by_id(conn, &source_id)? else {
+        return Ok(None);
+    };
+    let chunks = list_source_chunks(conn, &source_id)?;
+
+    Ok(Some(PointSourceContext {
+        point_id: point_id.to_string(),
+        source,
+        chunk_index,
+        anchor_text,
+        chunks,
+    }))
+}
+
+fn point_source_location(conn: &Connection, point_id: &str) -> Result<Option<(String, i64)>> {
+    let mut stmt = conn.prepare(
+        "SELECT source_id, chunk_index
+         FROM point_source_links
+         WHERE point_id = ?1",
+    )?;
+    let mut rows = stmt.query(params![point_id])?;
+    if let Some(row) = rows.next()? {
+        Ok(Some((row.get(0)?, row.get(1)?)))
+    } else {
+        Ok(None)
+    }
+}
+
+pub fn search_workspace(conn: &Connection, query: &str, limit: usize) -> Result<Vec<WorkspaceSearchResult>> {
+    let trimmed = query.trim();
+    if trimmed.is_empty() || limit == 0 {
+        return Ok(Vec::new());
+    }
+
+    let pattern = format!("%{}%", escape_like(trimmed));
+    let source_limit = (limit / 2).max(5);
+    let point_limit = limit.saturating_sub(source_limit).max(5);
+    let mut results = Vec::new();
+
+    let mut source_stmt = conn.prepare(
+        "SELECT s.id, s.title, s.canonical_uri
+         FROM source_documents s
+         WHERE s.title LIKE ?1 ESCAPE '\\'
+            OR s.canonical_uri LIKE ?1 ESCAPE '\\'
+            OR s.metadata_json LIKE ?1 ESCAPE '\\'
+         ORDER BY s.updated_at DESC
+         LIMIT ?2",
+    )?;
+    let source_rows = source_stmt.query_map(params![pattern, source_limit as i64], |row| {
+        let id: String = row.get(0)?;
+        let title: Option<String> = row.get(1)?;
+        let canonical_uri: String = row.get(2)?;
+        Ok(WorkspaceSearchResult {
+            kind: "source".to_string(),
+            id,
+            title: title.filter(|value| !value.trim().is_empty()).unwrap_or_else(|| canonical_uri.clone()),
+            snippet: canonical_uri,
+            source_id: None,
+            chunk_index: None,
+        })
+    })?;
+    for row in source_rows {
+        results.push(row?);
+    }
+
+    for point in search_points(conn, trimmed, point_limit)? {
+        let location = point_source_location(conn, &point.id)?;
+        results.push(WorkspaceSearchResult {
+            kind: "point".to_string(),
+            id: point.id,
+            title: point.source_doc_name.unwrap_or_else(|| point.tag_type.unwrap_or_else(|| "观点".to_string())),
+            snippet: point.content,
+            source_id: location.as_ref().map(|(source_id, _)| source_id.clone()),
+            chunk_index: location.map(|(_, chunk_index)| chunk_index),
+        });
+    }
+
+    results.truncate(limit);
+    Ok(results)
 }
 
 /// Read every non-archived point (newest first) including its parent link.
@@ -437,6 +812,12 @@ pub fn delete_point(conn: &Connection, point_id: &str) -> Result<()> {
              UNION ALL
              SELECT p.id FROM points p JOIN descendants d ON p.parent_id = d.id
          )
+         DELETE FROM point_source_links WHERE point_id IN (SELECT id FROM descendants);
+         WITH RECURSIVE descendants(id) AS (
+             SELECT '{pid}'
+             UNION ALL
+             SELECT p.id FROM points p JOIN descendants d ON p.parent_id = d.id
+         )
          DELETE FROM explore_actions WHERE point_id IN (SELECT id FROM descendants);
          WITH RECURSIVE descendants(id) AS (
              SELECT '{pid}'
@@ -543,6 +924,32 @@ fn map_point_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<StoredPoint> {
         created_at: row.get(6)?,
         archived: row.get::<_, i64>(7).unwrap_or(0) != 0,
         starred: row.get::<_, i64>(8).unwrap_or(0) != 0,
+    })
+}
+
+fn map_source_summary_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SourceSummaryRecord> {
+    Ok(SourceSummaryRecord {
+        id: row.get(0)?,
+        kind: row.get(1)?,
+        title: row.get(2)?,
+        canonical_uri: row.get(3)?,
+        metadata_json: row.get(4)?,
+        created_at: row.get(5)?,
+        updated_at: row.get(6)?,
+        chunk_count: row.get(7)?,
+        point_count: row.get(8)?,
+        star_count: row.get(9)?,
+    })
+}
+
+fn map_source_chunk_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SourceChunkRecord> {
+    Ok(SourceChunkRecord {
+        id: row.get(0)?,
+        source_id: row.get(1)?,
+        chunk_index: row.get(2)?,
+        heading_path: row.get(3)?,
+        text: row.get(4)?,
+        created_at: row.get(5)?,
     })
 }
 
@@ -785,6 +1192,198 @@ mod tests {
             params![id, content, parent_id, created_at],
         )
         .unwrap();
+    }
+
+    #[test]
+    fn upsert_source_document_reuses_existing_row() {
+        let conn = memory_db();
+
+        let first = upsert_source_document(
+            &conn,
+            "file",
+            "D:/docs/test.md",
+            Some("test.md"),
+            r#"{"kind":"file"}"#,
+        )
+        .unwrap();
+        let second = upsert_source_document(
+            &conn,
+            "file",
+            "D:/docs/test.md",
+            Some("test.md"),
+            r#"{"kind":"file","updated":true}"#,
+        )
+        .unwrap();
+
+        assert_eq!(first.id, second.id);
+        assert_eq!(second.metadata_json, r#"{"kind":"file","updated":true}"#);
+
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM source_documents", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn replace_source_chunks_replaces_previous_rows() {
+        let mut conn = memory_db();
+        let source = upsert_source_document(
+            &conn,
+            "webpage",
+            "https://example.com/story",
+            Some("Story"),
+            r#"{"kind":"webpage"}"#,
+        )
+        .unwrap();
+
+        replace_source_chunks(&mut conn, &source.id, &["first".to_string(), "second".to_string()]).unwrap();
+        replace_source_chunks(&mut conn, &source.id, &["updated".to_string()]).unwrap();
+
+        let count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM source_chunks WHERE source_id = ?1", params![source.id], |row| row.get(0))
+            .unwrap();
+        let text: String = conn
+            .query_row(
+                "SELECT text FROM source_chunks WHERE source_id = ?1 ORDER BY chunk_index LIMIT 1",
+                params![source.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+
+        assert_eq!(count, 1);
+        assert_eq!(text, "updated");
+    }
+
+    #[test]
+    fn insert_point_source_link_persists_chunk_location() {
+        let conn = memory_db();
+        let source = upsert_source_document(
+            &conn,
+            "file",
+            "D:/docs/source.md",
+            Some("source.md"),
+            r#"{"kind":"file"}"#,
+        )
+        .unwrap();
+        insert_point(
+            &conn,
+            "point-1",
+            "这是一条来自来源块的观点。",
+            None,
+            "2026-07-03T00:00:00Z",
+        );
+
+        let link = insert_point_source_link(
+            &conn,
+            "point-1",
+            &source.id,
+            2,
+            Some("来源块原文"),
+        )
+        .unwrap();
+
+        assert_eq!(link.point_id, "point-1");
+        assert_eq!(link.source_id, source.id);
+        assert_eq!(link.chunk_index, 2);
+
+        let row: (String, i64, String) = conn
+            .query_row(
+                "SELECT source_id, chunk_index, anchor_text
+                 FROM point_source_links
+                 WHERE point_id = ?1",
+                params!["point-1"],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .unwrap();
+        assert_eq!(row, (source.id, 2, "来源块原文".to_string()));
+    }
+
+    #[test]
+    fn get_point_source_context_returns_source_and_chunks() {
+        let mut conn = memory_db();
+        let source = upsert_source_document(
+            &conn,
+            "webpage",
+            "https://example.com/a",
+            Some("Example A"),
+            r#"{"kind":"webpage","name":"Example A"}"#,
+        )
+        .unwrap();
+        replace_source_chunks(&mut conn, &source.id, &["alpha".to_string(), "beta".to_string()]).unwrap();
+        insert_point(
+            &conn,
+            "point-context",
+            "beta summary",
+            None,
+            "2026-07-03T00:00:00Z",
+        );
+        insert_point_source_link(&conn, "point-context", &source.id, 1, Some("beta")).unwrap();
+
+        let context = get_point_source_context(&conn, "point-context").unwrap().unwrap();
+
+        assert_eq!(context.point_id, "point-context");
+        assert_eq!(context.source.id, source.id);
+        assert_eq!(context.chunk_index, 1);
+        assert_eq!(context.chunks.len(), 2);
+        assert_eq!(context.chunks[1].text, "beta");
+    }
+
+    #[test]
+    fn source_summary_counts_chunks_points_and_stars() {
+        let mut conn = memory_db();
+        let source = upsert_source_document(
+            &conn,
+            "file",
+            "D:/docs/counts.md",
+            Some("counts.md"),
+            r#"{"kind":"file"}"#,
+        )
+        .unwrap();
+        replace_source_chunks(&mut conn, &source.id, &["one".to_string(), "two".to_string()]).unwrap();
+        insert_point(&conn, "point-a", "one summary", None, "2026-07-03T00:00:00Z");
+        insert_point(&conn, "point-b", "two summary", None, "2026-07-03T00:01:00Z");
+        insert_point_source_link(&conn, "point-a", &source.id, 0, None).unwrap();
+        insert_point_source_link(&conn, "point-b", &source.id, 1, None).unwrap();
+        set_starred(&conn, "point-b", true).unwrap();
+
+        let summary = get_source_workspace_summary(&conn, &source.id).unwrap().unwrap();
+
+        assert_eq!(summary.chunk_count, 2);
+        assert_eq!(summary.point_count, 2);
+        assert_eq!(summary.star_count, 1);
+    }
+
+    #[test]
+    fn search_workspace_returns_sources_and_linked_points() {
+        let mut conn = memory_db();
+        let source = upsert_source_document(
+            &conn,
+            "webpage",
+            "https://example.com/productivity",
+            Some("Productivity Note"),
+            r#"{"kind":"webpage"}"#,
+        )
+        .unwrap();
+        replace_source_chunks(&mut conn, &source.id, &["deep work chunk".to_string()]).unwrap();
+        insert_point(
+            &conn,
+            "point-search",
+            "deep work improves focus",
+            None,
+            "2026-07-03T00:00:00Z",
+        );
+        insert_point_source_link(&conn, "point-search", &source.id, 0, None).unwrap();
+
+        let results = search_workspace(&conn, "Productivity", 20).unwrap();
+        assert!(results.iter().any(|result| result.kind == "source" && result.id == source.id));
+
+        let point_results = search_workspace(&conn, "focus", 20).unwrap();
+        assert!(point_results.iter().any(|result| {
+            result.kind == "point"
+                && result.id == "point-search"
+                && result.source_id.as_deref() == Some(source.id.as_str())
+                && result.chunk_index == Some(0)
+        }));
     }
 
     #[test]

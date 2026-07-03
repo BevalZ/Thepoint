@@ -27,7 +27,11 @@ function groupBySource(points: StoredPoint[]) {
   return map
 }
 
-interface Props { points: StoredPoint[]; onArchive: (id: string) => void }
+interface Props {
+  points: StoredPoint[]
+  onArchive: (id: string) => void
+  onOpenSource?: (point: StoredPoint) => void
+}
 
 function formatBytes(bytes: number | null): string {
   if (bytes === null) return '未知'
@@ -139,7 +143,7 @@ function MetadataPanel({ source }: { source: string }) {
   )
 }
 
-export function GroupedView({ points, onArchive }: Props) {
+export function GroupedView({ points, onArchive, onOpenSource }: Props) {
   const { archiveMany, deleteMany } = useLibraryStore()
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
   const [metadataOpen, setMetadataOpen] = useState<Record<string, boolean>>({})
@@ -208,7 +212,7 @@ export function GroupedView({ points, onArchive }: Props) {
             {metadataOpen[source] && <MetadataPanel source={source} />}
             {isOpen && (
               <div className="px-4 py-4 bg-bg">
-                <PointTree points={groupPoints} onArchive={onArchive} />
+                <PointTree points={groupPoints} onArchive={onArchive} onOpenSource={onOpenSource} />
               </div>
             )}
           </div>

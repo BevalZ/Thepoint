@@ -69,6 +69,12 @@ export interface ExtractedPoint {
   anchor?: string
 }
 
+export interface PointSourceLinkInput {
+  sourceId: string
+  chunkIndex: number
+  anchorText?: string | null
+}
+
 export interface StoredPoint {
   id: string
   content: string
@@ -207,6 +213,62 @@ export interface FileMetadata {
   modifiedAt: string | null
 }
 
+export interface SourceDocumentRecord {
+  id: string
+  kind: string
+  title: string | null
+  canonicalUri: string
+  metadataJson: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface SourceChunkRecord {
+  id: string
+  sourceId: string
+  chunkIndex: number
+  headingPath: string | null
+  text: string
+  createdAt: string
+}
+
+export interface SourceSummaryRecord extends SourceDocumentRecord {
+  chunkCount: number
+  pointCount: number
+  starCount: number
+}
+
+export interface SourceWorkspaceRecord {
+  source: SourceSummaryRecord
+  chunks: SourceChunkRecord[]
+}
+
+export interface PointSourceContext {
+  pointId: string
+  source: SourceSummaryRecord
+  chunkIndex: number
+  anchorText: string | null
+  chunks: SourceChunkRecord[]
+}
+
+export type WorkspaceSearchResult =
+  | {
+      kind: 'source'
+      id: string
+      title: string
+      snippet: string
+      sourceId: null
+      chunkIndex: null
+    }
+  | {
+      kind: 'point'
+      id: string
+      title: string
+      snippet: string
+      sourceId: string | null
+      chunkIndex: number | null
+    }
+
 export type ExploreSourceKind = 'file' | 'webpage' | 'paste'
 
 export interface ExploreSourceMetadata {
@@ -225,6 +287,7 @@ export interface ExploreSourceMetadata {
 
 export interface ExploreHistoryItem {
   id: string
+  sourceId?: string | null
   sourceName: string | null
   sourceUrl: string | null
   sourceMetadata?: ExploreSourceMetadata | null

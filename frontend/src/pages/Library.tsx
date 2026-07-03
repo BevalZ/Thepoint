@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Loader2, AlertCircle, BookMarked, Search, X, LayoutList, Table2, Columns3, FolderOpen, Archive } from 'lucide-react'
+import { Loader2, AlertCircle, BookMarked, Search, X, LayoutList, Table2, Columns3, FolderOpen, Archive, FileText, LocateFixed } from 'lucide-react'
 import { useDeepenStore, useLibraryStore } from '@/store'
 import { PointTree } from '@/components/PointTree'
 import { GroupedView } from '@/components/library/GroupedView'
@@ -8,8 +8,8 @@ import { TableView } from '@/components/library/TableView'
 import { KanbanView } from '@/components/library/KanbanView'
 import { SourceExcerptButton } from '@/components/SourceExcerptButton'
 import { cn } from '@/lib/utils'
-import type { StoredPoint } from '@/api/types'
-import { searchPoints } from '@/api'
+import type { StoredPoint, WorkspaceSearchResult } from '@/api/types'
+import { searchWorkspace } from '@/api'
 
 const LS_VIEW = 'lib-view-mode'
 type ViewMode = 'grouped' | 'list' | 'table' | 'kanban'
@@ -21,11 +21,16 @@ const VIEW_OPTS: { id: ViewMode; icon: React.ReactNode; label: string }[] = [
   { id: 'kanban',  icon: <Columns3 size={14} />,  label: '看板' },
 ]
 
-export default function Library() {
+interface LibraryProps {
+  onOpenPointSource?: (pointId: string) => void
+  onOpenSource?: (sourceId: string, focusChunkIndex?: number | null) => void
+}
+
+export default function Library({ onOpenPointSource, onOpenSource }: LibraryProps) {
   const { points, archivedPoints, loading, error, fetch, fetchArchived, archivePoint, unarchivePoint } = useLibraryStore()
   const { fetchMentalModels } = useDeepenStore()
   const [query, setQuery] = useState('')
-  const [searchResults, setSearchResults] = useState<StoredPoint[] | null>(null)
+  const [searchResults, setSearchResults] = useState<WorkspaceSearchResult[] | null>(null)
   const [viewMode, setViewMode] = useState<ViewMode>(() => (localStorage.getItem(LS_VIEW) as ViewMode) ?? 'grouped')
   const [showArchived, setShowArchived] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -40,7 +45,7 @@ export default function Library() {
     if (timerRef.current) clearTimeout(timerRef.current)
     if (!query.trim()) { setSearchResults(null); return }
     timerRef.current = setTimeout(() => {
-      searchPoints(query).then(setSearchResults).catch(() => setSearchResults([]))
+      searchWorkspace(query).then(setSearchResults).catch(() => setSearchResults([]))
     }, 300)
     return () => { if (timerRef.current) clearTimeout(timerRef.current) }
   }, [query])
@@ -54,7 +59,18 @@ export default function Library() {
   const handleUnarchive = async (id: string) => { await unarchivePoint(id); fetchArchived() }
 
   const activePoints = showArchived ? archivedPoints : points
-  const visibleSearchResults = searchResults ? withTreeContext(searchResults, points) : null
+  const sourceResults = searchResults?.filter((result) => result.kind === 'source') ?? []
+  const pointResults = searchResults?.filter((result) => result.kind === 'point') ?? []
+
+  const handleOpenSearchResult = (result: WorkspaceSearchResult) => {
+    if (result.kind === 'source') {
+      onOpenSource?.(result.id, null)
+      return
+    }
+    if (result.sourceId) {
+      onOpenSource?.(result.sourceId, result.chunkIndex)
+    }
+  }
 
   return (
     <div className="mx-auto flex h-full max-w-4xl flex-col px-8 py-10">
@@ -101,11 +117,59 @@ export default function Library() {
 
       <div className="mt-6 flex-1">
         {/* Search results */}
-        {visibleSearchResults !== null ? (
-          visibleSearchResults.length > 0 ? (
-            <div className="pb-6">
-              <p className="mb-3 text-xs text-fg-faint">共 {searchResults?.length ?? 0} 条结果</p>
-              <PointTree points={visibleSearchResults} onArchive={handleArchive} />
+        {searchResults !== null ? (
+          searchResults.length > 0 ? (
+            <div className="space-y-5 pb-6">
+              <p className="text-xs text-fg-faint">共 {searchResults.length} 条结果</p>
+              {sourceResults.length > 0 && (
+                <section>
+                  <div className="mb-2 flex items-center justify-between text-xs text-fg-faint">
+                    <span>来源</span>
+                    <span>{sourceResults.length}</span>
+                  </div>
+                  <div className="space-y-2">
+                    {sourceResults.map((result) => (
+                      <button
+                        key={`source-${result.id}`}
+                        type="button"
+                        onClick={() => handleOpenSearchResult(result)}
+                        className="flex w-full items-start gap-3 rounded-lg border border-border bg-bg-elevated px-4 py-3 text-left transition-colors hover:bg-bg-hover"
+                      >
+                        <FileText size={15} className="mt-0.5 shrink-0 text-accent" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium text-fg">{result.title}</span>
+                          <span className="mt-1 block truncate text-xs text-fg-faint">{result.snippet}</span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              )}
+              {pointResults.length > 0 && (
+                <section>
+                  <div className="mb-2 flex items-center justify-between text-xs text-fg-faint">
+                    <span>Point</span>
+                    <span>{pointResults.length}</span>
+                  </div>
+                  <div className="space-y-2">
+                    {pointResults.map((result) => (
+                      <button
+                        key={`point-${result.id}`}
+                        type="button"
+                        onClick={() => handleOpenSearchResult(result)}
+                        disabled={!result.sourceId}
+                        className="flex w-full items-start gap-3 rounded-lg border border-border bg-bg-elevated px-4 py-3 text-left transition-colors hover:bg-bg-hover disabled:cursor-default disabled:opacity-70"
+                      >
+                        <LocateFixed size={15} className="mt-0.5 shrink-0 text-accent" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium text-fg">{result.title}</span>
+                          <span className="mt-1 line-clamp-2 text-xs leading-relaxed text-fg-muted">{result.snippet}</span>
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              )}
             </div>
           ) : (
             <div className="flex h-full min-h-32 items-center justify-center text-sm text-fg-faint">无匹配结果</div>
@@ -135,10 +199,10 @@ export default function Library() {
           )
         ) : activePoints.length > 0 ? (
           /* Normal views */
-          viewMode === 'grouped' ? <GroupedView points={activePoints} onArchive={handleArchive} /> :
-          viewMode === 'list'    ? <ListView    points={activePoints} onArchive={handleArchive} /> :
-          viewMode === 'table'   ? <TableView   points={activePoints} onArchive={handleArchive} /> :
-                                   <KanbanView  points={activePoints} onArchive={handleArchive} />
+          viewMode === 'grouped' ? <GroupedView points={activePoints} onArchive={handleArchive} onOpenSource={onOpenPointSource ? (point) => onOpenPointSource(point.id) : undefined} /> :
+          viewMode === 'list'    ? <ListView    points={activePoints} onArchive={handleArchive} onOpenSource={onOpenPointSource ? (point) => onOpenPointSource(point.id) : undefined} /> :
+          viewMode === 'table'   ? <TableView   points={activePoints} onArchive={handleArchive} onOpenSource={onOpenPointSource ? (point) => onOpenPointSource(point.id) : undefined} /> :
+                                   <KanbanView  points={activePoints} onArchive={handleArchive} onOpenSource={onOpenPointSource ? (point) => onOpenPointSource(point.id) : undefined} />
         ) : (
           <div className="flex h-full min-h-32 flex-col items-center justify-center gap-2 text-sm text-fg-faint">
             <BookMarked size={24} className="opacity-50" />还没有保存任何观点。去「探索」页提取并保存吧。
@@ -147,39 +211,4 @@ export default function Library() {
       </div>
     </div>
   )
-}
-
-function withTreeContext(results: StoredPoint[], allPoints: StoredPoint[]): StoredPoint[] {
-  const byId = new Map(allPoints.map(point => [point.id, point]))
-  const childrenByParent = new Map<string, StoredPoint[]>()
-  allPoints.forEach(point => {
-    if (!point.parentId) return
-    const children = childrenByParent.get(point.parentId) ?? []
-    children.push(point)
-    childrenByParent.set(point.parentId, children)
-  })
-  const selected = new Map<string, StoredPoint>()
-  const addWithParents = (point: StoredPoint) => {
-    selected.set(point.id, point)
-    let parentId = point.parentId
-    while (parentId) {
-      const parent = byId.get(parentId)
-      if (!parent) break
-      selected.set(parent.id, parent)
-      parentId = parent.parentId
-    }
-  }
-  const addChildren = (pointId: string) => {
-    const children = childrenByParent.get(pointId) ?? []
-    children.forEach(child => {
-      selected.set(child.id, child)
-      addChildren(child.id)
-    })
-  }
-  results.forEach(point => {
-    const fullPoint = byId.get(point.id) ?? point
-    addWithParents(fullPoint)
-    addChildren(fullPoint.id)
-  })
-  return Array.from(selected.values())
 }

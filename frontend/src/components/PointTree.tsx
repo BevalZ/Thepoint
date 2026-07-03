@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { Archive, ChevronRight, CornerDownRight, Trash2, X } from 'lucide-react'
+import { Archive, ChevronRight, CornerDownRight, LocateFixed, Trash2, X } from 'lucide-react'
 import { useState } from 'react'
 import type { StoredPoint } from '@/api/types'
 import { useLibraryStore } from '@/store'
@@ -171,15 +171,16 @@ function PointContent({ point }: { point: StoredPoint }) {
 interface PointTreeProps {
   points: StoredPoint[]
   onArchive?: (id: string) => void
+  onOpenSource?: (point: StoredPoint) => void
   className?: string
 }
 
-export function PointTree({ points, onArchive, className }: PointTreeProps) {
+export function PointTree({ points, onArchive, onOpenSource, className }: PointTreeProps) {
   const roots = buildTree(points)
   return (
     <div className={cn('space-y-3', className)}>
       {roots.map((node, i) => (
-        <TreeRow key={node.point.id} node={node} depth={0} index={i} onArchive={onArchive} />
+        <TreeRow key={node.point.id} node={node} depth={0} index={i} onArchive={onArchive} onOpenSource={onOpenSource} />
       ))}
     </div>
   )
@@ -190,9 +191,10 @@ interface TreeRowProps {
   depth: number
   index: number
   onArchive?: (id: string) => void
+  onOpenSource?: (point: StoredPoint) => void
 }
 
-function TreeRow({ node, depth, index, onArchive }: TreeRowProps) {
+function TreeRow({ node, depth, index, onArchive, onOpenSource }: TreeRowProps) {
   const { point, children } = node
   const { expanded, toggleExpanded, deletePoint } = useLibraryStore()
   const hasChildren = children.length > 0
@@ -217,8 +219,18 @@ function TreeRow({ node, depth, index, onArchive }: TreeRowProps) {
         <div className="flex items-start gap-2">
           <SourceExcerptButton
             point={point}
-            className="absolute right-14 top-3 text-fg-faint opacity-0 transition-opacity hover:text-accent group-hover:opacity-100"
+            className="absolute right-20 top-3 text-fg-faint opacity-0 transition-opacity hover:text-accent group-hover:opacity-100"
           />
+          {onOpenSource && (
+            <button
+              onClick={() => onOpenSource(point)}
+              className="absolute right-14 top-3 text-fg-faint opacity-0 transition-opacity hover:text-accent group-hover:opacity-100"
+              aria-label="定位来源"
+              title="定位来源"
+            >
+              <LocateFixed size={14} />
+            </button>
+          )}
           <button
             onClick={handleDelete}
             className="absolute right-3 top-3 opacity-0 group-hover:opacity-100 transition-opacity text-fg-faint hover:text-red-400"
@@ -288,6 +300,7 @@ function TreeRow({ node, depth, index, onArchive }: TreeRowProps) {
               node={child}
               depth={depth + 1}
               index={i}
+              onOpenSource={onOpenSource}
             />
           ))}
         </div>

@@ -1,10 +1,14 @@
 import type { StoredPoint } from '@/api/types'
-import { Archive } from 'lucide-react'
+import { Archive, LocateFixed } from 'lucide-react'
 import { SourceExcerptButton } from '@/components/SourceExcerptButton'
 
-interface Props { points: StoredPoint[]; onArchive: (id: string) => void }
+interface Props {
+  points: StoredPoint[]
+  onArchive: (id: string) => void
+  onOpenSource?: (point: StoredPoint) => void
+}
 
-export function TableView({ points, onArchive }: Props) {
+export function TableView({ points, onArchive, onOpenSource }: Props) {
   const roots = points.filter(p => !p.parentId)
   return (
     <div className="pb-6 overflow-x-auto">
@@ -31,6 +35,15 @@ export function TableView({ points, onArchive }: Props) {
                   point={p}
                   className="p-1 rounded text-fg-faint hover:text-accent transition-colors"
                 />
+                {onOpenSource && (
+                  <button
+                    onClick={() => onOpenSource(p)}
+                    className="p-1 rounded text-fg-faint hover:text-accent transition-colors"
+                    title="定位来源"
+                  >
+                    <LocateFixed size={13} />
+                  </button>
+                )}
                 <button onClick={() => onArchive(p.id)} className="p-1 rounded text-fg-faint hover:text-fg-muted transition-colors" title="归档">
                   <Archive size={13} />
                 </button>

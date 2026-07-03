@@ -1,17 +1,19 @@
-import { useCallback, useEffect, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { AnimatePresence, motion, useReducedMotion, type Variants } from 'framer-motion'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { BarChart2, ChevronDown, Compass, HelpCircle, Image, Settings as SettingsIcon, Library as LibraryIcon, Maximize2, Minus, Sparkles, X } from 'lucide-react'
-import Settings from '@/pages/Settings'
-import Explore from '@/pages/Explore'
-import Library from '@/pages/Library'
-import Analytics from '@/pages/Analytics'
-import Gallery from '@/pages/Gallery'
 import { StarRing } from '@/components/StarRing'
 import { StartupSplash } from '@/components/StartupSplash'
 import { StarfieldBackground } from '@/components/StarfieldBackground'
-import { useConfigStore, useThemeStore } from '@/store'
+import { useConfigStore, useExploreStore, useThemeStore } from '@/store'
 import { cn } from '@/lib/utils'
+import { getPointSourceContext } from '@/api'
+
+const Settings = lazy(() => import('@/pages/Settings'))
+const Explore = lazy(() => import('@/pages/Explore'))
+const Library = lazy(() => import('@/pages/Library'))
+const Analytics = lazy(() => import('@/pages/Analytics'))
+const Gallery = lazy(() => import('@/pages/Gallery'))
 
 type Page = 'explore' | 'library' | 'gallery' | 'analytics' | 'settings'
 
@@ -150,6 +152,7 @@ export default function App() {
   const [usageOpen, setUsageOpen] = useState(false)
   const prefersReducedMotion = useReducedMotion()
   const { loaded, fetchConfig } = useConfigStore()
+  const openSourceById = useExploreStore((state) => state.openSourceById)
   useThemeStore()
 
   useEffect(() => {
@@ -158,9 +161,21 @@ export default function App() {
 
   const handleSplashComplete = useCallback(() => setShowSplash(false), [])
 
+  const handleOpenSource = useCallback(async (sourceId: string, focusChunkIndex: number | null = null) => {
+    const opened = await openSourceById(sourceId, focusChunkIndex)
+    if (opened) setPage('explore')
+  }, [openSourceById])
+
+  const handleOpenPointSource = useCallback(async (pointId: string) => {
+    const context = await getPointSourceContext(pointId)
+    if (!context) return
+    const opened = await openSourceById(context.source.id, context.chunkIndex)
+    if (opened) setPage('explore')
+  }, [openSourceById])
+
   const renderPage = () => {
     if (page === 'settings') return <Settings />
-    if (page === 'library') return <Library />
+    if (page === 'library') return <Library onOpenPointSource={handleOpenPointSource} onOpenSource={handleOpenSource} />
     if (page === 'gallery') return <Gallery />
     if (page === 'analytics') return <Analytics />
     return <Explore />
@@ -271,7 +286,15 @@ export default function App() {
                 animate={{ opacity: 0, scaleX: 1 }}
                 transition={{ duration: 0.44, ease: 'easeOut' }}
               />
-              {renderPage()}
+              <Suspense
+                fallback={(
+                  <div className="flex h-full min-h-full items-center justify-center text-sm text-fg-faint">
+                    加载页面…
+                  </div>
+                )}
+              >
+                {renderPage()}
+              </Suspense>
             </motion.section>
           </AnimatePresence>
         </main>

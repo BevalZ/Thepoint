@@ -1,12 +1,16 @@
 import type { StoredPoint } from '@/api/types'
-import { Archive } from 'lucide-react'
+import { Archive, LocateFixed } from 'lucide-react'
 import { SourceExcerptButton } from '@/components/SourceExcerptButton'
 
 const COLUMNS = ['事实陈述', '作者观点', '待验证疑问', '其他']
 
-interface Props { points: StoredPoint[]; onArchive: (id: string) => void }
+interface Props {
+  points: StoredPoint[]
+  onArchive: (id: string) => void
+  onOpenSource?: (point: StoredPoint) => void
+}
 
-export function KanbanView({ points, onArchive }: Props) {
+export function KanbanView({ points, onArchive, onOpenSource }: Props) {
   const roots = points.filter(p => !p.parentId)
   const byTag = (tag: string) =>
     roots.filter(p => tag === '其他' ? !p.tagType || !COLUMNS.slice(0, 3).includes(p.tagType) : p.tagType === tag)
@@ -32,6 +36,15 @@ export function KanbanView({ points, onArchive }: Props) {
                         point={p}
                         className="p-0.5 rounded text-fg-faint hover:text-accent transition-colors"
                       />
+                      {onOpenSource && (
+                        <button
+                          onClick={() => onOpenSource(p)}
+                          className="p-0.5 rounded text-fg-faint hover:text-accent transition-colors"
+                          title="定位来源"
+                        >
+                          <LocateFixed size={12} />
+                        </button>
+                      )}
                       <button onClick={() => onArchive(p.id)}
                         className="p-0.5 rounded text-fg-faint hover:text-fg-muted transition-colors"
                         title="归档">

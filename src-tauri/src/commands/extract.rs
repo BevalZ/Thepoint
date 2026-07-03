@@ -7,6 +7,7 @@ use std::{
 use tauri::Wry;
 
 use crate::ai::{openai, ExtractedPoint};
+use crate::db::SourceDocumentRecord;
 
 const EDGE_REVIEW_CHARS: usize = 220;
 
@@ -41,6 +42,15 @@ pub struct FileMetadata {
     pub size_bytes: u64,
     pub created_at: Option<String>,
     pub modified_at: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpsertSourceDocumentInput {
+    pub kind: String,
+    pub canonical_uri: String,
+    pub title: Option<String>,
+    pub metadata: serde_json::Value,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -145,6 +155,28 @@ pub async fn get_file_metadata(file_path: String) -> Result<FileMetadata, String
     })
     .await
     .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+pub async fn upsert_source_document(
+    app: tauri::AppHandle<Wry>,
+    input: UpsertSourceDocumentInput,
+) -> Result<SourceDocumentRecord, String> {
+    let path = crate::db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || {
+        let conn = crate::db::open_db(&path)?;
+        let metadata_json = serde_json::to_string(&input.metadata)?;
+        crate::db::upsert_source_document(
+            &conn,
+            &input.kind,
+            &input.canonical_uri,
+            input.title.as_deref(),
+            &metadata_json,
+        )
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
 }
 
 fn system_time_to_rfc3339(time: std::time::SystemTime) -> String {
@@ -1262,6 +1294,7 @@ pub async fn extract_text(
 pub async fn analyze_text_streaming(
     app: tauri::AppHandle<Wry>,
     text: String,
+    source_id: Option<String>,
 ) -> Result<(), String> {
     use tauri::Emitter;
     let config = crate::commands::config::get_config(app.clone())?;
@@ -1274,6 +1307,18 @@ pub async fn analyze_text_streaming(
     )
     .await
     .map_err(|e| e.to_string())?;
+
+    if let Some(source_id) = source_id {
+        let path = crate::db::db_path(&app).map_err(|e| e.to_string())?;
+        let chunk_texts = chunks.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut conn = crate::db::open_db(&path)?;
+            crate::db::replace_source_chunks(&mut conn, &source_id, &chunk_texts)
+        })
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    }
 
     let mut handles = Vec::new();
     for (index, chunk) in chunks.into_iter().enumerate() {

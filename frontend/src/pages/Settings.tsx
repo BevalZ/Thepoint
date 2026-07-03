@@ -401,13 +401,22 @@ function SecretInput({ value, onChange, placeholder }: { value: string; onChange
   return (
     <div className="flex items-center gap-2">
       <input
-        type={show ? 'text' : 'password'}
+        type="text"
         value={value}
         onChange={e => onChange(e.target.value)}
         placeholder={placeholder}
+        autoComplete="off"
+        autoCapitalize="off"
+        autoCorrect="off"
+        spellCheck={false}
+        style={{ WebkitTextSecurity: (show ? 'none' : 'disc') as unknown as number } as React.CSSProperties}
         className="flex-1 rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm outline-none placeholder:text-fg-faint focus:border-accent transition-colors"
       />
-      <button onClick={() => setShow(s => !s)} className="rounded-lg border border-border bg-bg-elevated p-2 text-fg-muted hover:bg-bg-hover transition-colors">
+      <button
+        type="button"
+        onClick={() => setShow(s => !s)}
+        className="rounded-lg border border-border bg-bg-elevated p-2 text-fg-muted hover:bg-bg-hover transition-colors"
+      >
         {show ? <EyeOff size={15} /> : <Eye size={15} />}
       </button>
     </div>

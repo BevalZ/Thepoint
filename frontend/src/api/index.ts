@@ -1,4 +1,3 @@
-import { invoke } from '@tauri-apps/api/core'
 import type {
   AnalyticsData,
   AppConfig,
@@ -18,59 +17,78 @@ import type {
   GallerySourcePoint,
   GenerateSuggestionResult,
   MentalModel,
-  RelatedCandidateInput,
+  PointSourceLinkInput,
   RelatedClassification,
+  RelatedCandidateInput,
+  SourceDocumentRecord,
   StoredPoint,
   Suggestion,
   SuggestionMeta,
 } from './types'
+import { invokeCommand } from './invoke'
 
-export const getConfig = () => invoke<AppConfig>('get_config')
+export const getConfig = () => invokeCommand('get_config')
 
 export const setConfig = (config: AppConfig) =>
-  invoke<void>('set_config', { config })
+  invokeCommand('set_config', { config })
 
 export const parseDocument = (filePath: string) =>
-  invoke<string>('parse_document', { filePath })
+  invokeCommand('parse_document', { filePath })
 
 export const getFileMetadata = (filePath: string) =>
-  invoke<FileMetadata>('get_file_metadata', { filePath })
+  invokeCommand('get_file_metadata', { filePath })
+
+export const upsertSourceDocument = (
+  kind: string,
+  canonicalUri: string,
+  title: string | null,
+  metadata: unknown
+): Promise<SourceDocumentRecord> => invokeCommand('upsert_source_document', {
+  input: {
+    kind,
+    canonicalUri,
+    title,
+    metadata,
+  },
+})
 
 export const extractText = (text: string) =>
-  invoke<ExtractedPoint[]>('extract_text', { text })
+  invokeCommand('extract_text', { text })
 
 export const extractTextStreaming = (text: string) =>
-  invoke<void>('extract_text_streaming', { text })
+  invokeCommand('extract_text_streaming', { text })
 
 export const savePoints = (
   points: ExtractedPoint[],
   sourceDocName?: string | null,
-  sourceExcerpt?: string | null
-) => invoke<string[]>('save_points', {
+  sourceExcerpt?: string | null,
+  sourceLink?: PointSourceLinkInput | null
+) => invokeCommand('save_points', {
   points,
   sourceDocName: sourceDocName ?? null,
   sourceExcerpt: sourceExcerpt ?? null,
+  sourceLink: sourceLink ?? null,
 })
 
 export const saveManualPoint = (parentId: string, content: string) =>
-  invoke<StoredPoint[]>('save_manual_point', { parentId, content })
+  invokeCommand('save_manual_point', { parentId, content })
 
 export const saveFactCheckPoint = (parentId: string, content: string) =>
-  invoke<StoredPoint[]>('save_fact_check_point', { parentId, content })
+  invokeCommand('save_fact_check_point', { parentId, content })
 
-export const listPoints = () => invoke<StoredPoint[]>('list_points')
+export const listPoints = () => invokeCommand('list_points')
 
-export const archivePoint = (pointId: string) => invoke<void>('archive_point', { pointId })
-export const unarchivePoint = (pointId: string) => invoke<void>('unarchive_point', { pointId })
-export const listArchivedPoints = () => invoke<StoredPoint[]>('list_archived_points')
+export const archivePoint = (pointId: string) => invokeCommand('archive_point', { pointId })
+export const unarchivePoint = (pointId: string) => invokeCommand('unarchive_point', { pointId })
+export const listArchivedPoints = () => invokeCommand('list_archived_points')
 
-export const deletePoint = (pointId: string) => invoke<void>('delete_point', { pointId })
+export const deletePoint = (pointId: string) => invokeCommand('delete_point', { pointId })
 
 export const listMentalModels = () =>
-  invoke<MentalModel[]>('list_mental_models')
+  invokeCommand('list_mental_models')
 
 export const recommendFrameworks = (pointContent: string) =>
-  invoke<FrameworkRecommendation[]>('recommend_frameworks', { pointContent })
+  invokeCommand('recommend_frameworks', { pointContent })
 
 export const deepenPoint = (
   parentId: string | null,
@@ -78,7 +96,7 @@ export const deepenPoint = (
   actionType: DeepenAction,
   frameworkKey?: string | null
 ) =>
-  invoke<StoredPoint[]>('deepen_point', {
+  invokeCommand('deepen_point', {
     parentId,
     parentContent,
     actionType,
@@ -86,72 +104,79 @@ export const deepenPoint = (
   })
 
 export const polishManualThought = (parentContent: string, thought: string) =>
-  invoke<string>('polish_manual_thought', { parentContent, thought })
+  invokeCommand('polish_manual_thought', { parentContent, thought })
 
 export const findSimilar = (pointId: string, content: string) =>
-  invoke<StoredPoint[]>('find_similar', { pointId, content })
+  invokeCommand('find_similar', { pointId, content })
 
 export const classifyRelated = (pointContent: string, candidates: RelatedCandidateInput[]) =>
-  invoke<RelatedClassification[]>('classify_related', { pointContent, candidates })
+  invokeCommand('classify_related', { pointContent, candidates })
 
 export const searchPoints = (query: string) =>
-  invoke<StoredPoint[]>('search_points', { query })
+  invokeCommand('search_points', { query })
+
+export const searchWorkspace = (query: string) =>
+  invokeCommand('search_workspace', { query })
+
+export const getPointSourceContext = (pointId: string) =>
+  invokeCommand('get_point_source_context', { pointId })
+
+export const openSourceWorkspace = (sourceId: string) =>
+  invokeCommand('open_source_workspace', { sourceId })
+
+export const listRecentSources = () =>
+  invokeCommand('list_recent_sources')
+
+export const getSourceWorkspaceSummary = (sourceId: string) =>
+  invokeCommand('get_source_workspace_summary', { sourceId })
 
 export const fetchModels = (apiKey: string, baseUrl: string) =>
-  invoke<string[]>('fetch_models', { apiKey, baseUrl })
+  invokeCommand('fetch_models', { apiKey, baseUrl })
 
-export const getAnalytics = () => invoke<AnalyticsData>('get_analytics')
+export const getAnalytics = () => invokeCommand('get_analytics')
 
-export const getExploreSuggestions = () => invoke<string>('get_explore_suggestions')
+export const getExploreSuggestions = () => invokeCommand('get_explore_suggestions')
 
-export const generateSuggestion = () => invoke<GenerateSuggestionResult>('generate_suggestion')
+export const generateSuggestion = () => invokeCommand('generate_suggestion')
 
 export const saveSuggestion = (bodyMd: string, summary: string) =>
-  invoke<string>('save_suggestion', { bodyMd, summary })
+  invokeCommand('save_suggestion', { bodyMd, summary })
 
 export const listSuggestionsByDate = (date: string) =>
-  invoke<SuggestionMeta[]>('list_suggestions_by_date', { date })
+  invokeCommand('list_suggestions_by_date', { date })
 
 export const getSuggestion = (id: string) =>
-  invoke<Suggestion | null>('get_suggestion', { id })
+  invokeCommand('get_suggestion', { id })
 
 export const deleteSuggestion = (id: string) =>
-  invoke<void>('delete_suggestion', { id })
+  invokeCommand('delete_suggestion', { id })
 
-export const listMarkedDates = () => invoke<string[]>('list_marked_dates')
+export const listMarkedDates = () => invokeCommand('list_marked_dates')
 
-export const getProfiles = () => invoke<ConfigProfile[]>('get_profiles')
+export const getProfiles = () => invokeCommand('get_profiles')
 
 export const setProfiles = (profiles: ConfigProfile[]) =>
-  invoke<void>('set_profiles', { profiles })
+  invokeCommand('set_profiles', { profiles })
 
 export const fetchUrl = (url: string) =>
-  invoke<{
-    html: string
-    text: string
-    title: string | null
-    url: string
-    author: string | null
-    publishedAt: string | null
-    readingTime: string | null
-  }>('fetch_url', { url })
+  invokeCommand('fetch_url', { url })
 
 export const describeImage = (imageUrl: string) =>
-  invoke<string>('describe_image', { imageUrl })
+  invokeCommand('describe_image', { imageUrl })
 
 export const importCommentatorFromSkill = (url: string) =>
-  invoke<CommentatorProfile>('import_commentator_from_skill', { url })
+  invokeCommand('import_commentator_from_skill', { url })
 
 export const factCheckClaim = (claim: string, context: string) =>
-  invoke<FactCheckResult>('fact_check_claim', { claim, context })
+  invokeCommand('fact_check_claim', { claim, context })
 
-export const generateDigest = () => invoke<string>('generate_digest')
+export const generateDigest = () => invokeCommand('generate_digest')
 
-export const generateImage = () => invoke<GalleryItem>('generate_image')
+export const generateImage = () => invokeCommand('generate_image')
 export const prepareGalleryImagePrompt = (
   mode?: GalleryImageMode,
   knowledgeContexts?: GalleryKnowledgeContext[]
-) => invoke<GalleryPromptPreview>('prepare_gallery_image_prompt', {
+) => invokeCommand('prepare_gallery_image_prompt', {
   mode: mode ?? null,
   knowledgeContexts: knowledgeContexts ?? null,
 })
@@ -159,19 +184,19 @@ export const generateImageFromPrompt = (
   prompt: string,
   pointIds: string[],
   sourcePoints: GallerySourcePoint[]
-) => invoke<GalleryItem>('generate_image_from_prompt', { prompt, pointIds, sourcePoints })
-export const listGallery = () => invoke<GalleryItem[]>('list_gallery')
-export const deleteGalleryItem = (id: string) => invoke<void>('delete_gallery_item', { id })
-export const retryDownload = (id: string) => invoke<GalleryItem>('retry_download', { id })
+) => invokeCommand('generate_image_from_prompt', { prompt, pointIds, sourcePoints })
+export const listGallery = () => invokeCommand('list_gallery')
+export const deleteGalleryItem = (id: string) => invokeCommand('delete_gallery_item', { id })
+export const retryDownload = (id: string) => invokeCommand('retry_download', { id })
 export const diagnoseGalleryFile = (filePath: string) =>
-  invoke<GalleryFileDiagnostic>('diagnose_gallery_file', { filePath })
-export const starPoint = (pointId: string) => invoke<number>('star_point', { pointId })
-export const unstarPoint = (pointId: string) => invoke<number>('unstar_point', { pointId })
-export const getStarredCount = () => invoke<number>('get_starred_count')
-export const listStarredPoints = () => invoke<StoredPoint[]>('list_starred_points')
+  invokeCommand('diagnose_gallery_file', { filePath })
+export const starPoint = (pointId: string) => invokeCommand('star_point', { pointId })
+export const unstarPoint = (pointId: string) => invokeCommand('unstar_point', { pointId })
+export const getStarredCount = () => invokeCommand('get_starred_count')
+export const listStarredPoints = () => invokeCommand('list_starred_points')
 
-export const analyzeTextStreaming = (text: string) =>
-  invoke<void>('analyze_text_streaming', { text })
+export const analyzeTextStreaming = (text: string, sourceId?: string | null) =>
+  invokeCommand('analyze_text_streaming', { text, sourceId: sourceId ?? null })
 
 export const analyzeTextBlock = (text: string, index: number) =>
-  invoke<ChunkCard>('analyze_text_block', { text, index })
+  invokeCommand('analyze_text_block', { text, index })

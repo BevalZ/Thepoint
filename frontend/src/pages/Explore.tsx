@@ -28,8 +28,8 @@ import {
 import { useConfigStore, useExploreHistoryStore, useExploreStore, useStarStore } from '@/store'
 import { cn } from '@/lib/utils'
 import { useStarFly } from '@/hooks/useStarFly'
-import { analyzeTextBlock, describeImage, factCheckClaim, savePoints } from '@/api'
-import type { AppConfig, ChunkCard, ExploreHistoryItem, ExploreSourceMetadata, FactCheckResult } from '@/api/types'
+import { analyzeTextBlock, describeImage, factCheckClaim, listRecentSources, savePoints } from '@/api'
+import type { AppConfig, ChunkCard, ExploreHistoryItem, ExploreSourceMetadata, FactCheckResult, SourceSummaryRecord } from '@/api/types'
 import { ExternalLinkPreview } from '@/components/ExternalLinkPreview'
 
 const URL_RE = /^https?:\/\/[^\s]+$/
@@ -958,8 +958,10 @@ interface SourceHeaderProps {
   sourceName: string | null
   sourceUrl: string | null
   metadata: ExploreSourceMetadata
+  summary: SourceSummaryRecord | null
   onReanalyze: () => void
   onOpenHistory: () => void
+  onOpenRecent: () => void
   onChangeFile: () => void
   onClear: () => void
 }
@@ -970,8 +972,10 @@ function SourceHeader({
   sourceName,
   sourceUrl,
   metadata,
+  summary,
   onReanalyze,
   onOpenHistory,
+  onOpenRecent,
   onChangeFile,
   onClear,
 }: SourceHeaderProps) {
@@ -997,6 +1001,14 @@ function SourceHeader({
           </div>
           <div className="mt-1 flex min-w-0 items-center gap-2 text-xs text-fg-faint">
             <span>{formatCount(metadata.characterCount)} 字符</span>
+            {summary && (
+              <>
+                <span>{summary.chunkCount} 块</span>
+                <span>{summary.pointCount} 点</span>
+                <span>{summary.starCount} 星</span>
+                <span>{formatHistoryDate(summary.updatedAt)}</span>
+              </>
+            )}
             {sourceUrl !== null && (
               <a
                 href={sourceUrl}
@@ -1040,6 +1052,15 @@ function SourceHeader({
           >
             <Images size={13} />
             缩略图
+          </button>
+          <button
+            type="button"
+            onClick={onOpenRecent}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border px-2.5 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg"
+            title="最近来源"
+          >
+            <Database size={13} />
+            最近来源
           </button>
           <button
             type="button"
@@ -2541,6 +2562,83 @@ function HistoryDrawer({ items, onClose, onActivate, onReanalyze, onArchive, onU
   )
 }
 
+function sourceTitle(source: SourceSummaryRecord): string {
+  return source.title?.trim() || source.canonicalUri || '未命名来源'
+}
+
+function coerceSourceKind(kind: string): ExploreSourceMetadata['kind'] {
+  if (kind === 'file' || kind === 'webpage' || kind === 'paste') return kind
+  return 'paste'
+}
+
+function RecentSourcesDrawer({ sources, loading, onClose, onOpen }: {
+  sources: SourceSummaryRecord[]
+  loading: boolean
+  onClose: () => void
+  onOpen: (sourceId: string) => void
+}) {
+  return (
+    <motion.div
+      initial={{ x: '-100%', opacity: 0 }}
+      animate={{ x: 0, opacity: 1 }}
+      exit={{ x: '-100%', opacity: 0 }}
+      transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+      className="fixed left-0 top-0 z-50 flex h-full w-[390px] flex-col border-r border-border bg-bg-elevated shadow-2xl"
+    >
+      <div className="flex items-center justify-between border-b border-border px-5 py-4">
+        <div>
+          <p className="text-sm font-medium text-fg">最近来源</p>
+          <p className="mt-0.5 text-xs text-fg-faint">已持久化的文件和网页</p>
+        </div>
+        <button onClick={onClose} className="rounded-md p-1 text-fg-muted transition-colors hover:bg-bg-hover">
+          <X size={16} />
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto px-5 py-4 [&::-webkit-scrollbar]:hidden">
+        {loading ? (
+          <div className="flex h-full items-center justify-center gap-2 text-sm text-fg-faint">
+            <Loader2 size={15} className="animate-spin" />
+            加载中…
+          </div>
+        ) : sources.length === 0 ? (
+          <div className="flex h-full items-center justify-center text-center text-sm text-fg-faint">
+            <div>
+              <Database size={30} className="mx-auto mb-2 opacity-40" />
+              <p>暂无来源</p>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {sources.map((source) => {
+              const KindIcon = sourceKindIcon(coerceSourceKind(source.kind))
+              return (
+                <button
+                  key={source.id}
+                  type="button"
+                  onClick={() => onOpen(source.id)}
+                  className="flex w-full items-start gap-3 rounded-lg border border-border bg-bg px-4 py-3 text-left transition-colors hover:bg-bg-hover"
+                >
+                  <KindIcon size={15} className="mt-0.5 shrink-0 text-accent" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium text-fg">{sourceTitle(source)}</span>
+                    <span className="mt-1 block truncate text-[11px] text-fg-faint">{source.canonicalUri}</span>
+                    <span className="mt-2 flex flex-wrap gap-2 text-[11px] text-fg-faint">
+                      <span>{source.chunkCount} 块</span>
+                      <span>{source.pointCount} 点</span>
+                      <span>{source.starCount} 星</span>
+                      <span>{formatHistoryDate(source.updatedAt)}</span>
+                    </span>
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </motion.div>
+  )
+}
+
 // ── Main ────────────────────────────────────────────────────────────────────
 export default function Explore() {
   const {
@@ -2550,6 +2648,10 @@ export default function Explore() {
     analyzing,
     parsing,
     error,
+    sourceId,
+    sourceSummary,
+    focusChunkIndex,
+    sourceOpenVersion,
     sourceName,
     sourceUrl,
     sourceMetadata,
@@ -2557,6 +2659,8 @@ export default function Explore() {
     setRichContent,
     parseFile,
     fetchUrlContent,
+    openSourceById,
+    clearFocusChunk,
     reanalyzeCurrent,
     reset,
   } = useExploreStore()
@@ -2571,6 +2675,9 @@ export default function Explore() {
   const [stageCompletedCount, setStageCompletedCount] = useState(0)
   const [revealedCount, setRevealedCount] = useState(0)
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [recentSourcesOpen, setRecentSourcesOpen] = useState(false)
+  const [recentSources, setRecentSources] = useState<SourceSummaryRecord[]>([])
+  const [recentSourcesLoading, setRecentSourcesLoading] = useState(false)
   const [imageViewer, setImageViewer] = useState<ImageViewerState | null>(null)
   const [imageDescriptions, setImageDescriptions] = useState<Record<string, string | null | undefined>>({})
   const [generationInProgress, setGenerationInProgress] = useState(false)
@@ -2712,6 +2819,27 @@ export default function Explore() {
     setCommentSaving(false)
     setUserAnnotations({})
   }, [history.activeVersion])
+
+  useEffect(() => {
+    if (sourceOpenVersion === 0) return
+
+    setAnalysisStack([])
+    setImageViewer(null)
+    setStageCompletedCount(Number.MAX_SAFE_INTEGER)
+    setRevealedCount(Number.MAX_SAFE_INTEGER)
+    setGenerationInProgress(false)
+    setCompletionBurstKey(null)
+    setImageDescriptions({})
+    setAdHocCards({})
+    setAdHocAnalyzing({})
+    setAdHocErrors({})
+    setFactBubble(null)
+    setSelectionToolbar(null)
+    setCommentDialog(null)
+    setCommentDraft('')
+    setCommentSaving(false)
+    setUserAnnotations({})
+  }, [sourceOpenVersion])
 
   useEffect(() => {
     if (stageTargetCount === 0) {
@@ -2955,7 +3083,16 @@ export default function Explore() {
       // first star: save chunk summary as a point, then star it
       try {
         fly(el)
-        const ids = await savePoints([{ content: card.summary, tagType: tagTypeForChunkCard(card) }], sourceName, card.text)
+        const ids = await savePoints(
+          [{ content: card.summary, tagType: tagTypeForChunkCard(card) }],
+          sourceName,
+          card.text,
+          sourceId ? {
+            sourceId,
+            chunkIndex: card.index,
+            anchorText: card.text,
+          } : null
+        )
         const pointId = ids[0]
         if (pointId) {
           await star(pointId)
@@ -2965,7 +3102,7 @@ export default function Explore() {
         // silently fail
       }
     }
-  }, [savedIds, sourceName, fly, star, unstar])
+  }, [savedIds, sourceId, sourceName, fly, star, unstar])
 
   const scrollToBlock = useCallback((blockIndex: number) => {
     blockRefs.current[blockIndex]?.scrollIntoView({
@@ -2974,6 +3111,15 @@ export default function Explore() {
       inline: 'nearest',
     })
   }, [])
+
+  useEffect(() => {
+    if (focusChunkIndex === null || busy || showProcessing) return
+    const timer = window.setTimeout(() => {
+      scrollToBlock(focusChunkIndex)
+      clearFocusChunk()
+    }, 80)
+    return () => window.clearTimeout(timer)
+  }, [busy, clearFocusChunk, focusChunkIndex, scrollToBlock, showProcessing, visibleCards.length, visibleSourceItems.length])
 
   const handleOpenCard = useCallback((card: ChunkCard, blockIndex: number, el: HTMLButtonElement) => {
     scrollToBlock(blockIndex)
@@ -3065,6 +3211,21 @@ export default function Explore() {
     setCompletionBurstKey(null)
   }
 
+  const handleOpenRecentSources = useCallback(async () => {
+    setRecentSourcesOpen(true)
+    setRecentSourcesLoading(true)
+    try {
+      setRecentSources(await listRecentSources())
+    } finally {
+      setRecentSourcesLoading(false)
+    }
+  }, [])
+
+  const handleOpenRecentSource = useCallback(async (nextSourceId: string) => {
+    const opened = await openSourceById(nextSourceId, null)
+    if (opened) setRecentSourcesOpen(false)
+  }, [openSourceById])
+
   const handleActivateHistory = (id: string) => {
     history.activate(id)
     setHistoryOpen(false)
@@ -3153,6 +3314,16 @@ export default function Explore() {
       <div className="flex h-full flex-1 flex-col">
         {!hasContent && (
           <button
+            onClick={handleOpenRecentSources}
+            className="absolute left-6 top-5 z-10 inline-flex items-center gap-1.5 rounded-md border border-border bg-bg-elevated px-2.5 py-1.5 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg"
+          >
+            <Database size={13} />
+            最近来源
+          </button>
+        )}
+
+        {!hasContent && (
+          <button
             onClick={() => setHistoryOpen(true)}
             className="absolute right-6 top-5 z-10 inline-flex items-center gap-1.5 rounded-md border border-border bg-bg-elevated px-2.5 py-1.5 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg"
           >
@@ -3197,8 +3368,10 @@ export default function Explore() {
               sourceName={sourceName}
               sourceUrl={sourceUrl}
               metadata={displaySourceMetadata}
+              summary={sourceSummary}
               onReanalyze={handleReanalyzeCurrent}
               onOpenHistory={() => setHistoryOpen(true)}
+              onOpenRecent={handleOpenRecentSources}
               onChangeFile={handleChangeFile}
               onClear={reset}
             />
@@ -3357,6 +3530,19 @@ export default function Explore() {
               onArchive={history.archive}
               onUnarchive={history.unarchive}
               onDelete={history.remove}
+            />
+          </>
+        )}
+        {recentSourcesOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              className="fixed inset-0 z-40 bg-black/20" onClick={() => setRecentSourcesOpen(false)} />
+            <RecentSourcesDrawer
+              sources={recentSources}
+              loading={recentSourcesLoading}
+              onClose={() => setRecentSourcesOpen(false)}
+              onOpen={handleOpenRecentSource}
             />
           </>
         )}

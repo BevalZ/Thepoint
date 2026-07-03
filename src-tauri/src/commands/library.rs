@@ -4,6 +4,14 @@ use tauri::Wry;
 use crate::ai::ExtractedPoint;
 use crate::db::{self, StoredPoint};
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PointSourceLinkInput {
+    pub source_id: String,
+    pub chunk_index: i64,
+    pub anchor_text: Option<String>,
+}
+
 /// Persist a batch of extracted points into the local library. Returns generated IDs.
 #[tauri::command]
 pub async fn save_points(
@@ -11,6 +19,7 @@ pub async fn save_points(
     points: Vec<ExtractedPoint>,
     source_doc_name: Option<String>,
     source_excerpt: Option<String>,
+    source_link: Option<PointSourceLinkInput>,
 ) -> Result<Vec<String>, String> {
     let path = db::db_path(&app).map_err(|e| e.to_string())?;
 
@@ -28,6 +37,15 @@ pub async fn save_points(
                  VALUES (?1, ?2, ?3, NULL, ?4, ?5, ?6)",
                 rusqlite::params![id, point.content, point.tag_type, source_doc_name, source_excerpt, now],
             )?;
+            if let Some(link) = source_link.as_ref() {
+                db::insert_point_source_link(
+                    &tx,
+                    &id,
+                    &link.source_id,
+                    link.chunk_index,
+                    link.anchor_text.as_deref(),
+                )?;
+            }
             ids.push(id);
         }
         tx.commit()?;
@@ -112,6 +130,80 @@ pub async fn search_points(app: tauri::AppHandle<Wry>, query: String) -> Result<
     tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<StoredPoint>> {
         let conn = db::open_db(&path)?;
         db::search_points(&conn, &query, 50)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_point_source_context(
+    app: tauri::AppHandle<Wry>,
+    point_id: String,
+) -> Result<Option<db::PointSourceContext>, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<Option<db::PointSourceContext>> {
+        let conn = db::open_db(&path)?;
+        db::get_point_source_context(&conn, &point_id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn open_source_workspace(
+    app: tauri::AppHandle<Wry>,
+    source_id: String,
+) -> Result<Option<db::SourceWorkspaceRecord>, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<Option<db::SourceWorkspaceRecord>> {
+        let conn = db::open_db(&path)?;
+        db::get_source_workspace(&conn, &source_id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn list_recent_sources(
+    app: tauri::AppHandle<Wry>,
+) -> Result<Vec<db::SourceSummaryRecord>, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<db::SourceSummaryRecord>> {
+        let conn = db::open_db(&path)?;
+        db::list_recent_sources(&conn, 24)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_source_workspace_summary(
+    app: tauri::AppHandle<Wry>,
+    source_id: String,
+) -> Result<Option<db::SourceSummaryRecord>, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<Option<db::SourceSummaryRecord>> {
+        let conn = db::open_db(&path)?;
+        db::get_source_workspace_summary(&conn, &source_id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn search_workspace(
+    app: tauri::AppHandle<Wry>,
+    query: String,
+) -> Result<Vec<db::WorkspaceSearchResult>, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<db::WorkspaceSearchResult>> {
+        let conn = db::open_db(&path)?;
+        db::search_workspace(&conn, &query, 40)
     })
     .await
     .map_err(|e| e.to_string())?
