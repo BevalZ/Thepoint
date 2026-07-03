@@ -265,6 +265,7 @@ Skills/        蒸馏人格 Skill 原始资料
 - 🏗️ [架构设计](docs/architecture.md)
 - 🗃️ [数据库结构](docs/database-schema.md)
 - 🔌 [接口说明](docs/api-spec.md)
+- 🧭 [参考 Foliole 的功能优化路线图](docs/foliole-functional-roadmap.md)
 - 🧰 [开发环境](docs/dev-setup.md)
 - 🤝 [贡献说明](docs/contributing.md)
 

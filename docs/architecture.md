@@ -73,11 +73,20 @@ deep-explorer/
 │   │   │   ├── Library.tsx  # 总知识库
 │   │   │   ├── Projects.tsx # 项目库
 │   │   │   └── Settings.tsx # 设置（LLM 配置）
-│   │   ├── store/           # Zustand 状态管理
-│   │   ├── api/             # Tauri invoke 封装
-│   │   │   └── index.ts     # 所有 invoke 调用的类型化封装
+│   │   ├── store/           # Zustand 状态管理（按领域拆分）
+│   │   │   ├── exploreStore.ts
+│   │   │   ├── libraryStore.ts
+│   │   │   ├── galleryStore.ts
+│   │   │   ├── configStore.ts
+│   │   │   ├── themeStore.ts
+│   │   │   └── index.ts     # barrel exports
+│   │   ├── api/             # Tauri invoke 契约层
+│   │   │   ├── commandMap.ts # 命令名/入参/返回值契约
+│   │   │   ├── invoke.ts     # 唯一 invoke 入口
+│   │   │   └── index.ts      # 业务 API 封装
 │   │   └── main.tsx
 │   ├── index.html
+│   ├── scripts/             # 前端工程约束脚本
 │   ├── package.json
 │   ├── vite.config.ts
 │   ├── tailwind.config.ts
@@ -95,11 +104,24 @@ deep-explorer/
 Tauri 的 `invoke` 机制替代 HTTP：
 
 ```typescript
+// frontend/src/api/invoke.ts
+import { invoke } from '@tauri-apps/api/core'
+
+export function invokeCommand<T extends TauriCommandName>(
+  command: T,
+  ...args: TauriCommandArgs<T> extends undefined ? [] | [undefined] : [TauriCommandArgs<T>]
+) {
+  const payload = args[0]
+  return payload === undefined ? invoke(command) : invoke(command, payload)
+}
+```
+
+```typescript
 // frontend/src/api/index.ts
-import { invoke } from '@tauri-apps/api/core';
+import { invokeCommand } from './invoke'
 
 export const extractText = (text: string, sessionId: string) =>
-  invoke<Point[]>('extract_text', { text, sessionId, mode: 'auto' });
+  invokeCommand('extract_text', { text, sessionId, mode: 'auto' })
 ```
 
 ```rust
@@ -113,9 +135,28 @@ pub async fn extract_text(
 ) -> Result<Vec<Point>, String> { ... }
 ```
 
+这样做的约束是：
+
+- 前端只允许 `frontend/src/api/invoke.ts` 直接触达 `@tauri-apps/api/core`
+- 页面、组件、store 统一消费 `api/index.ts`
+- 命令名、入参和返回值在 `commandMap.ts` 里集中维护，避免前后端契约散落
+
 ---
 
-## 四、Rust 依赖（Cargo.toml 关键项）
+## 四、前端分层约束
+
+参考大型桌面工作台项目的做法，前端目前采用轻量分层：
+
+- `pages/` 负责页面壳层与布局编排
+- `components/` 负责可复用 UI 与交互单元
+- `store/` 负责领域状态，不直接暴露 Tauri 细节
+- `api/` 负责所有命令调用和类型契约
+
+当前通过 `frontend/scripts/check-frontend-boundary.mjs` 做最小约束检查，防止组件层重新散落 `invoke()` 调用。
+
+---
+
+## 五、Rust 依赖（Cargo.toml 关键项）
 
 ```toml
 [dependencies]
@@ -133,7 +174,7 @@ anyhow = "1"
 
 ---
 
-## 五、UI 设计原则
+## 六、UI 设计原则
 
 - **shadcn/ui** 作为组件基础：Card、Dialog、Command（⌘K 搜索）、Tabs、ScrollArea
 - **TailwindCSS** 暗色模式优先（`dark:` 前缀），主色调 neutral + accent
@@ -143,7 +184,7 @@ anyhow = "1"
 
 ---
 
-## 六、关键技术决策记录（ADR）
+## 七、关键技术决策记录（ADR）
 
 | 决策 | 选择 | 理由 |
 |------|------|------|
