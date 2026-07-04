@@ -200,6 +200,12 @@ export const factCheckClaim = (claim: string, context: string) =>
 export const generateDigest = (evidenceIds: string[] = []): Promise<DigestResult> =>
   invokeCommand('generate_digest', { input: { evidenceIds } })
 
+export const generateSynthesis = (
+  sourceIds: string[],
+  includeStarred: boolean
+): Promise<DigestResult> =>
+  invokeCommand('generate_synthesis', { input: { sourceIds, includeStarred } })
+
 export const generateImage = () => invokeCommand('generate_image')
 export const prepareGalleryImagePrompt = (
   mode?: GalleryImageMode,

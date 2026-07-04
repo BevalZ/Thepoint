@@ -1,16 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
-import { Loader2, AlertCircle, BookMarked, Search, X, LayoutList, Table2, Columns3, FolderOpen, Archive, FileText, LocateFixed, BookmarkPlus, Check } from 'lucide-react'
-import { useDeepenStore, useEvidenceDigestStore, useLibraryStore } from '@/store'
+import { Loader2, AlertCircle, BookMarked, Search, X, LayoutList, Table2, Columns3, FolderOpen, Archive, FileText, LocateFixed, BookmarkPlus, Check, Sparkles } from 'lucide-react'
+import { useDeepenStore, useEvidenceDigestStore, useLibraryStore, useStarStore, useSynthesisStore } from '@/store'
 import { PointTree } from '@/components/PointTree'
 import { EvidenceList } from '@/components/EvidenceList'
+import { DigestModal } from '@/components/DigestModal'
 import { GroupedView } from '@/components/library/GroupedView'
 import { ListView } from '@/components/library/ListView'
 import { TableView } from '@/components/library/TableView'
 import { KanbanView } from '@/components/library/KanbanView'
 import { SourceExcerptButton } from '@/components/SourceExcerptButton'
 import { cn } from '@/lib/utils'
-import type { EvidenceRecord, StoredPoint, WorkspaceSearchResult } from '@/api/types'
-import { searchEvidence, searchWorkspace } from '@/api'
+import type { DigestResult, EvidenceRecord, StoredPoint, WorkspaceSearchResult } from '@/api/types'
+import { generateSynthesis, searchEvidence, searchWorkspace } from '@/api'
 
 const LS_VIEW = 'lib-view-mode'
 type ViewMode = 'grouped' | 'list' | 'table' | 'kanban'
@@ -31,14 +32,26 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
   const { points, archivedPoints, loading, error, fetch, fetchArchived, archivePoint, unarchivePoint } = useLibraryStore()
   const { fetchMentalModels } = useDeepenStore()
   const { has: hasEvidenceForDigest, toggle: toggleEvidenceForDigest } = useEvidenceDigestStore()
+  const { count: starredCount, points: starredPoints, init: initStars } = useStarStore()
+  const {
+    sources: synthesisSources,
+    hasSource: hasSynthesisSource,
+    toggleSource: toggleSynthesisSource,
+    removeSource: removeSynthesisSource,
+    clearSources: clearSynthesisSources,
+  } = useSynthesisStore()
   const [query, setQuery] = useState('')
   const [searchResults, setSearchResults] = useState<WorkspaceSearchResult[] | null>(null)
   const [evidenceResults, setEvidenceResults] = useState<EvidenceRecord[] | null>(null)
   const [viewMode, setViewMode] = useState<ViewMode>(() => (localStorage.getItem(LS_VIEW) as ViewMode) ?? 'grouped')
   const [showArchived, setShowArchived] = useState(false)
+  const [includeStarred, setIncludeStarred] = useState(false)
+  const [synthesisGenerating, setSynthesisGenerating] = useState(false)
+  const [synthesisError, setSynthesisError] = useState<string | null>(null)
+  const [synthesisResult, setSynthesisResult] = useState<DigestResult | null>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  useEffect(() => { fetch(); fetchMentalModels() }, [fetch, fetchMentalModels])
+  useEffect(() => { fetch(); fetchMentalModels(); void initStars() }, [fetch, fetchMentalModels, initStars])
 
   useEffect(() => {
     if (showArchived) fetchArchived()
@@ -74,6 +87,8 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
   const pointResults = searchResults?.filter((result) => result.kind === 'point') ?? []
   const totalSearchResults = (searchResults?.length ?? 0) + (evidenceResults?.length ?? 0)
   const searchActive = searchResults !== null || evidenceResults !== null
+  const showSynthesisPanel = synthesisSources.length > 0 || starredCount > 0
+  const canGenerateSynthesis = synthesisSources.length > 0 || (includeStarred && starredCount > 0)
 
   const handleOpenSearchResult = (result: WorkspaceSearchResult) => {
     if (result.kind === 'source') {
@@ -82,6 +97,23 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
     }
     if (result.sourceId) {
       onOpenSource?.(result.sourceId, result.chunkIndex)
+    }
+  }
+
+  const handleGenerateSynthesis = async () => {
+    if (!canGenerateSynthesis || synthesisGenerating) return
+    setSynthesisGenerating(true)
+    setSynthesisError(null)
+    try {
+      const result = await generateSynthesis(
+        synthesisSources.map((source) => source.id),
+        includeStarred
+      )
+      setSynthesisResult(result)
+    } catch (error) {
+      setSynthesisError(error instanceof Error ? error.message : '生成综合报告失败，请稍后重试。')
+    } finally {
+      setSynthesisGenerating(false)
     }
   }
 
@@ -128,6 +160,72 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
         </div>
       )}
 
+      {showSynthesisPanel && (
+        <section className="mt-4 rounded-lg border border-border bg-bg-elevated px-4 py-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2 text-sm font-medium text-fg">
+                <Sparkles size={14} className="text-accent" />
+                <span>多来源综合</span>
+              </div>
+              <p className="mt-1 text-xs text-fg-faint">
+                已选 {synthesisSources.length} 个 Source，当前 Star {starredCount} 个
+              </p>
+            </div>
+            <label className="flex items-center gap-2 text-xs text-fg-muted">
+              <input
+                type="checkbox"
+                checked={includeStarred}
+                onChange={(event) => setIncludeStarred(event.target.checked)}
+                disabled={starredCount === 0 || synthesisGenerating}
+                className="h-3.5 w-3.5 accent-[var(--color-accent)]"
+              />
+              包含 Star
+            </label>
+            <button
+              type="button"
+              onClick={clearSynthesisSources}
+              disabled={synthesisSources.length === 0 || synthesisGenerating}
+              className="rounded-lg border border-border px-3 py-2 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg disabled:opacity-50"
+            >
+              清空 Source
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleGenerateSynthesis()}
+              disabled={!canGenerateSynthesis || synthesisGenerating}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+            >
+              {synthesisGenerating ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+              生成综合
+            </button>
+          </div>
+          {synthesisSources.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {synthesisSources.map((source) => (
+                <span key={source.id} className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-bg px-2 py-1 text-[11px] text-fg-muted">
+                  <span className="truncate">{source.title}</span>
+                  <button
+                    type="button"
+                    onClick={() => removeSynthesisSource(source.id)}
+                    disabled={synthesisGenerating}
+                    className="shrink-0 rounded p-0.5 hover:bg-bg-hover hover:text-fg disabled:opacity-50"
+                    title="移除 Source"
+                  >
+                    <X size={11} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          {synthesisError && (
+            <p className="mt-3 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+              {synthesisError}
+            </p>
+          )}
+        </section>
+      )}
+
       <div className="mt-6 flex-1">
         {/* Search results */}
         {searchActive ? (
@@ -142,18 +240,36 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
                   </div>
                   <div className="space-y-2">
                     {sourceResults.map((result) => (
-                      <button
+                      <div
                         key={`source-${result.id}`}
-                        type="button"
-                        onClick={() => handleOpenSearchResult(result)}
                         className="flex w-full items-start gap-3 rounded-lg border border-border bg-bg-elevated px-4 py-3 text-left transition-colors hover:bg-bg-hover"
                       >
-                        <FileText size={15} className="mt-0.5 shrink-0 text-accent" />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-medium text-fg">{result.title}</span>
-                          <span className="mt-1 block truncate text-xs text-fg-faint">{result.snippet}</span>
-                        </span>
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenSearchResult(result)}
+                          className="flex min-w-0 flex-1 items-start gap-3 text-left"
+                        >
+                          <FileText size={15} className="mt-0.5 shrink-0 text-accent" />
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate text-sm font-medium text-fg">{result.title}</span>
+                            <span className="mt-1 block truncate text-xs text-fg-faint">{result.snippet}</span>
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => toggleSynthesisSource({ id: result.id, title: result.title })}
+                          className={cn(
+                            'inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition-colors',
+                            hasSynthesisSource(result.id)
+                              ? 'border-accent/40 bg-accent/10 text-accent'
+                              : 'border-border text-fg-muted hover:bg-bg-hover hover:text-accent'
+                          )}
+                          title={hasSynthesisSource(result.id) ? '从综合输入移除' : '加入综合输入'}
+                        >
+                          {hasSynthesisSource(result.id) ? <Check size={11} /> : <BookmarkPlus size={11} />}
+                          {hasSynthesisSource(result.id) ? '已加入' : '加入综合'}
+                        </button>
+                      </div>
                     ))}
                   </div>
                 </section>
@@ -248,6 +364,16 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
           </div>
         )}
       </div>
+      {synthesisResult && (
+        <DigestModal
+          result={synthesisResult}
+          starredPoints={includeStarred ? starredPoints : []}
+          title="多来源综合"
+          sourceName="多来源综合"
+          onOpenSource={onOpenSource}
+          onClose={() => setSynthesisResult(null)}
+        />
+      )}
     </div>
   )
 }

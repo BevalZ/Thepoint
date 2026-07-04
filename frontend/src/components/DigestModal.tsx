@@ -12,9 +12,12 @@ interface Props {
   starredPoints: StoredPoint[]
   onClose: () => void
   onOpenSource?: (sourceId: string, focusChunkIndex?: number | null) => void
+  title?: string
+  sourceName?: string
 }
 
 function citationKindLabel(kind: DigestCitation['kind']): string {
+  if (kind === 'source') return 'Source'
   return kind === 'evidence' ? 'Evidence' : 'Point'
 }
 
@@ -76,7 +79,14 @@ function digestSourceExcerpt(points: StoredPoint[], citations: DigestCitation[])
   return lines.join('\n').trim()
 }
 
-export function DigestModal({ result, starredPoints, onClose, onOpenSource }: Props) {
+export function DigestModal({
+  result,
+  starredPoints,
+  onClose,
+  onOpenSource,
+  title = '知识研报',
+  sourceName = DIGEST_SOURCE_NAME,
+}: Props) {
   const [copied, setCopied] = useState(false)
   const [archived, setArchived] = useState(false)
   const [archiving, setArchiving] = useState(false)
@@ -103,7 +113,7 @@ export function DigestModal({ result, starredPoints, onClose, onOpenSource }: Pr
     try {
       await savePoints(
         [{ content: digestMarkdownWithCitations(result), tagType: '研报摘要' }],
-        DIGEST_SOURCE_NAME,
+        sourceName,
         digestSourceExcerpt(starredPoints, result.citations)
       )
       setArchived(true)
@@ -127,7 +137,7 @@ export function DigestModal({ result, starredPoints, onClose, onOpenSource }: Pr
         onClick={e => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-center justify-between border-b border-border px-6 py-4">
-          <span className="text-sm font-semibold text-fg">知识研报</span>
+          <span className="text-sm font-semibold text-fg">{title}</span>
           <div className="flex items-center gap-2">
             <button onClick={handleCopy}
               className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg">

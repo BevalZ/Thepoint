@@ -59,6 +59,7 @@ pub fn run() {
             commands::explore::find_similar,
             commands::explore::classify_related,
             commands::digest::generate_digest,
+            commands::digest::generate_synthesis,
             commands::gallery::generate_image,
             commands::gallery::prepare_gallery_image_prompt,
             commands::gallery::generate_image_from_prompt,

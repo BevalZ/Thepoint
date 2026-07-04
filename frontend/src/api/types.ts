@@ -164,7 +164,7 @@ export interface SaveEvidenceInput {
 }
 
 export interface DigestCitation {
-  kind: 'point' | 'evidence'
+  kind: 'source' | 'point' | 'evidence'
   label: string
   id: string
   title: string

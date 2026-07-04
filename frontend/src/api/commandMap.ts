@@ -254,6 +254,10 @@ export interface TauriCommandMap {
     args: { input: { evidenceIds: string[] } }
     result: DigestResult
   }
+  generate_synthesis: {
+    args: { input: { sourceIds: string[]; includeStarred: boolean } }
+    result: DigestResult
+  }
   generate_image: {
     args: undefined
     result: GalleryItem

@@ -6,6 +6,8 @@ export { useGalleryStore } from './galleryStore'
 export type { GalleryLogEntry } from './galleryStore'
 export { useLibraryStore } from './libraryStore'
 export { useStarStore } from './starStore'
+export { useSynthesisStore } from './synthesisStore'
+export type { SynthesisSourceSelection } from './synthesisStore'
 export {
   CODE_FONTS,
   UI_FONTS,
