@@ -92,6 +92,14 @@ export interface TauriCommandMap {
     }
     result: EvidenceRecord
   }
+  list_evidence_for_point: {
+    args: { pointId: string }
+    result: EvidenceRecord[]
+  }
+  list_evidence_for_source: {
+    args: { sourceId: string }
+    result: EvidenceRecord[]
+  }
   list_points: {
     args: undefined
     result: StoredPoint[]

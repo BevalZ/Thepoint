@@ -28,8 +28,9 @@ import {
 import { useConfigStore, useExploreHistoryStore, useExploreStore, useStarStore } from '@/store'
 import { cn } from '@/lib/utils'
 import { useStarFly } from '@/hooks/useStarFly'
-import { analyzeTextBlock, describeImage, factCheckClaim, listRecentSources, saveEvidence, savePoints } from '@/api'
-import type { AppConfig, ChunkCard, ExploreHistoryItem, ExploreSourceMetadata, FactCheckResult, SourceSummaryRecord } from '@/api/types'
+import { analyzeTextBlock, describeImage, factCheckClaim, listEvidenceForSource, listRecentSources, saveEvidence, savePoints } from '@/api'
+import type { AppConfig, ChunkCard, EvidenceRecord, ExploreHistoryItem, ExploreSourceMetadata, FactCheckResult, SourceSummaryRecord } from '@/api/types'
+import { EvidenceList } from '@/components/EvidenceList'
 import { ExternalLinkPreview } from '@/components/ExternalLinkPreview'
 
 const URL_RE = /^https?:\/\/[^\s]+$/
@@ -2693,6 +2694,8 @@ export default function Explore() {
   const [adHocAnalyzing, setAdHocAnalyzing] = useState<Record<number, boolean>>({})
   const [adHocErrors, setAdHocErrors] = useState<Record<number, string>>({})
   const [factBubble, setFactBubble] = useState<FactBubbleState | null>(null)
+  const [sourceEvidence, setSourceEvidence] = useState<EvidenceRecord[]>([])
+  const [sourceEvidenceLoading, setSourceEvidenceLoading] = useState(false)
   const [selectionToolbar, setSelectionToolbar] = useState<SelectionToolbarState | null>(null)
   const [commentDialog, setCommentDialog] = useState<CommentDialogState | null>(null)
   const [commentDraft, setCommentDraft] = useState('')
@@ -3001,6 +3004,12 @@ export default function Explore() {
     })
       .then((evidence) => {
         saveFactCheckResult(current.claim, current.context, current.result!)
+        if (evidence.sourceId === sourceId) {
+          setSourceEvidence((records) => [
+            evidence,
+            ...records.filter((record) => record.id !== evidence.id),
+          ])
+        }
         setFactBubble((existing) => existing?.claim === current.claim
           ? { ...existing, saving: false, saved: true, evidenceId: evidence.id }
           : existing
@@ -3147,6 +3156,21 @@ export default function Explore() {
     }, 80)
     return () => window.clearTimeout(timer)
   }, [busy, clearFocusChunk, focusChunkIndex, scrollToBlock, showProcessing, visibleCards.length, visibleSourceItems.length])
+
+  useEffect(() => {
+    if (!sourceId) {
+      setSourceEvidence([])
+      setSourceEvidenceLoading(false)
+      return
+    }
+    let alive = true
+    setSourceEvidenceLoading(true)
+    listEvidenceForSource(sourceId)
+      .then((records) => { if (alive) setSourceEvidence(records) })
+      .catch(() => { if (alive) setSourceEvidence([]) })
+      .finally(() => { if (alive) setSourceEvidenceLoading(false) })
+    return () => { alive = false }
+  }, [sourceId, sourceOpenVersion])
 
   const handleOpenCard = useCallback((card: ChunkCard, blockIndex: number, el: HTMLButtonElement) => {
     scrollToBlock(blockIndex)
@@ -3401,6 +3425,16 @@ export default function Explore() {
               onOpenRecent={handleOpenRecentSources}
               onChangeFile={handleChangeFile}
               onClear={reset}
+            />
+
+            {sourceEvidenceLoading && (
+              <div className="mx-6 mt-4 text-xs text-fg-faint">加载来源证据…</div>
+            )}
+            <EvidenceList
+              records={sourceEvidence}
+              title="该来源证据"
+              className="mx-6 mt-4"
+              onOpenSource={(nextSourceId, chunkIndex) => { void openSourceById(nextSourceId, chunkIndex) }}
             />
 
             {error && (

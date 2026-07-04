@@ -1,6 +1,7 @@
 import type { StoredPoint } from '@/api/types'
 import { Archive, LocateFixed } from 'lucide-react'
 import { SourceExcerptButton } from '@/components/SourceExcerptButton'
+import { PointEvidence } from '@/components/EvidenceList'
 
 const COLUMNS = ['事实陈述', '作者观点', '待验证疑问', '其他']
 
@@ -8,9 +9,10 @@ interface Props {
   points: StoredPoint[]
   onArchive: (id: string) => void
   onOpenSource?: (point: StoredPoint) => void
+  onOpenEvidenceSource?: (sourceId: string, chunkIndex: number | null) => void
 }
 
-export function KanbanView({ points, onArchive, onOpenSource }: Props) {
+export function KanbanView({ points, onArchive, onOpenSource, onOpenEvidenceSource }: Props) {
   const roots = points.filter(p => !p.parentId)
   const byTag = (tag: string) =>
     roots.filter(p => tag === '其他' ? !p.tagType || !COLUMNS.slice(0, 3).includes(p.tagType) : p.tagType === tag)
@@ -29,6 +31,7 @@ export function KanbanView({ points, onArchive, onOpenSource }: Props) {
               {items.map(p => (
                 <div key={p.id} className="rounded-lg border border-border bg-bg-elevated p-3 text-sm text-fg leading-relaxed group">
                   <p className="line-clamp-4">{p.content}</p>
+                  <PointEvidence pointId={p.id} className="mt-2" onOpenSource={onOpenEvidenceSource} />
                   <div className="flex items-center justify-between mt-2">
                     <span className="text-xs text-fg-faint truncate">{p.sourceDocName ?? '—'}</span>
                     <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">

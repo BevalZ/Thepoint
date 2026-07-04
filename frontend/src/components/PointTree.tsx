@@ -5,6 +5,7 @@ import type { StoredPoint } from '@/api/types'
 import { useLibraryStore } from '@/store'
 import { cn } from '@/lib/utils'
 import { DeepenActions } from './DeepenActions'
+import { PointEvidence } from './EvidenceList'
 import { SourceExcerptButton } from './SourceExcerptButton'
 import { Markdown } from './Markdown'
 import { buildTree, type TreeNode } from '@/lib/pointTree'
@@ -172,15 +173,16 @@ interface PointTreeProps {
   points: StoredPoint[]
   onArchive?: (id: string) => void
   onOpenSource?: (point: StoredPoint) => void
+  onOpenEvidenceSource?: (sourceId: string, chunkIndex: number | null) => void
   className?: string
 }
 
-export function PointTree({ points, onArchive, onOpenSource, className }: PointTreeProps) {
+export function PointTree({ points, onArchive, onOpenSource, onOpenEvidenceSource, className }: PointTreeProps) {
   const roots = buildTree(points)
   return (
     <div className={cn('space-y-3', className)}>
       {roots.map((node, i) => (
-        <TreeRow key={node.point.id} node={node} depth={0} index={i} onArchive={onArchive} onOpenSource={onOpenSource} />
+        <TreeRow key={node.point.id} node={node} depth={0} index={i} onArchive={onArchive} onOpenSource={onOpenSource} onOpenEvidenceSource={onOpenEvidenceSource} />
       ))}
     </div>
   )
@@ -192,9 +194,10 @@ interface TreeRowProps {
   index: number
   onArchive?: (id: string) => void
   onOpenSource?: (point: StoredPoint) => void
+  onOpenEvidenceSource?: (sourceId: string, chunkIndex: number | null) => void
 }
 
-function TreeRow({ node, depth, index, onArchive, onOpenSource }: TreeRowProps) {
+function TreeRow({ node, depth, index, onArchive, onOpenSource, onOpenEvidenceSource }: TreeRowProps) {
   const { point, children } = node
   const { expanded, toggleExpanded, deletePoint } = useLibraryStore()
   const hasChildren = children.length > 0
@@ -278,6 +281,7 @@ function TreeRow({ node, depth, index, onArchive, onOpenSource }: TreeRowProps) 
               </span>
             )}
             <PointContent point={point} />
+            <PointEvidence pointId={point.id} onOpenSource={onOpenEvidenceSource} />
             {(point.sourceDocName || point.createdAt) && (
               <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-fg-faint">
                 {point.sourceDocName && (
@@ -300,7 +304,9 @@ function TreeRow({ node, depth, index, onArchive, onOpenSource }: TreeRowProps) 
               node={child}
               depth={depth + 1}
               index={i}
+              onArchive={onArchive}
               onOpenSource={onOpenSource}
+              onOpenEvidenceSource={onOpenEvidenceSource}
             />
           ))}
         </div>

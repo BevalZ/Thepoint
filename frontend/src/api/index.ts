@@ -90,6 +90,12 @@ export const saveEvidence = (
     },
   })
 
+export const listEvidenceForPoint = (pointId: string): Promise<EvidenceRecord[]> =>
+  invokeCommand('list_evidence_for_point', { pointId })
+
+export const listEvidenceForSource = (sourceId: string): Promise<EvidenceRecord[]> =>
+  invokeCommand('list_evidence_for_source', { sourceId })
+
 export const listPoints = () => invokeCommand('list_points')
 
 export const archivePoint = (pointId: string) => invokeCommand('archive_point', { pointId })
