@@ -19,7 +19,7 @@ import {
 import type { FactCheckResult, StoredPoint } from '@/api/types'
 import { useDeepenStore, useLibraryStore } from '@/store'
 import { cn } from '@/lib/utils'
-import { factCheckClaim, polishManualThought } from '@/api'
+import { factCheckClaim, getPointSourceContext, polishManualThought, saveEvidence } from '@/api'
 
 interface DeepenActionsProps {
   point: StoredPoint
@@ -104,6 +104,12 @@ export function DeepenActions({ point, className }: DeepenActionsProps) {
     setFactError(null)
     try {
       const result = await factCheckClaim(point.content, factCheckContext)
+      const sourceContext = await getPointSourceContext(point.id).catch(() => null)
+      await saveEvidence(result, {
+        pointId: point.id,
+        sourceId: sourceContext?.source.id ?? null,
+        chunkIndex: sourceContext?.chunkIndex ?? null,
+      })
       await addFactCheck(point, formatFactCheckContent(result, sourceExcerpt))
       setFactOpen(false)
     } catch (error: unknown) {

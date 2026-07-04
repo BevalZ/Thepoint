@@ -32,6 +32,7 @@ pub fn run() {
             commands::library::save_points,
             commands::library::save_manual_point,
             commands::library::save_fact_check_point,
+            commands::library::save_evidence,
             commands::library::list_points,
             commands::library::search_points,
             commands::library::search_workspace,

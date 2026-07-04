@@ -131,6 +131,38 @@ export interface FactCheckResult {
   sources: FactCheckSource[]
 }
 
+export interface EvidenceSourceRecord {
+  id: string
+  evidenceId: string
+  title: string | null
+  url: string
+  snippet: string | null
+  stance: 'support' | 'contradict' | 'context' | 'unknown'
+  createdAt: string
+}
+
+export interface EvidenceRecord {
+  id: string
+  claim: string
+  verdict: 'supported' | 'contradicted' | 'mixed' | 'uncertain'
+  answer: string
+  reasoning: string | null
+  context: string | null
+  pointId: string | null
+  sourceId: string | null
+  chunkIndex: number | null
+  checkedAt: string
+  createdAt: string
+  sources: EvidenceSourceRecord[]
+}
+
+export interface SaveEvidenceInput {
+  result: FactCheckResult
+  pointId?: string | null
+  sourceId?: string | null
+  chunkIndex?: number | null
+}
+
 export type RelatedRelation = 'same_view' | 'opposite_view' | 'similar_case' | 'evidence' | 'duplicate'
 
 export interface RelatedCandidateInput {

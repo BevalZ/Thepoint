@@ -28,7 +28,7 @@ import {
 import { useConfigStore, useExploreHistoryStore, useExploreStore, useStarStore } from '@/store'
 import { cn } from '@/lib/utils'
 import { useStarFly } from '@/hooks/useStarFly'
-import { analyzeTextBlock, describeImage, factCheckClaim, listRecentSources, savePoints } from '@/api'
+import { analyzeTextBlock, describeImage, factCheckClaim, listRecentSources, saveEvidence, savePoints } from '@/api'
 import type { AppConfig, ChunkCard, ExploreHistoryItem, ExploreSourceMetadata, FactCheckResult, SourceSummaryRecord } from '@/api/types'
 import { ExternalLinkPreview } from '@/components/ExternalLinkPreview'
 
@@ -185,6 +185,9 @@ interface FactBubbleState {
   result?: FactCheckResult
   error?: string
   saved?: boolean
+  saving?: boolean
+  saveError?: string
+  evidenceId?: string
 }
 
 interface SelectionToolbarState {
@@ -1668,16 +1671,20 @@ function FactCheckBubble({ bubble, onClose, onSave }: { bubble: FactBubbleState;
               <button
                 type="button"
                 onClick={onSave}
+                disabled={bubble.saving || bubble.saved}
                 className={cn(
                   'rounded-lg border px-2.5 py-1.5 text-xs transition-colors',
                   bubble.saved
                     ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
-                    : 'border-border text-fg-muted hover:bg-bg-hover hover:text-fg'
+                    : 'border-border text-fg-muted hover:bg-bg-hover hover:text-fg disabled:cursor-not-allowed disabled:opacity-60'
                 )}
               >
-                {bubble.saved ? '已保存' : '保存审查'}
+                {bubble.saved ? '已存为证据' : bubble.saving ? '保存中' : '保存为证据'}
               </button>
             </div>
+            {bubble.saveError && (
+              <p className="text-right text-xs text-red-300">{bubble.saveError}</p>
+            )}
           </div>
         )}
       </div>
@@ -2959,7 +2966,7 @@ export default function Explore() {
     }
     const saved = findSavedFactCheck(claim, context)
     if (saved) {
-      setFactBubble({ claim, context, loading: false, x, y, ...anchorState, result: saved, saved: true })
+      setFactBubble({ claim, context, loading: false, x, y, ...anchorState, result: saved })
       return
     }
 
@@ -2981,12 +2988,32 @@ export default function Explore() {
   }, [])
 
   const handleSaveFactCheck = useCallback(() => {
-    setFactBubble((current) => {
-      if (!current?.result) return current
-      saveFactCheckResult(current.claim, current.context, current.result)
-      return { ...current, saved: true }
+    const current = factBubble
+    if (!current?.result || current.saving || current.saved) return
+
+    setFactBubble((existing) => existing?.claim === current.claim
+      ? { ...existing, saving: true, saveError: undefined }
+      : existing
+    )
+    saveEvidence(current.result, {
+      sourceId,
+      chunkIndex: current.blockIndex,
     })
-  }, [])
+      .then((evidence) => {
+        saveFactCheckResult(current.claim, current.context, current.result!)
+        setFactBubble((existing) => existing?.claim === current.claim
+          ? { ...existing, saving: false, saved: true, evidenceId: evidence.id }
+          : existing
+        )
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error || '保存证据失败')
+        setFactBubble((existing) => existing?.claim === current.claim
+          ? { ...existing, saving: false, saveError: message }
+          : existing
+        )
+      })
+  }, [factBubble, sourceId])
 
   const handleSelectionFactCheck = useCallback(() => {
     if (!selectionToolbar) return

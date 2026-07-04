@@ -4,6 +4,7 @@ import type {
   ChunkCard,
   CommentatorProfile,
   ConfigProfile,
+  EvidenceRecord,
   FactCheckResult,
   FileMetadata,
   FrameworkRecommendation,
@@ -79,6 +80,17 @@ export interface TauriCommandMap {
   save_fact_check_point: {
     args: { parentId: string; content: string }
     result: StoredPoint[]
+  }
+  save_evidence: {
+    args: {
+      input: {
+        result: FactCheckResult
+        pointId: string | null
+        sourceId: string | null
+        chunkIndex: number | null
+      }
+    }
+    result: EvidenceRecord
   }
   list_points: {
     args: undefined

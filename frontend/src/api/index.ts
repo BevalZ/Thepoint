@@ -5,6 +5,7 @@ import type {
   CommentatorProfile,
   ConfigProfile,
   DeepenAction,
+  EvidenceRecord,
   ExtractedPoint,
   FactCheckResult,
   FileMetadata,
@@ -75,6 +76,19 @@ export const saveManualPoint = (parentId: string, content: string) =>
 
 export const saveFactCheckPoint = (parentId: string, content: string) =>
   invokeCommand('save_fact_check_point', { parentId, content })
+
+export const saveEvidence = (
+  result: FactCheckResult,
+  context?: { pointId?: string | null; sourceId?: string | null; chunkIndex?: number | null }
+): Promise<EvidenceRecord> =>
+  invokeCommand('save_evidence', {
+    input: {
+      result,
+      pointId: context?.pointId ?? null,
+      sourceId: context?.sourceId ?? null,
+      chunkIndex: context?.chunkIndex ?? null,
+    },
+  })
 
 export const listPoints = () => invokeCommand('list_points')
 
