@@ -100,6 +100,59 @@ pub struct WorkspaceSearchResult {
     pub chunk_index: Option<i64>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct EvidenceSourceRecord {
+    pub id: String,
+    pub evidence_id: String,
+    pub title: Option<String>,
+    pub url: String,
+    pub snippet: Option<String>,
+    pub stance: String,
+    pub created_at: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct EvidenceRecord {
+    pub id: String,
+    pub claim: String,
+    pub verdict: String,
+    pub answer: String,
+    pub reasoning: Option<String>,
+    pub context: Option<String>,
+    pub point_id: Option<String>,
+    pub source_id: Option<String>,
+    pub chunk_index: Option<i64>,
+    pub checked_at: String,
+    pub created_at: String,
+    pub sources: Vec<EvidenceSourceRecord>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveEvidenceSourceInput {
+    pub title: Option<String>,
+    pub url: String,
+    pub snippet: Option<String>,
+    pub stance: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveEvidenceInput {
+    pub claim: String,
+    pub verdict: String,
+    pub answer: String,
+    pub reasoning: Option<String>,
+    pub context: Option<String>,
+    pub point_id: Option<String>,
+    pub source_id: Option<String>,
+    pub chunk_index: Option<i64>,
+    pub checked_at: Option<String>,
+    pub sources: Vec<SaveEvidenceSourceInput>,
+}
+
 /// Resolve the SQLite file path inside the app data dir, creating the dir if needed.
 pub fn db_path(app: &AppHandle<Wry>) -> Result<PathBuf> {
     let dir = app
@@ -211,6 +264,43 @@ pub fn init_db(conn: &Connection) -> Result<()> {
             ON point_source_links(source_id, chunk_index);",
     )
     .context("failed to create source tables")?;
+
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS evidence_records (
+            id             TEXT PRIMARY KEY,
+            claim          TEXT NOT NULL,
+            verdict        TEXT NOT NULL CHECK (verdict IN ('supported', 'contradicted', 'mixed', 'uncertain')),
+            answer         TEXT NOT NULL,
+            reasoning      TEXT,
+            context        TEXT,
+            point_id       TEXT,
+            source_id      TEXT,
+            chunk_index    INTEGER,
+            checked_at     TEXT NOT NULL,
+            created_at     TEXT NOT NULL,
+            FOREIGN KEY(point_id) REFERENCES points(id) ON DELETE SET NULL,
+            FOREIGN KEY(source_id) REFERENCES source_documents(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_evidence_records_point
+            ON evidence_records(point_id);
+        CREATE INDEX IF NOT EXISTS idx_evidence_records_source
+            ON evidence_records(source_id, chunk_index);
+        CREATE INDEX IF NOT EXISTS idx_evidence_records_checked_at
+            ON evidence_records(checked_at DESC);
+        CREATE TABLE IF NOT EXISTS evidence_sources (
+            id             TEXT PRIMARY KEY,
+            evidence_id    TEXT NOT NULL,
+            title          TEXT,
+            url            TEXT NOT NULL,
+            snippet        TEXT,
+            stance         TEXT NOT NULL CHECK (stance IN ('support', 'contradict', 'context', 'unknown')),
+            created_at     TEXT NOT NULL,
+            FOREIGN KEY(evidence_id) REFERENCES evidence_records(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_evidence_sources_evidence
+            ON evidence_sources(evidence_id);",
+    )
+    .context("failed to create evidence tables")?;
 
     // FTS5 virtual table for full-text search over point content
     conn.execute_batch(
@@ -552,6 +642,172 @@ pub fn search_workspace(conn: &Connection, query: &str, limit: usize) -> Result<
     Ok(results)
 }
 
+// Staged DB API for the next command/UI slice; this data-layer task does not wire callers yet.
+#[allow(dead_code)]
+pub fn save_evidence(conn: &mut Connection, input: SaveEvidenceInput) -> Result<EvidenceRecord> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let id = uuid::Uuid::new_v4().to_string();
+    let claim = required_trimmed("claim", &input.claim)?.to_string();
+    let verdict = input.verdict.trim().to_string();
+    validate_evidence_verdict(&verdict)?;
+    let answer = required_trimmed("answer", &input.answer)?.to_string();
+    let reasoning = optional_trimmed(input.reasoning.as_deref());
+    let context = optional_trimmed(input.context.as_deref());
+    let point_id = optional_trimmed(input.point_id.as_deref());
+    let source_id = optional_trimmed(input.source_id.as_deref());
+    let checked_at = optional_trimmed(input.checked_at.as_deref()).unwrap_or_else(|| now.clone());
+    let chunk_index = input.chunk_index;
+
+    let mut sources = Vec::with_capacity(input.sources.len());
+    for source in input.sources {
+        let url = required_trimmed("source url", &source.url)?.to_string();
+        let stance = source.stance.trim().to_string();
+        validate_evidence_stance(&stance)?;
+        sources.push((
+            optional_trimmed(source.title.as_deref()),
+            url,
+            optional_trimmed(source.snippet.as_deref()),
+            stance,
+        ));
+    }
+
+    let tx = conn.transaction()?;
+    tx.execute(
+        "INSERT INTO evidence_records
+            (id, claim, verdict, answer, reasoning, context, point_id, source_id, chunk_index, checked_at, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        params![id, claim, verdict, answer, reasoning, context, point_id, source_id, chunk_index, checked_at, now],
+    )?;
+
+    for (title, url, snippet, stance) in sources {
+        tx.execute(
+            "INSERT INTO evidence_sources (id, evidence_id, title, url, snippet, stance, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![uuid::Uuid::new_v4().to_string(), id, title, url, snippet, stance, now],
+        )?;
+    }
+
+    tx.commit()?;
+    get_evidence(conn, &id)?.ok_or_else(|| anyhow::anyhow!("saved evidence not found: {id}"))
+}
+
+#[allow(dead_code)]
+pub fn get_evidence(conn: &Connection, evidence_id: &str) -> Result<Option<EvidenceRecord>> {
+    if evidence_id.trim().is_empty() {
+        return Ok(None);
+    }
+
+    let mut stmt = conn.prepare(
+        "SELECT id, claim, verdict, answer, reasoning, context, point_id, source_id, chunk_index, checked_at, created_at
+         FROM evidence_records
+         WHERE id = ?1",
+    )?;
+    let mut rows = stmt.query(params![evidence_id])?;
+    let Some(row) = rows.next()? else {
+        return Ok(None);
+    };
+
+    let mut record = map_evidence_row(row)?;
+    record.sources = list_evidence_sources(conn, &record.id)?;
+    Ok(Some(record))
+}
+
+#[allow(dead_code)]
+pub fn list_evidence_for_point(conn: &Connection, point_id: &str) -> Result<Vec<EvidenceRecord>> {
+    if point_id.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut stmt = conn.prepare(
+        "SELECT id, claim, verdict, answer, reasoning, context, point_id, source_id, chunk_index, checked_at, created_at
+         FROM evidence_records
+         WHERE point_id = ?1
+         ORDER BY checked_at DESC, created_at DESC",
+    )?;
+    let rows = stmt.query_map(params![point_id], map_evidence_row)?;
+    let mut records = Vec::new();
+    for row in rows {
+        records.push(row?);
+    }
+    hydrate_evidence_records(conn, records)
+}
+
+#[allow(dead_code)]
+pub fn list_evidence_for_source(conn: &Connection, source_id: &str) -> Result<Vec<EvidenceRecord>> {
+    if source_id.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut stmt = conn.prepare(
+        "SELECT id, claim, verdict, answer, reasoning, context, point_id, source_id, chunk_index, checked_at, created_at
+         FROM evidence_records
+         WHERE source_id = ?1
+         ORDER BY checked_at DESC, created_at DESC",
+    )?;
+    let rows = stmt.query_map(params![source_id], map_evidence_row)?;
+    let mut records = Vec::new();
+    for row in rows {
+        records.push(row?);
+    }
+    hydrate_evidence_records(conn, records)
+}
+
+#[allow(dead_code)]
+pub fn search_evidence(conn: &Connection, query: &str, limit: usize) -> Result<Vec<EvidenceRecord>> {
+    let trimmed = query.trim();
+    if trimmed.is_empty() || limit == 0 {
+        return Ok(Vec::new());
+    }
+
+    let pattern = format!("%{}%", escape_like(trimmed));
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT e.id, e.claim, e.verdict, e.answer, e.reasoning, e.context,
+                e.point_id, e.source_id, e.chunk_index, e.checked_at, e.created_at
+         FROM evidence_records e
+         LEFT JOIN evidence_sources s ON s.evidence_id = e.id
+         WHERE e.claim LIKE ?1 ESCAPE '\\'
+            OR e.answer LIKE ?1 ESCAPE '\\'
+            OR e.reasoning LIKE ?1 ESCAPE '\\'
+            OR e.context LIKE ?1 ESCAPE '\\'
+            OR s.title LIKE ?1 ESCAPE '\\'
+            OR s.url LIKE ?1 ESCAPE '\\'
+            OR s.snippet LIKE ?1 ESCAPE '\\'
+            OR s.stance LIKE ?1 ESCAPE '\\'
+         ORDER BY e.checked_at DESC, e.created_at DESC
+         LIMIT ?2",
+    )?;
+    let rows = stmt.query_map(params![pattern, limit as i64], map_evidence_row)?;
+    let mut records = Vec::new();
+    for row in rows {
+        records.push(row?);
+    }
+    hydrate_evidence_records(conn, records)
+}
+
+#[allow(dead_code)]
+fn hydrate_evidence_records(conn: &Connection, mut records: Vec<EvidenceRecord>) -> Result<Vec<EvidenceRecord>> {
+    for record in &mut records {
+        record.sources = list_evidence_sources(conn, &record.id)?;
+    }
+    Ok(records)
+}
+
+#[allow(dead_code)]
+fn list_evidence_sources(conn: &Connection, evidence_id: &str) -> Result<Vec<EvidenceSourceRecord>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, evidence_id, title, url, snippet, stance, created_at
+         FROM evidence_sources
+         WHERE evidence_id = ?1
+         ORDER BY created_at, id",
+    )?;
+    let rows = stmt.query_map(params![evidence_id], map_evidence_source_row)?;
+    let mut sources = Vec::new();
+    for row in rows {
+        sources.push(row?);
+    }
+    Ok(sources)
+}
+
 /// Read every non-archived point (newest first) including its parent link.
 pub fn list_points(conn: &Connection) -> Result<Vec<StoredPoint>> {
     let mut stmt = conn.prepare(
@@ -812,6 +1068,12 @@ pub fn delete_point(conn: &Connection, point_id: &str) -> Result<()> {
              UNION ALL
              SELECT p.id FROM points p JOIN descendants d ON p.parent_id = d.id
          )
+         UPDATE evidence_records SET point_id = NULL WHERE point_id IN (SELECT id FROM descendants);
+         WITH RECURSIVE descendants(id) AS (
+             SELECT '{pid}'
+             UNION ALL
+             SELECT p.id FROM points p JOIN descendants d ON p.parent_id = d.id
+         )
          DELETE FROM point_source_links WHERE point_id IN (SELECT id FROM descendants);
          WITH RECURSIVE descendants(id) AS (
              SELECT '{pid}'
@@ -951,6 +1213,64 @@ fn map_source_chunk_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SourceChunk
         text: row.get(4)?,
         created_at: row.get(5)?,
     })
+}
+
+fn map_evidence_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<EvidenceRecord> {
+    Ok(EvidenceRecord {
+        id: row.get(0)?,
+        claim: row.get(1)?,
+        verdict: row.get(2)?,
+        answer: row.get(3)?,
+        reasoning: row.get(4)?,
+        context: row.get(5)?,
+        point_id: row.get(6)?,
+        source_id: row.get(7)?,
+        chunk_index: row.get(8)?,
+        checked_at: row.get(9)?,
+        created_at: row.get(10)?,
+        sources: Vec::new(),
+    })
+}
+
+fn map_evidence_source_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<EvidenceSourceRecord> {
+    Ok(EvidenceSourceRecord {
+        id: row.get(0)?,
+        evidence_id: row.get(1)?,
+        title: row.get(2)?,
+        url: row.get(3)?,
+        snippet: row.get(4)?,
+        stance: row.get(5)?,
+        created_at: row.get(6)?,
+    })
+}
+
+fn required_trimmed<'a>(field: &str, value: &'a str) -> Result<&'a str> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        anyhow::bail!("{field} is required");
+    }
+    Ok(trimmed)
+}
+
+fn optional_trimmed(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|trimmed| !trimmed.is_empty())
+        .map(str::to_string)
+}
+
+fn validate_evidence_verdict(verdict: &str) -> Result<()> {
+    match verdict {
+        "supported" | "contradicted" | "mixed" | "uncertain" => Ok(()),
+        _ => anyhow::bail!("invalid evidence verdict: {verdict}"),
+    }
+}
+
+fn validate_evidence_stance(stance: &str) -> Result<()> {
+    match stance {
+        "support" | "contradict" | "context" | "unknown" => Ok(()),
+        _ => anyhow::bail!("invalid evidence source stance: {stance}"),
+    }
 }
 
 /// Toggle starred on a point; returns new total starred count.
@@ -1194,6 +1514,31 @@ mod tests {
         .unwrap();
     }
 
+    fn evidence_input(
+        claim: &str,
+        point_id: Option<&str>,
+        source_id: Option<&str>,
+        checked_at: &str,
+    ) -> SaveEvidenceInput {
+        SaveEvidenceInput {
+            claim: claim.to_string(),
+            verdict: "supported".to_string(),
+            answer: format!("Evidence answer for {claim}"),
+            reasoning: Some("Evidence reasoning".to_string()),
+            context: Some("Evidence context".to_string()),
+            point_id: point_id.map(str::to_string),
+            source_id: source_id.map(str::to_string),
+            chunk_index: Some(0),
+            checked_at: Some(checked_at.to_string()),
+            sources: vec![SaveEvidenceSourceInput {
+                title: Some(format!("{claim} source")),
+                url: format!("https://example.com/evidence/{}", claim.replace(' ', "-").to_lowercase()),
+                snippet: Some(format!("{claim} source snippet")),
+                stance: "support".to_string(),
+            }],
+        }
+    }
+
     #[test]
     fn upsert_source_document_reuses_existing_row() {
         let conn = memory_db();
@@ -1384,6 +1729,215 @@ mod tests {
                 && result.source_id.as_deref() == Some(source.id.as_str())
                 && result.chunk_index == Some(0)
         }));
+    }
+
+    #[test]
+    fn save_evidence_persists_record_and_sources() {
+        let mut conn = memory_db();
+        let source = upsert_source_document(
+            &conn,
+            "webpage",
+            "https://example.com/remote-work",
+            Some("Remote Work Study"),
+            r#"{"kind":"webpage"}"#,
+        )
+        .unwrap();
+        insert_point(
+            &conn,
+            "point-evidence",
+            "Remote work boosts productivity.",
+            None,
+            "2026-07-05T00:00:00Z",
+        );
+
+        let mut input = evidence_input(
+            "  Remote work boosts productivity  ",
+            Some("point-evidence"),
+            Some(&source.id),
+            "2026-07-05T00:10:00Z",
+        );
+        input.answer = "  Multiple studies support hybrid productivity gains.  ".to_string();
+        input.sources[0].url = "  https://example.com/remote-work  ".to_string();
+        let saved = save_evidence(&mut conn, input).unwrap();
+
+        assert_eq!(saved.claim, "Remote work boosts productivity");
+        assert_eq!(saved.verdict, "supported");
+        assert_eq!(saved.answer, "Multiple studies support hybrid productivity gains.");
+        assert_eq!(saved.point_id.as_deref(), Some("point-evidence"));
+        assert_eq!(saved.source_id.as_deref(), Some(source.id.as_str()));
+        assert_eq!(saved.chunk_index, Some(0));
+        assert_eq!(saved.checked_at, "2026-07-05T00:10:00Z");
+        assert_eq!(saved.sources.len(), 1);
+        assert_eq!(saved.sources[0].url, "https://example.com/remote-work");
+        assert_eq!(saved.sources[0].stance, "support");
+
+        let fetched = get_evidence(&conn, &saved.id).unwrap().unwrap();
+        assert_eq!(fetched.id, saved.id);
+        assert_eq!(fetched.sources.len(), 1);
+        assert_eq!(fetched.sources[0].evidence_id, saved.id);
+    }
+
+    #[test]
+    fn list_evidence_for_point_returns_hydrated_sources() {
+        let mut conn = memory_db();
+        insert_point(&conn, "point-a", "first point", None, "2026-07-05T00:00:00Z");
+        insert_point(&conn, "point-b", "second point", None, "2026-07-05T00:01:00Z");
+
+        save_evidence(
+            &mut conn,
+            evidence_input("older evidence", Some("point-a"), None, "2026-07-05T00:02:00Z"),
+        )
+        .unwrap();
+        save_evidence(
+            &mut conn,
+            evidence_input("newer evidence", Some("point-a"), None, "2026-07-05T00:03:00Z"),
+        )
+        .unwrap();
+        save_evidence(
+            &mut conn,
+            evidence_input("other point evidence", Some("point-b"), None, "2026-07-05T00:04:00Z"),
+        )
+        .unwrap();
+
+        let records = list_evidence_for_point(&conn, "point-a").unwrap();
+
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].claim, "newer evidence");
+        assert_eq!(records[1].claim, "older evidence");
+        assert_eq!(records[0].sources.len(), 1);
+        assert_eq!(records[0].sources[0].stance, "support");
+    }
+
+    #[test]
+    fn list_evidence_for_source_returns_linked_records() {
+        let mut conn = memory_db();
+        let source_a = upsert_source_document(
+            &conn,
+            "file",
+            "D:/docs/source-a.md",
+            Some("source-a.md"),
+            r#"{"kind":"file"}"#,
+        )
+        .unwrap();
+        let source_b = upsert_source_document(
+            &conn,
+            "file",
+            "D:/docs/source-b.md",
+            Some("source-b.md"),
+            r#"{"kind":"file"}"#,
+        )
+        .unwrap();
+
+        save_evidence(
+            &mut conn,
+            evidence_input("source a older", None, Some(&source_a.id), "2026-07-05T00:02:00Z"),
+        )
+        .unwrap();
+        save_evidence(
+            &mut conn,
+            evidence_input("source a newer", None, Some(&source_a.id), "2026-07-05T00:03:00Z"),
+        )
+        .unwrap();
+        save_evidence(
+            &mut conn,
+            evidence_input("source b evidence", None, Some(&source_b.id), "2026-07-05T00:04:00Z"),
+        )
+        .unwrap();
+
+        let records = list_evidence_for_source(&conn, &source_a.id).unwrap();
+
+        assert_eq!(records.len(), 2);
+        assert!(records.iter().all(|record| record.source_id.as_deref() == Some(source_a.id.as_str())));
+        assert_eq!(records[0].claim, "source a newer");
+    }
+
+    #[test]
+    fn search_evidence_matches_record_and_source_fields() {
+        let mut conn = memory_db();
+        let source = upsert_source_document(
+            &conn,
+            "webpage",
+            "https://example.com/sleep",
+            Some("Sleep Study"),
+            r#"{"kind":"webpage"}"#,
+        )
+        .unwrap();
+
+        let mut matching = evidence_input(
+            "Sleep improves memory",
+            None,
+            Some(&source.id),
+            "2026-07-05T00:02:00Z",
+        );
+        matching.answer = "Hippocampus consolidation is supported.".to_string();
+        matching.reasoning = Some("Randomized trial synthesis".to_string());
+        matching.context = Some("Nightly rest evidence review".to_string());
+        matching.sources[0].title = Some("Neuroscience Digest".to_string());
+        matching.sources[0].snippet = Some("hippocampus recall data".to_string());
+        let saved = save_evidence(&mut conn, matching).unwrap();
+
+        save_evidence(
+            &mut conn,
+            evidence_input("unrelated claim", None, None, "2026-07-05T00:03:00Z"),
+        )
+        .unwrap();
+
+        for term in [
+            "Sleep improves",
+            "consolidation",
+            "trial synthesis",
+            "Nightly rest",
+            "Neuroscience",
+            "hippocampus recall",
+        ] {
+            let results = search_evidence(&conn, term, 10).unwrap();
+            assert!(
+                results.iter().any(|record| record.id == saved.id && record.sources.len() == 1),
+                "expected search term {term} to return saved evidence"
+            );
+        }
+    }
+
+    #[test]
+    fn delete_point_detaches_evidence_without_deleting_it() {
+        let mut conn = memory_db();
+        insert_point(&conn, "root", "root point", None, "2026-07-05T00:00:00Z");
+        insert_point(&conn, "child", "child point", Some("root"), "2026-07-05T00:01:00Z");
+
+        let saved = save_evidence(
+            &mut conn,
+            evidence_input("child evidence survives deletion", Some("child"), None, "2026-07-05T00:02:00Z"),
+        )
+        .unwrap();
+
+        delete_point(&conn, "root").unwrap();
+
+        let fetched = get_evidence(&conn, &saved.id).unwrap().unwrap();
+        assert_eq!(fetched.point_id, None);
+        assert_eq!(fetched.claim, "child evidence survives deletion");
+        assert_eq!(fetched.sources.len(), 1);
+
+        let point_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM points WHERE id IN ('root', 'child')", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(point_count, 0);
+    }
+
+    #[test]
+    fn save_evidence_rejects_invalid_verdict_stance_and_empty_url() {
+        let mut conn = memory_db();
+
+        let mut invalid_verdict = evidence_input("invalid verdict evidence", None, None, "2026-07-05T00:00:00Z");
+        invalid_verdict.verdict = "likely".to_string();
+        assert!(save_evidence(&mut conn, invalid_verdict).is_err());
+
+        let mut invalid_stance = evidence_input("invalid stance evidence", None, None, "2026-07-05T00:01:00Z");
+        invalid_stance.sources[0].stance = "maybe".to_string();
+        assert!(save_evidence(&mut conn, invalid_stance).is_err());
+
+        let mut empty_url = evidence_input("empty url evidence", None, None, "2026-07-05T00:02:00Z");
+        empty_url.sources[0].url = "   ".to_string();
+        assert!(save_evidence(&mut conn, empty_url).is_err());
     }
 
     #[test]
