@@ -4,6 +4,7 @@ import type {
   ChunkCard,
   CommentatorProfile,
   ConfigProfile,
+  DigestResult,
   EvidenceRecord,
   FactCheckResult,
   FileMetadata,
@@ -98,6 +99,14 @@ export interface TauriCommandMap {
   }
   list_evidence_for_source: {
     args: { sourceId: string }
+    result: EvidenceRecord[]
+  }
+  get_evidence: {
+    args: { evidenceId: string }
+    result: EvidenceRecord | null
+  }
+  search_evidence: {
+    args: { query: string }
     result: EvidenceRecord[]
   }
   list_points: {
@@ -242,8 +251,8 @@ export interface TauriCommandMap {
     result: FactCheckResult
   }
   generate_digest: {
-    args: undefined
-    result: string
+    args: { input: { evidenceIds: string[] } }
+    result: DigestResult
   }
   generate_image: {
     args: undefined

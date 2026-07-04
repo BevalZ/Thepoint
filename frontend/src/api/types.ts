@@ -163,6 +163,22 @@ export interface SaveEvidenceInput {
   chunkIndex?: number | null
 }
 
+export interface DigestCitation {
+  kind: 'point' | 'evidence'
+  label: string
+  id: string
+  title: string
+  excerpt: string
+  sourceId: string | null
+  chunkIndex: number | null
+  url: string | null
+}
+
+export interface DigestResult {
+  content: string
+  citations: DigestCitation[]
+}
+
 export type RelatedRelation = 'same_view' | 'opposite_view' | 'similar_case' | 'evidence' | 'duplicate'
 
 export interface RelatedCandidateInput {

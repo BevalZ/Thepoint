@@ -5,6 +5,7 @@ import type {
   CommentatorProfile,
   ConfigProfile,
   DeepenAction,
+  DigestResult,
   EvidenceRecord,
   ExtractedPoint,
   FactCheckResult,
@@ -95,6 +96,12 @@ export const listEvidenceForPoint = (pointId: string): Promise<EvidenceRecord[]>
 
 export const listEvidenceForSource = (sourceId: string): Promise<EvidenceRecord[]> =>
   invokeCommand('list_evidence_for_source', { sourceId })
+
+export const getEvidence = (evidenceId: string): Promise<EvidenceRecord | null> =>
+  invokeCommand('get_evidence', { evidenceId })
+
+export const searchEvidence = (query: string): Promise<EvidenceRecord[]> =>
+  invokeCommand('search_evidence', { query })
 
 export const listPoints = () => invokeCommand('list_points')
 
@@ -190,7 +197,8 @@ export const importCommentatorFromSkill = (url: string) =>
 export const factCheckClaim = (claim: string, context: string) =>
   invokeCommand('fact_check_claim', { claim, context })
 
-export const generateDigest = () => invokeCommand('generate_digest')
+export const generateDigest = (evidenceIds: string[] = []): Promise<DigestResult> =>
+  invokeCommand('generate_digest', { input: { evidenceIds } })
 
 export const generateImage = () => invokeCommand('generate_image')
 export const prepareGalleryImagePrompt = (

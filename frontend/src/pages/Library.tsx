@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
-import { Loader2, AlertCircle, BookMarked, Search, X, LayoutList, Table2, Columns3, FolderOpen, Archive, FileText, LocateFixed } from 'lucide-react'
-import { useDeepenStore, useLibraryStore } from '@/store'
+import { Loader2, AlertCircle, BookMarked, Search, X, LayoutList, Table2, Columns3, FolderOpen, Archive, FileText, LocateFixed, BookmarkPlus, Check } from 'lucide-react'
+import { useDeepenStore, useEvidenceDigestStore, useLibraryStore } from '@/store'
 import { PointTree } from '@/components/PointTree'
+import { EvidenceList } from '@/components/EvidenceList'
 import { GroupedView } from '@/components/library/GroupedView'
 import { ListView } from '@/components/library/ListView'
 import { TableView } from '@/components/library/TableView'
 import { KanbanView } from '@/components/library/KanbanView'
 import { SourceExcerptButton } from '@/components/SourceExcerptButton'
 import { cn } from '@/lib/utils'
-import type { StoredPoint, WorkspaceSearchResult } from '@/api/types'
-import { searchWorkspace } from '@/api'
+import type { EvidenceRecord, StoredPoint, WorkspaceSearchResult } from '@/api/types'
+import { searchEvidence, searchWorkspace } from '@/api'
 
 const LS_VIEW = 'lib-view-mode'
 type ViewMode = 'grouped' | 'list' | 'table' | 'kanban'
@@ -29,8 +30,10 @@ interface LibraryProps {
 export default function Library({ onOpenPointSource, onOpenSource }: LibraryProps) {
   const { points, archivedPoints, loading, error, fetch, fetchArchived, archivePoint, unarchivePoint } = useLibraryStore()
   const { fetchMentalModels } = useDeepenStore()
+  const { has: hasEvidenceForDigest, toggle: toggleEvidenceForDigest } = useEvidenceDigestStore()
   const [query, setQuery] = useState('')
   const [searchResults, setSearchResults] = useState<WorkspaceSearchResult[] | null>(null)
+  const [evidenceResults, setEvidenceResults] = useState<EvidenceRecord[] | null>(null)
   const [viewMode, setViewMode] = useState<ViewMode>(() => (localStorage.getItem(LS_VIEW) as ViewMode) ?? 'grouped')
   const [showArchived, setShowArchived] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -43,9 +46,17 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
 
   useEffect(() => {
     if (timerRef.current) clearTimeout(timerRef.current)
-    if (!query.trim()) { setSearchResults(null); return }
+    if (!query.trim()) { setSearchResults(null); setEvidenceResults(null); return }
     timerRef.current = setTimeout(() => {
-      searchWorkspace(query).then(setSearchResults).catch(() => setSearchResults([]))
+      Promise.all([searchWorkspace(query), searchEvidence(query)])
+        .then(([workspace, evidence]) => {
+          setSearchResults(workspace)
+          setEvidenceResults(evidence)
+        })
+        .catch(() => {
+          setSearchResults([])
+          setEvidenceResults([])
+        })
     }, 300)
     return () => { if (timerRef.current) clearTimeout(timerRef.current) }
   }, [query])
@@ -61,6 +72,8 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
   const activePoints = showArchived ? archivedPoints : points
   const sourceResults = searchResults?.filter((result) => result.kind === 'source') ?? []
   const pointResults = searchResults?.filter((result) => result.kind === 'point') ?? []
+  const totalSearchResults = (searchResults?.length ?? 0) + (evidenceResults?.length ?? 0)
+  const searchActive = searchResults !== null || evidenceResults !== null
 
   const handleOpenSearchResult = (result: WorkspaceSearchResult) => {
     if (result.kind === 'source') {
@@ -85,7 +98,7 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
         <div className="flex-1 flex items-center gap-2 rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm">
           <Search size={15} className="shrink-0 text-fg-muted" />
           <input className="flex-1 bg-transparent text-fg outline-none placeholder:text-fg-faint"
-            placeholder="搜索观点…" value={query} onChange={e => setQuery(e.target.value)} />
+            placeholder="搜索观点、来源或证据…" value={query} onChange={e => setQuery(e.target.value)} />
           {query && <button onClick={() => setQuery('')} className="shrink-0 text-fg-muted hover:text-fg"><X size={14} /></button>}
         </div>
 
@@ -117,10 +130,10 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
 
       <div className="mt-6 flex-1">
         {/* Search results */}
-        {searchResults !== null ? (
-          searchResults.length > 0 ? (
+        {searchActive ? (
+          totalSearchResults > 0 ? (
             <div className="space-y-5 pb-6">
-              <p className="text-xs text-fg-faint">共 {searchResults.length} 条结果</p>
+              <p className="text-xs text-fg-faint">共 {totalSearchResults} 条结果</p>
               {sourceResults.length > 0 && (
                 <section>
                   <div className="mb-2 flex items-center justify-between text-xs text-fg-faint">
@@ -169,6 +182,32 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
                     ))}
                   </div>
                 </section>
+              )}
+              {evidenceResults !== null && evidenceResults.length > 0 && (
+                <EvidenceList
+                  records={evidenceResults}
+                  title="Evidence"
+                  onOpenSource={(sourceId, chunkIndex) => onOpenSource?.(sourceId, chunkIndex)}
+                  renderAction={(record) => {
+                    const selected = hasEvidenceForDigest(record.id)
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => toggleEvidenceForDigest(record)}
+                        className={cn(
+                          'inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition-colors',
+                          selected
+                            ? 'border-accent/40 bg-accent/10 text-accent'
+                            : 'border-border text-fg-muted hover:bg-bg-hover hover:text-accent'
+                        )}
+                        title={selected ? '从研报输入移除' : '加入研报输入'}
+                      >
+                        {selected ? <Check size={11} /> : <BookmarkPlus size={11} />}
+                        {selected ? '已加入' : '加入研报'}
+                      </button>
+                    )
+                  }}
+                />
               )}
             </div>
           ) : (

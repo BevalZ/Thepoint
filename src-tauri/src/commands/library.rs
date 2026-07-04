@@ -165,6 +165,36 @@ pub async fn list_evidence_for_source(
     .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub async fn get_evidence(
+    app: tauri::AppHandle<Wry>,
+    evidence_id: String,
+) -> Result<Option<db::EvidenceRecord>, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<Option<db::EvidenceRecord>> {
+        let conn = db::open_db(&path)?;
+        db::get_evidence(&conn, &evidence_id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn search_evidence(
+    app: tauri::AppHandle<Wry>,
+    query: String,
+) -> Result<Vec<db::EvidenceRecord>, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<db::EvidenceRecord>> {
+        let conn = db::open_db(&path)?;
+        db::search_evidence(&conn, &query, 40)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
 fn fact_check_result_to_evidence(input: SaveEvidenceCommandInput) -> db::SaveEvidenceInput {
     let verdict = infer_fact_check_verdict(&input.result.answer).to_string();
     let sources = input

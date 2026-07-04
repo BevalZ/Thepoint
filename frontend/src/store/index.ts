@@ -1,5 +1,6 @@
 export { useConfigStore } from './configStore'
 export { useDeepenStore } from './deepenStore'
+export { useEvidenceDigestStore } from './evidenceDigestStore'
 export { useExploreHistoryStore, useExploreStore } from './exploreStore'
 export { useGalleryStore } from './galleryStore'
 export type { GalleryLogEntry } from './galleryStore'

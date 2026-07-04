@@ -1,5 +1,6 @@
 import { ExternalLink, LocateFixed } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import type { ReactNode } from 'react'
 import { listEvidenceForPoint } from '@/api'
 import type { EvidenceRecord } from '@/api/types'
 import { cn } from '@/lib/utils'
@@ -34,9 +35,10 @@ interface EvidenceListProps {
   title?: string
   className?: string
   onOpenSource?: (sourceId: string, chunkIndex: number | null) => void
+  renderAction?: (record: EvidenceRecord) => ReactNode
 }
 
-export function EvidenceList({ records, title = 'Evidence', className, onOpenSource }: EvidenceListProps) {
+export function EvidenceList({ records, title = 'Evidence', className, onOpenSource, renderAction }: EvidenceListProps) {
   if (records.length === 0) return null
 
   return (
@@ -47,7 +49,8 @@ export function EvidenceList({ records, title = 'Evidence', className, onOpenSou
       </div>
       <div className="space-y-3">
         {records.map((record) => {
-          const canOpenSource = Boolean(record.sourceId)
+          const openSource = onOpenSource
+          const canOpenSource = Boolean(record.sourceId && openSource)
           return (
             <article key={record.id} className="space-y-2">
               <div className="flex items-start justify-between gap-3">
@@ -60,18 +63,21 @@ export function EvidenceList({ records, title = 'Evidence', className, onOpenSou
                   </div>
                   <p className="mt-1 line-clamp-2 text-xs font-medium leading-relaxed text-fg">{record.claim}</p>
                 </div>
-                {canOpenSource ? (
-                  <button
-                    type="button"
-                    onClick={() => onOpenSource?.(record.sourceId!, record.chunkIndex)}
-                    className="mt-0.5 shrink-0 rounded-md border border-border px-2 py-1 text-[11px] text-fg-muted transition-colors hover:bg-bg-hover hover:text-accent"
-                    title="回到来源块"
-                  >
-                    <LocateFixed size={12} className="inline" />
-                  </button>
-                ) : (
-                  <span className="mt-1 shrink-0 text-[11px] text-fg-faint">无来源定位</span>
-                )}
+                <div className="mt-0.5 flex shrink-0 items-center gap-1">
+                  {renderAction?.(record)}
+                  {canOpenSource ? (
+                    <button
+                      type="button"
+                      onClick={() => openSource?.(record.sourceId!, record.chunkIndex)}
+                      className="rounded-md border border-border px-2 py-1 text-[11px] text-fg-muted transition-colors hover:bg-bg-hover hover:text-accent"
+                      title="回到来源块"
+                    >
+                      <LocateFixed size={12} className="inline" />
+                    </button>
+                  ) : (
+                    <span className="mt-0.5 text-[11px] text-fg-faint">无来源定位</span>
+                  )}
+                </div>
               </div>
               <p className="line-clamp-3 text-xs leading-relaxed text-fg-muted">{record.answer}</p>
               {record.sources.length > 0 && (

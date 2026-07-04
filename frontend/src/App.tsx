@@ -301,7 +301,7 @@ export default function App() {
       </div>
 
       {/* Global star-collect ring — persists across all pages (PRD: 全局累计 + 固定悬浮) */}
-      <StarRing onNavigateGallery={() => setPage('gallery')} />
+      <StarRing onNavigateGallery={() => setPage('gallery')} onOpenSource={handleOpenSource} />
     </div>
   )
 }

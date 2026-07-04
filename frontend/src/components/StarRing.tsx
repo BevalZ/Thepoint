@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { FileText, Image, Loader2, Sparkles, Star, Trash2, X } from 'lucide-react'
-import { useExploreHistoryStore, useExploreStore, useGalleryStore, useStarStore } from '@/store'
+import { useEvidenceDigestStore, useExploreHistoryStore, useExploreStore, useGalleryStore, useStarStore } from '@/store'
 import { generateDigest } from '@/api'
 import { DigestModal } from './DigestModal'
 import type {
   ChunkCard,
+  DigestResult,
   ExploreHistoryItem,
   GalleryImageMode,
   GalleryKnowledgeContext,
@@ -149,10 +150,12 @@ function buildKnowledgeContexts(
 
 interface StarRingProps {
   onNavigateGallery?: () => void
+  onOpenSource?: (sourceId: string, focusChunkIndex?: number | null) => void
 }
 
-export function StarRing({ onNavigateGallery }: StarRingProps) {
-  const { count, points, init, clear } = useStarStore()
+export function StarRing({ onNavigateGallery, onOpenSource }: StarRingProps) {
+  const { count: pointCount, points, init, clear } = useStarStore()
+  const { records: selectedEvidence, remove: removeEvidenceInput, clear: clearEvidenceInput } = useEvidenceDigestStore()
   const {
     preparePrompt,
     generateFromPrompt,
@@ -171,7 +174,7 @@ export function StarRing({ onNavigateGallery }: StarRingProps) {
   const history = useExploreHistoryStore()
   const [generating, setGenerating] = useState(false)
   const [clearing, setClearing] = useState(false)
-  const [digest, setDigest] = useState<string | null>(null)
+  const [digest, setDigest] = useState<DigestResult | null>(null)
   const [digestPoints, setDigestPoints] = useState<StoredPoint[]>([])
   const [panelOpen, setPanelOpen] = useState(false)
   const [digestError, setDigestError] = useState<string | null>(null)
@@ -219,9 +222,11 @@ export function StarRing({ onNavigateGallery }: StarRingProps) {
     }),
     [currentChunkCards, currentSourceName, currentSourceUrl, currentText, groups]
   )
-  const { progress, strokeW, fillOpacity } = ringParams(count)
-  const canGenerate = count > 0
-  const canGenerateImage = count >= 10
+  const evidenceCount = selectedEvidence.length
+  const totalCount = pointCount + evidenceCount
+  const { progress, strokeW, fillOpacity } = ringParams(totalCount)
+  const canGenerate = totalCount > 0
+  const canGenerateImage = pointCount >= 10
   const coloredLength = CIRC * progress
 
   useEffect(() => {
@@ -245,11 +250,13 @@ export function StarRing({ onNavigateGallery }: StarRingProps) {
     setGenerating(true)
     setDigestError(null)
     const pointsForDigest = points
+    const evidenceIds = selectedEvidence.map((record) => record.id)
     try {
-      const result = await generateDigest()
+      const result = await generateDigest(evidenceIds)
       setDigestPoints(pointsForDigest)
       setDigest(result)
       setPanelOpen(false)
+      clearEvidenceInput()
       await init()
     } catch (error) {
       setDigestError(error instanceof Error ? error.message : '生成研报失败，请稍后重试。')
@@ -267,7 +274,8 @@ export function StarRing({ onNavigateGallery }: StarRingProps) {
     if (!canGenerate || generating || clearing) return
     setClearing(true)
     try {
-      await clear()
+      if (pointCount > 0) await clear()
+      clearEvidenceInput()
       setPanelOpen(false)
     } catch {
       // silent — user can retry
@@ -326,7 +334,7 @@ export function StarRing({ onNavigateGallery }: StarRingProps) {
   return (
     <>
       <AnimatePresence>
-        {count > 0 && (
+        {totalCount > 0 && (
           <>
             <motion.button
               ref={ringRef}
@@ -399,8 +407,8 @@ export function StarRing({ onNavigateGallery }: StarRingProps) {
                   stroke="none" style={{ transition: 'fill 0.4s ease' }} />
                 {groups.map((group, index) => {
                   const before = groups.slice(0, index).reduce((total, item) => total + item.points.length, 0)
-                  const length = count > 0 ? coloredLength * (group.points.length / count) : 0
-                  const offset = -before / count * coloredLength
+                  const length = totalCount > 0 ? coloredLength * (group.points.length / totalCount) : 0
+                  const offset = -before / totalCount * coloredLength
                   return (
                     <motion.circle
                       key={group.name}
@@ -441,7 +449,7 @@ export function StarRing({ onNavigateGallery }: StarRingProps) {
                 }}
                 transition={{ duration: 1.55, repeat: Infinity, ease: 'easeInOut' }}
               >
-                {generating ? <Loader2 size={14} className="animate-spin" /> : count}
+                {generating ? <Loader2 size={14} className="animate-spin" /> : totalCount}
               </motion.span>
             </motion.button>
 
@@ -457,7 +465,7 @@ export function StarRing({ onNavigateGallery }: StarRingProps) {
                 >
                   <div className="flex items-start justify-between border-b border-border px-4 py-3">
                     <div>
-                      <p className="text-sm font-semibold text-fg">星星来源</p>
+                      <p className="text-sm font-semibold text-fg">研报输入</p>
                       <p className="mt-0.5 text-xs text-fg-faint">单击查看，双击圆环生成研报</p>
                     </div>
                     <button
@@ -470,17 +478,23 @@ export function StarRing({ onNavigateGallery }: StarRingProps) {
                   </div>
                   <div className="px-4 py-3">
                     <div className="mb-3 flex items-center justify-between">
-                      <div className="text-xs text-fg-faint">采集总数</div>
-                      <div className="text-sm font-medium text-fg">{count}</div>
+                      <div className="text-xs text-fg-faint">研报输入</div>
+                      <div className="text-sm font-medium text-fg">{totalCount}</div>
                     </div>
                     <div className="mb-3 flex h-2 overflow-hidden rounded-full bg-bg">
                       {groups.map((group) => (
                         <span
                           key={group.name}
                           className="h-full"
-                          style={{ width: `${(group.points.length / count) * 100}%`, backgroundColor: group.color }}
+                          style={{ width: `${(group.points.length / totalCount) * 100}%`, backgroundColor: group.color }}
                         />
                       ))}
+                      {evidenceCount > 0 && (
+                        <span
+                          className="h-full"
+                          style={{ width: `${(evidenceCount / totalCount) * 100}%`, backgroundColor: '#34d399' }}
+                        />
+                      )}
                     </div>
                     <div className="max-h-72 space-y-2 overflow-y-auto pr-1 [&::-webkit-scrollbar]:hidden">
                       {groups.map((group) => {
@@ -516,6 +530,32 @@ export function StarRing({ onNavigateGallery }: StarRingProps) {
                         )
                       })}
                     </div>
+                    {selectedEvidence.length > 0 && (
+                      <div className="mt-3 rounded-lg border border-border bg-bg px-3 py-2">
+                        <div className="mb-2 flex items-center justify-between text-xs text-fg-faint">
+                          <span>证据输入</span>
+                          <span>{selectedEvidence.length}</span>
+                        </div>
+                        <div className="max-h-36 space-y-1.5 overflow-y-auto pr-1 [&::-webkit-scrollbar]:hidden">
+                          {selectedEvidence.map((record) => (
+                            <div key={record.id} className="flex items-start gap-2 rounded-md bg-bg-elevated px-2 py-1.5">
+                              <span className="mt-0.5 rounded border border-emerald-500/25 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-300">
+                                E
+                              </span>
+                              <p className="min-w-0 flex-1 truncate text-[11px] text-fg-muted">{record.claim}</p>
+                              <button
+                                type="button"
+                                onClick={() => removeEvidenceInput(record.id)}
+                                className="shrink-0 rounded p-0.5 text-fg-faint transition-colors hover:bg-bg-hover hover:text-fg"
+                                title="移除证据输入"
+                              >
+                                <X size={12} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                     {imageError && (
                       <p className="mt-3 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs leading-relaxed text-red-300">
                         {imageError}
@@ -562,7 +602,7 @@ export function StarRing({ onNavigateGallery }: StarRingProps) {
                         disabled={!canGenerateImage || generating || clearing || imageGenerating || preparingPrompt}
                         onClick={() => void handleGenerateImage()}
                         className="flex items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs text-fg-muted transition-colors hover:border-accent/40 hover:bg-bg-hover hover:text-fg disabled:opacity-50"
-                        title={canGenerateImage ? `使用当前采集生成${imageMode === 'knowledge' ? '知识图' : '图片'}` : `至少需要 10 个 point，当前 ${count} 个`}
+                        title={canGenerateImage ? `使用当前采集生成${imageMode === 'knowledge' ? '知识图' : '图片'}` : `至少需要 10 个 point，当前 ${pointCount} 个`}
                       >
                         {imageGenerating || preparingPrompt ? <Loader2 size={13} className="animate-spin" /> : <Image size={13} />}
                         {preparingPrompt ? '准备中' : imageMode === 'knowledge' ? '生成知识图' : '生成图片'}
@@ -589,8 +629,9 @@ export function StarRing({ onNavigateGallery }: StarRingProps) {
       <AnimatePresence>
         {digest && (
           <DigestModal
-            content={digest}
+            result={digest}
             starredPoints={digestPoints}
+            onOpenSource={onOpenSource}
             onClose={() => setDigest(null)}
           />
         )}
