@@ -53,9 +53,9 @@ Deep Explorer 后续不应继续横向堆叠零散 AI 按钮，而应围绕一�
 | `Source` | 已有 | 原始材料，一切知识资产的根 |
 | `Chunk` | 已有 | Source 的稳定分块，第一阶段定位粒度 |
 | `Point` | 已有 | 从 Chunk 抽出的观点、事实、疑问 |
-| `Evidence` | 待建 | 对某个 claim 的结构化事实审查记录 |
+| `Evidence` | 已完成 MVP | 对某个 claim 的结构化事实审查记录 |
 | `Star / Collection` | 已有 Star | 用户主动采集的一组 Point，可作为综合输入 |
-| `Digest` | 已有基础 | 多个 Point / Evidence / Source 生成的最终沉淀物 |
+| `Digest` | 已支持结构化引用 | 多个 Point / Evidence / Source 生成的最终沉淀物 |
 
 核心约束：
 
@@ -321,6 +321,8 @@ CREATE TABLE IF NOT EXISTS synthesis_reports (
 
 ### Issue 2：Evidence 数据层
 
+状态：已完成。提交：`eb0d896 feat: add evidence ledger data layer`。
+
 完成定义：
 
 - 新增 Evidence 表结构和 Rust 数据类型。
@@ -328,6 +330,8 @@ CREATE TABLE IF NOT EXISTS synthesis_reports (
 - DB focused tests 通过。
 
 ### Issue 3：事实审查保存为 Evidence
+
+状态：已完成。提交：`e3b2142 feat: persist fact checks as evidence`。
 
 完成定义：
 
@@ -337,6 +341,8 @@ CREATE TABLE IF NOT EXISTS synthesis_reports (
 
 ### Issue 4：Evidence 展示与回跳
 
+状态：已完成。提交：`14f1e79 feat: show evidence in point and source views`。
+
 完成定义：
 
 - Point 或 Source 中能看到 Evidence。
@@ -345,6 +351,8 @@ CREATE TABLE IF NOT EXISTS synthesis_reports (
 
 ### Issue 5：Evidence 搜索与 Digest 引用
 
+状态：已完成。提交：`c9586fd feat: add evidence search and digest citations`。
+
 完成定义：
 
 - Evidence 可搜索。
@@ -352,6 +360,8 @@ CREATE TABLE IF NOT EXISTS synthesis_reports (
 - Digest 输出保留结构化引用。
 
 ### Issue 6：多来源综合 MVP
+
+状态：已完成。提交：`432b992 feat: add multi-source synthesis`。
 
 完成定义：
 
