@@ -432,4 +432,4 @@ CREATE TABLE IF NOT EXISTS synthesis_reports (
 
 > 先完成 Evidence Ledger，再让 Digest 和多来源综合建立在 Evidence 与 Source 引用之上。
 
-如果下一步立刻进入实现，建议从 **Issue 2：Evidence 数据层** 开始。
+当前路线中的 Issue 1-6 已完成；后续新增能力应在这个可追溯、可验证、可引用的基础上继续演进。
