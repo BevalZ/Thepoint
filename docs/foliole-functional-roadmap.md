@@ -4,7 +4,7 @@
 >
 > 原则：先做最小闭环，拒绝在第一阶段同时改数据层、页面架构、搜索系统和长期工作区。
 >
-> 更新：2026-07-03
+> 更新：2026-07-04
 
 ---
 
@@ -85,6 +85,19 @@
 - `P1` = Slice C
 - `P2` = Slice D + 后续增强
 
+### 当前实现状态（2026-07-04 审计）
+
+这 4 个切片已不再是“下一步开工计划”，而是当前代码库已经基本完成的 Source Workspace 基线：
+
+| 切片 | 状态 | 代码依据 | 剩余边界 |
+|---|---|---|---|
+| Slice A：来源持久化最小版 | 已完成 | `source_documents`、`source_chunks`、`upsert_source_document`、`replace_source_chunks` 已在 `src-tauri/src/db/mod.rs` 落地；file/webpage 导入会写入 `sourceId` | `paste` 仍按一次性来源处理，不追求完整工作区一致性 |
+| Slice B：Point 到来源块回跳 | 已完成 | `point_source_links`、`get_point_source_context`、`openSourceById(sourceId, focusChunkIndex?)` 已落地 | 仍是 chunk 级定位，不做字符级 claim 高亮 |
+| Slice C：来源工作区最小版 | 已完成 | `list_recent_sources`、`get_source_workspace_summary`、最近来源抽屉、来源头部统计已落地 | 还没有完整资产面板，不聚合 fact-check / digest / gallery |
+| Slice D：工作台搜索最小版 | 已完成 | `search_workspace` 同时返回 source 和 point；知识库搜索结果可回跳来源 | 暂不搜索 Evidence、Digest、Gallery |
+
+因此后续路线应转向 [来源可追溯知识工作台规划](./knowledge-workbench-plan.md) 中的 **Evidence Ledger** 和 **Multi-Source Synthesis**。本文件保留为 Source Workspace 基线说明和回归验收参考。
+
 ---
 
 ## 四、Slice A：来源持久化最小版
@@ -159,7 +172,7 @@ CREATE INDEX IF NOT EXISTS idx_source_chunks_source
 
 - `upsert_source_document`
 - `replace_source_chunks`
-- `get_source_by_canonical_uri`
+- 通过 `upsert_source_document(kind, canonical_uri, ...)` 复用同一来源记录
 
 不需要先暴露成完整前端 command，也可以先在导入命令内部调用。
 
@@ -211,13 +224,13 @@ CREATE TABLE IF NOT EXISTS point_source_links (
 
 ### 需要补的前端状态
 
-`ExploreStore` 需要具备：
+`ExploreStore` 当前已经具备：
 
 - `sourceId`
 - `focusChunkIndex`
 - `openSourceById(sourceId, focusChunkIndex?)`
 
-当前 [frontend/src/store/exploreStore.ts](../frontend/src/store/exploreStore.ts) 只管理一次性 text/html/chunkCards 状态，还没有“按来源恢复”的概念。
+这意味着从知识库或搜索结果回跳来源块已经具备最小数据通路。
 
 ### 需要改的文件
 
@@ -386,6 +399,8 @@ type WorkspaceSearchResult =
 
 ### Issue 1：来源持久化最小版
 
+状态：已完成，保留为回归验收项。
+
 范围：
 
 - `source_documents`
@@ -399,6 +414,8 @@ type WorkspaceSearchResult =
 
 ### Issue 2：Point 记录来源块
 
+状态：已完成，保留为回归验收项。
+
 范围：
 
 - `point_source_links`
@@ -409,6 +426,8 @@ type WorkspaceSearchResult =
 - 新生成并保存的 Point 都带来源块关联
 
 ### Issue 3：从知识库回跳来源
+
+状态：已完成，保留为回归验收项。
 
 范围：
 
@@ -421,6 +440,8 @@ type WorkspaceSearchResult =
 
 ### Issue 4：最近来源与来源头部
 
+状态：已完成，保留为回归验收项。
+
 范围：
 
 - 最近来源列表
@@ -431,6 +452,8 @@ type WorkspaceSearchResult =
 - Explore 成为最小来源工作区
 
 ### Issue 5：工作台搜索最小版
+
+状态：已完成，保留为回归验收项。
 
 范围：
 
@@ -491,8 +514,8 @@ type WorkspaceSearchResult =
 
 ## 十二、一句话结论
 
-现在真正能开工的版本，不是“先做完整来源工作区 + 统一搜索”，而是：
+Source Workspace 最小闭环已经基本落地。下一步真正能开工的版本，不是继续扩展来源壳层，而是：
 
-先把来源存下来，再把 Point 连回来源块，再把这个回跳能力接到知识库里。
+先把事实审查从一次性回答升级为结构化 Evidence，再让 Digest 和多来源综合建立在 Evidence 与 Source 引用之上。
 
-如果下一步立刻开工，应从 **Issue 1：来源持久化最小版** 开始。
+如果下一步立刻开工，应从 [来源可追溯知识工作台规划](./knowledge-workbench-plan.md) 的 **Issue 2：Evidence 数据层** 开始。
