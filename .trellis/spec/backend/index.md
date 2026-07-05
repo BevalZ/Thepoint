@@ -1,12 +1,14 @@
 # Backend Development Guidelines
 
-> Best practices for backend development in this project.
+> Project-specific guidance for the Tauri/Rust backend.
 
 ---
 
 ## Overview
 
-This directory contains guidelines for backend development. Fill in each file with your project's specific conventions.
+The backend is the Rust core inside the Tauri desktop app. It exposes frontend-callable behavior through Tauri commands, persists durable state in local SQLite through `rusqlite`, calls OpenAI-compatible HTTP APIs with `reqwest`, and parses local/web documents in Rust modules.
+
+Read the files below before changing backend code. For command/API changes, also read the frontend spec files that own `frontend/src/api/commandMap.ts` and wrapper usage.
 
 ---
 
@@ -14,25 +16,37 @@ This directory contains guidelines for backend development. Fill in each file wi
 
 | Guide | Description | Status |
 |-------|-------------|--------|
-| [Directory Structure](./directory-structure.md) | Module organization and file layout | To fill |
+| [Directory Structure](./directory-structure.md) | Runtime entrypoints, command/db/ai/parser placement rules | Project-specific |
 | [Database Guidelines](./database-guidelines.md) | ORM patterns, queries, migrations | Active |
-| [Error Handling](./error-handling.md) | Error types, handling strategies | To fill |
+| [Error Handling](./error-handling.md) | `anyhow::Result`, command `Result<T, String>`, validation and degradation patterns | Project-specific |
 | [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | To fill |
 | [Logging Guidelines](./logging-guidelines.md) | Structured logging, log levels | To fill |
 
 ---
 
-## How to Fill These Guidelines
+## Pre-Development Checklist
 
-For each guideline file:
+Before backend implementation:
 
-1. Document your project's **actual conventions** (not ideals)
-2. Include **code examples** from your codebase
-3. List **forbidden patterns** and why
-4. Add **common mistakes** your team has made
-
-The goal is to help AI assistants and new team members understand how YOUR project works.
+1. Read [Directory Structure](./directory-structure.md) to place commands, DB helpers, parser code, and AI helpers correctly.
+2. Read [Error Handling](./error-handling.md) before adding commands or fallible helpers.
+3. Read [Database Guidelines](./database-guidelines.md) before changing SQLite schema, query behavior, or durable records.
+4. Read [Quality Guidelines](./quality-guidelines.md) and [Logging Guidelines](./logging-guidelines.md) when those files are populated for the current task.
+5. For cross-layer command changes, read frontend [Type Safety](../frontend/type-safety.md), [Directory Structure](../frontend/directory-structure.md), and [Quality Guidelines](../frontend/quality-guidelines.md).
 
 ---
 
-**Language**: All documentation should be written in **English**.
+## Quality Check
+
+For material backend changes, run from the repository root:
+
+```powershell
+cargo check --manifest-path src-tauri/Cargo.toml
+cargo test --manifest-path src-tauri/Cargo.toml
+```
+
+---
+
+## Core Boundary
+
+Tauri commands are the app-internal API boundary. Add or update the Rust command, register it in `src-tauri/src/lib.rs`, then update the frontend typed API boundary in `frontend/src/api/`.
