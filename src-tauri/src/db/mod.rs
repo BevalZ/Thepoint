@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use rusqlite::{params, params_from_iter, Connection};
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, Wry};
 
@@ -185,6 +185,143 @@ pub struct SaveReportInput {
     pub body_md: String,
     pub summary: String,
     pub citations_json: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct JournalEntry {
+    pub id: String,
+    pub query: String,
+    pub note: String,
+    pub tags_json: String,
+    pub source_ids_json: String,
+    pub point_ids_json: String,
+    pub evidence_ids_json: String,
+    pub report_ids_json: String,
+    pub created_report_id: Option<String>,
+    pub source_kind: String,
+    pub created_at: String,
+    pub invalidated_at: Option<String>,
+    pub invalidated_reason: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveJournalEntryInput {
+    pub query: String,
+    pub note: String,
+    pub tags: Vec<String>,
+    pub source_ids: Vec<String>,
+    pub point_ids: Vec<String>,
+    pub evidence_ids: Vec<String>,
+    pub report_ids: Vec<String>,
+    pub created_report_id: Option<String>,
+    pub source_kind: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct AssetRelationRecord {
+    pub id: String,
+    pub from_kind: String,
+    pub from_id: String,
+    pub to_kind: String,
+    pub to_id: String,
+    pub relation: String,
+    pub reason: String,
+    pub score: f64,
+    pub source_kind: String,
+    pub created_at: String,
+    pub vetted_at: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveAssetRelationInput {
+    pub from_kind: String,
+    pub from_id: String,
+    pub to_kind: String,
+    pub to_id: String,
+    pub relation: String,
+    pub reason: String,
+    pub score: f64,
+    pub source_kind: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewItem {
+    pub id: String,
+    pub target_kind: String,
+    pub target_id: String,
+    pub title: String,
+    pub note: Option<String>,
+    pub status: String,
+    pub priority: String,
+    pub due_at: String,
+    pub last_reviewed_at: Option<String>,
+    pub review_count: i64,
+    pub ease: Option<f64>,
+    pub interval_days: Option<i64>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct AddReviewItemInput {
+    pub target_kind: String,
+    pub target_id: String,
+    pub title: String,
+    pub note: Option<String>,
+    pub priority: Option<String>,
+    pub due_at: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenDataMirrorConfig {
+    pub enabled: bool,
+    pub root_path: Option<String>,
+    pub export_sources: bool,
+    pub export_evidence: bool,
+    pub export_reports: bool,
+    pub export_journal: bool,
+    pub export_gallery_index: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct IndexedFolder {
+    pub id: String,
+    pub path: String,
+    pub name: String,
+    pub enabled: bool,
+    pub last_scanned_at: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct IndexedFile {
+    pub id: String,
+    pub folder_id: String,
+    pub path: String,
+    pub name: String,
+    pub extension: Option<String>,
+    pub size_bytes: Option<i64>,
+    pub modified_at: Option<String>,
+    pub source_id: Option<String>,
+    pub indexed_at: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct IndexedFolderScanResult {
+    pub folder: IndexedFolder,
+    pub files: Vec<IndexedFile>,
+    pub indexed_count: i64,
+    pub metadata_only_count: i64,
 }
 
 /// Resolve the SQLite file path inside the app data dir, creating the dir if needed.
@@ -402,7 +539,7 @@ pub fn init_db(conn: &Connection) -> Result<()> {
         "CREATE TABLE IF NOT EXISTS reports (
             id              TEXT PRIMARY KEY,
             title           TEXT NOT NULL,
-            kind            TEXT NOT NULL CHECK (kind IN ('digest', 'synthesis')),
+            kind            TEXT NOT NULL CHECK (kind IN ('digest', 'synthesis', 'investigation')),
             source_name     TEXT,
             body_md         TEXT NOT NULL,
             summary         TEXT NOT NULL,
@@ -415,7 +552,158 @@ pub fn init_db(conn: &Connection) -> Result<()> {
             ON reports(created_at DESC);",
     )
     .context("failed to create reports table")?;
+    migrate_reports_allow_investigation(conn)?;
 
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS journal_entries (
+            id                  TEXT PRIMARY KEY,
+            query               TEXT NOT NULL,
+            note                TEXT NOT NULL,
+            tags_json           TEXT NOT NULL,
+            source_ids_json     TEXT NOT NULL,
+            point_ids_json      TEXT NOT NULL,
+            evidence_ids_json   TEXT NOT NULL,
+            report_ids_json     TEXT NOT NULL,
+            created_report_id   TEXT,
+            source_kind         TEXT NOT NULL,
+            created_at          TEXT NOT NULL,
+            invalidated_at      TEXT,
+            invalidated_reason  TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_journal_entries_created_at
+            ON journal_entries(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_journal_entries_invalidated_at
+            ON journal_entries(invalidated_at);",
+    )
+    .context("failed to create journal entries table")?;
+
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS asset_relations (
+            id              TEXT PRIMARY KEY,
+            from_kind       TEXT NOT NULL,
+            from_id         TEXT NOT NULL,
+            to_kind         TEXT NOT NULL,
+            to_id           TEXT NOT NULL,
+            relation        TEXT NOT NULL,
+            reason          TEXT NOT NULL,
+            score           REAL NOT NULL,
+            source_kind     TEXT NOT NULL,
+            created_at      TEXT NOT NULL,
+            vetted_at       TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_asset_relations_from
+            ON asset_relations(from_kind, from_id);
+        CREATE INDEX IF NOT EXISTS idx_asset_relations_to
+            ON asset_relations(to_kind, to_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_asset_relations_unique
+            ON asset_relations(from_kind, from_id, to_kind, to_id, relation, source_kind);",
+    )
+    .context("failed to create asset relations table")?;
+
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS review_items (
+            id                  TEXT PRIMARY KEY,
+            target_kind         TEXT NOT NULL,
+            target_id           TEXT NOT NULL,
+            title               TEXT NOT NULL,
+            note                TEXT,
+            status              TEXT NOT NULL,
+            priority            TEXT NOT NULL,
+            due_at              TEXT NOT NULL,
+            last_reviewed_at    TEXT,
+            review_count        INTEGER NOT NULL DEFAULT 0,
+            ease                REAL,
+            interval_days       INTEGER,
+            created_at          TEXT NOT NULL,
+            updated_at          TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_review_items_due
+            ON review_items(status, due_at);
+        CREATE INDEX IF NOT EXISTS idx_review_items_target
+            ON review_items(target_kind, target_id);",
+    )
+    .context("failed to create review items table")?;
+
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS open_data_mirror_config (
+            id                      INTEGER PRIMARY KEY CHECK (id = 1),
+            enabled                 INTEGER NOT NULL,
+            root_path               TEXT,
+            export_sources          INTEGER NOT NULL,
+            export_evidence         INTEGER NOT NULL,
+            export_reports          INTEGER NOT NULL,
+            export_journal          INTEGER NOT NULL,
+            export_gallery_index    INTEGER NOT NULL,
+            updated_at              TEXT NOT NULL
+        );",
+    )
+    .context("failed to create open data mirror config table")?;
+
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS indexed_folders (
+            id              TEXT PRIMARY KEY,
+            path            TEXT NOT NULL UNIQUE,
+            name            TEXT NOT NULL,
+            enabled         INTEGER NOT NULL,
+            last_scanned_at TEXT,
+            created_at      TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS indexed_files (
+            id              TEXT PRIMARY KEY,
+            folder_id       TEXT NOT NULL,
+            path            TEXT NOT NULL UNIQUE,
+            name            TEXT NOT NULL,
+            extension       TEXT,
+            size_bytes      INTEGER,
+            modified_at     TEXT,
+            source_id       TEXT,
+            indexed_at      TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_indexed_files_folder
+            ON indexed_files(folder_id);",
+    )
+    .context("failed to create indexed folder tables")?;
+
+    Ok(())
+}
+
+fn migrate_reports_allow_investigation(conn: &Connection) -> Result<()> {
+    let sql: Option<String> = conn
+        .query_row(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'reports'",
+            [],
+            |row| row.get(0),
+        )
+        .optional()?;
+    let Some(sql) = sql else {
+        return Ok(());
+    };
+    if sql.contains("'investigation'") {
+        return Ok(());
+    }
+
+    conn.execute_batch(
+        "ALTER TABLE reports RENAME TO reports_old;
+        CREATE TABLE reports (
+            id              TEXT PRIMARY KEY,
+            title           TEXT NOT NULL,
+            kind            TEXT NOT NULL CHECK (kind IN ('digest', 'synthesis', 'investigation')),
+            source_name     TEXT,
+            body_md         TEXT NOT NULL,
+            summary         TEXT NOT NULL,
+            citations_json  TEXT NOT NULL,
+            created_at      TEXT NOT NULL
+        );
+        INSERT INTO reports (id, title, kind, source_name, body_md, summary, citations_json, created_at)
+            SELECT id, title, kind, source_name, body_md, summary, citations_json, created_at
+            FROM reports_old;
+        DROP TABLE reports_old;
+        CREATE INDEX IF NOT EXISTS idx_reports_kind
+            ON reports(kind);
+        CREATE INDEX IF NOT EXISTS idx_reports_created_at
+            ON reports(created_at DESC);",
+    )
+    .context("failed to migrate reports table for investigation kind")?;
     Ok(())
 }
 
@@ -1090,6 +1378,544 @@ pub fn delete_report(conn: &Connection, report_id: &str) -> Result<()> {
     Ok(())
 }
 
+pub fn save_journal_entry(conn: &Connection, input: SaveJournalEntryInput) -> Result<JournalEntry> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+    let query = required_trimmed("journal query", &input.query)?.to_string();
+    let note = required_trimmed("journal note", &input.note)?.to_string();
+    let source_kind = required_trimmed("journal source kind", &input.source_kind)?.to_string();
+    let tags_json = json_string_array(input.tags);
+    let source_ids_json = json_string_array(input.source_ids);
+    let point_ids_json = json_string_array(input.point_ids);
+    let evidence_ids_json = json_string_array(input.evidence_ids);
+    let report_ids_json = json_string_array(input.report_ids);
+    let created_report_id = optional_trimmed(input.created_report_id.as_deref());
+
+    conn.execute(
+        "INSERT INTO journal_entries
+            (id, query, note, tags_json, source_ids_json, point_ids_json, evidence_ids_json, report_ids_json,
+             created_report_id, source_kind, created_at, invalidated_at, invalidated_reason)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, NULL, NULL)",
+        params![
+            id,
+            query,
+            note,
+            tags_json,
+            source_ids_json,
+            point_ids_json,
+            evidence_ids_json,
+            report_ids_json,
+            created_report_id,
+            source_kind,
+            now
+        ],
+    )?;
+
+    get_journal_entry(conn, &id)?.ok_or_else(|| anyhow::anyhow!("saved journal entry not found: {id}"))
+}
+
+pub fn get_journal_entry(conn: &Connection, id: &str) -> Result<Option<JournalEntry>> {
+    let trimmed = id.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+
+    let mut stmt = conn.prepare(
+        "SELECT id, query, note, tags_json, source_ids_json, point_ids_json, evidence_ids_json, report_ids_json,
+                created_report_id, source_kind, created_at, invalidated_at, invalidated_reason
+         FROM journal_entries
+         WHERE id = ?1",
+    )?;
+    let mut rows = stmt.query(params![trimmed])?;
+    let Some(row) = rows.next()? else {
+        return Ok(None);
+    };
+    Ok(Some(map_journal_entry_row(row)?))
+}
+
+pub fn list_recent_journal_entries(conn: &Connection, limit: usize) -> Result<Vec<JournalEntry>> {
+    if limit == 0 {
+        return Ok(Vec::new());
+    }
+    let mut stmt = conn.prepare(
+        "SELECT id, query, note, tags_json, source_ids_json, point_ids_json, evidence_ids_json, report_ids_json,
+                created_report_id, source_kind, created_at, invalidated_at, invalidated_reason
+         FROM journal_entries
+         ORDER BY created_at DESC
+         LIMIT ?1",
+    )?;
+    let rows = stmt.query_map(params![limit as i64], map_journal_entry_row)?;
+    let mut entries = Vec::new();
+    for row in rows {
+        entries.push(row?);
+    }
+    Ok(entries)
+}
+
+pub fn search_journal_entries(conn: &Connection, query: &str, limit: usize) -> Result<Vec<JournalEntry>> {
+    let trimmed = query.trim();
+    if trimmed.is_empty() || limit == 0 {
+        return Ok(Vec::new());
+    }
+    let pattern = format!("%{}%", escape_like(trimmed));
+    let mut stmt = conn.prepare(
+        "SELECT id, query, note, tags_json, source_ids_json, point_ids_json, evidence_ids_json, report_ids_json,
+                created_report_id, source_kind, created_at, invalidated_at, invalidated_reason
+         FROM journal_entries
+         WHERE invalidated_at IS NULL
+           AND (query LIKE ?1 ESCAPE '\\'
+             OR note LIKE ?1 ESCAPE '\\'
+             OR tags_json LIKE ?1 ESCAPE '\\'
+             OR source_ids_json LIKE ?1 ESCAPE '\\'
+             OR point_ids_json LIKE ?1 ESCAPE '\\'
+             OR evidence_ids_json LIKE ?1 ESCAPE '\\'
+             OR report_ids_json LIKE ?1 ESCAPE '\\')
+         ORDER BY created_at DESC
+         LIMIT ?2",
+    )?;
+    let rows = stmt.query_map(params![pattern, limit as i64], map_journal_entry_row)?;
+    let mut entries = Vec::new();
+    for row in rows {
+        entries.push(row?);
+    }
+    Ok(entries)
+}
+
+pub fn invalidate_journal_entry(conn: &Connection, id: &str, reason: &str) -> Result<()> {
+    let trimmed = id.trim();
+    if trimmed.is_empty() {
+        return Ok(());
+    }
+    let reason = required_trimmed("journal invalidation reason", reason)?.to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "UPDATE journal_entries
+         SET invalidated_at = ?1, invalidated_reason = ?2
+         WHERE id = ?3",
+        params![now, reason, trimmed],
+    )?;
+    Ok(())
+}
+
+pub fn save_asset_relation(conn: &Connection, input: SaveAssetRelationInput) -> Result<AssetRelationRecord> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+    let from_kind = required_trimmed("relation from kind", &input.from_kind)?.to_string();
+    let from_id = required_trimmed("relation from id", &input.from_id)?.to_string();
+    let to_kind = required_trimmed("relation to kind", &input.to_kind)?.to_string();
+    let to_id = required_trimmed("relation to id", &input.to_id)?.to_string();
+    validate_asset_kind(&from_kind)?;
+    validate_asset_kind(&to_kind)?;
+    validate_asset_relation(&input.relation)?;
+    let relation = input.relation.trim().to_string();
+    let reason = required_trimmed("relation reason", &input.reason)?.to_string();
+    let source_kind = required_trimmed("relation source kind", &input.source_kind)?.to_string();
+    let score = input.score.clamp(0.0, 1.0);
+
+    conn.execute(
+        "INSERT OR REPLACE INTO asset_relations
+            (id, from_kind, from_id, to_kind, to_id, relation, reason, score, source_kind, created_at, vetted_at)
+         VALUES (
+            COALESCE((SELECT id FROM asset_relations
+                      WHERE from_kind = ?1 AND from_id = ?2 AND to_kind = ?3 AND to_id = ?4
+                        AND relation = ?5 AND source_kind = ?8), ?9),
+            ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?10,
+            (SELECT vetted_at FROM asset_relations
+             WHERE from_kind = ?1 AND from_id = ?2 AND to_kind = ?3 AND to_id = ?4
+               AND relation = ?5 AND source_kind = ?8)
+         )",
+        params![from_kind, from_id, to_kind, to_id, relation, reason, score, source_kind, id, now],
+    )?;
+
+    get_asset_relation(conn, &from_kind, &from_id, &to_kind, &to_id, &relation, &source_kind)?
+        .ok_or_else(|| anyhow::anyhow!("saved asset relation not found"))
+}
+
+fn get_asset_relation(
+    conn: &Connection,
+    from_kind: &str,
+    from_id: &str,
+    to_kind: &str,
+    to_id: &str,
+    relation: &str,
+    source_kind: &str,
+) -> Result<Option<AssetRelationRecord>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, from_kind, from_id, to_kind, to_id, relation, reason, score, source_kind, created_at, vetted_at
+         FROM asset_relations
+         WHERE from_kind = ?1 AND from_id = ?2 AND to_kind = ?3 AND to_id = ?4
+           AND relation = ?5 AND source_kind = ?6",
+    )?;
+    let mut rows = stmt.query(params![from_kind, from_id, to_kind, to_id, relation, source_kind])?;
+    let Some(row) = rows.next()? else {
+        return Ok(None);
+    };
+    Ok(Some(map_asset_relation_row(row)?))
+}
+
+pub fn discover_related_assets(conn: &Connection, kind: &str, id: &str) -> Result<Vec<AssetRelationRecord>> {
+    let kind = kind.trim();
+    let id = id.trim();
+    if kind.is_empty() || id.is_empty() {
+        return Ok(Vec::new());
+    }
+    validate_asset_kind(kind)?;
+    let mut stmt = conn.prepare(
+        "SELECT id, from_kind, from_id, to_kind, to_id, relation, reason, score, source_kind, created_at, vetted_at
+         FROM asset_relations
+         WHERE (from_kind = ?1 AND from_id = ?2)
+            OR (to_kind = ?1 AND to_id = ?2)
+         ORDER BY score DESC, created_at DESC
+         LIMIT 80",
+    )?;
+    let rows = stmt.query_map(params![kind, id], map_asset_relation_row)?;
+    let mut relations = Vec::new();
+    for row in rows {
+        relations.push(row?);
+    }
+    Ok(relations)
+}
+
+pub fn rebuild_asset_relations(conn: &Connection) -> Result<usize> {
+    conn.execute("DELETE FROM asset_relations WHERE source_kind = 'auto'", [])?;
+    let mut count = 0;
+    count += rebuild_report_cocitations(conn)?;
+    count += rebuild_evidence_relations(conn)?;
+    count += rebuild_journal_relations(conn)?;
+    count += rebuild_gallery_relations(conn)?;
+    count += rebuild_review_relations(conn)?;
+    Ok(count)
+}
+
+pub fn add_review_item(conn: &Connection, input: AddReviewItemInput) -> Result<ReviewItem> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+    let target_kind = required_trimmed("review target kind", &input.target_kind)?.to_string();
+    validate_review_asset_kind(&target_kind)?;
+    let target_id = required_trimmed("review target id", &input.target_id)?.to_string();
+    let title = required_trimmed("review title", &input.title)?.to_string();
+    let note = optional_trimmed(input.note.as_deref());
+    let priority = optional_trimmed(input.priority.as_deref()).unwrap_or_else(|| "normal".to_string());
+    validate_review_priority(&priority)?;
+    let due_at = optional_trimmed(input.due_at.as_deref()).unwrap_or_else(|| now.clone());
+
+    conn.execute(
+        "INSERT INTO review_items
+            (id, target_kind, target_id, title, note, status, priority, due_at,
+             last_reviewed_at, review_count, ease, interval_days, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, 'active', ?6, ?7, NULL, 0, NULL, NULL, ?8, ?8)",
+        params![id, target_kind, target_id, title, note, priority, due_at, now],
+    )?;
+    get_review_item(conn, &id)?.ok_or_else(|| anyhow::anyhow!("saved review item not found: {id}"))
+}
+
+pub fn get_review_item(conn: &Connection, id: &str) -> Result<Option<ReviewItem>> {
+    let trimmed = id.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    let mut stmt = conn.prepare(
+        "SELECT id, target_kind, target_id, title, note, status, priority, due_at, last_reviewed_at,
+                review_count, ease, interval_days, created_at, updated_at
+         FROM review_items
+         WHERE id = ?1",
+    )?;
+    let mut rows = stmt.query(params![trimmed])?;
+    let Some(row) = rows.next()? else {
+        return Ok(None);
+    };
+    Ok(Some(map_review_item_row(row)?))
+}
+
+pub fn list_due_review_items(conn: &Connection) -> Result<Vec<ReviewItem>> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let mut stmt = conn.prepare(
+        "SELECT id, target_kind, target_id, title, note, status, priority, due_at, last_reviewed_at,
+                review_count, ease, interval_days, created_at, updated_at
+         FROM review_items
+         WHERE status = 'active' AND due_at <= ?1
+         ORDER BY due_at ASC, priority DESC, created_at ASC",
+    )?;
+    let rows = stmt.query_map(params![now], map_review_item_row)?;
+    let mut items = Vec::new();
+    for row in rows {
+        items.push(row?);
+    }
+    Ok(items)
+}
+
+pub fn list_all_review_items(conn: &Connection) -> Result<Vec<ReviewItem>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, target_kind, target_id, title, note, status, priority, due_at, last_reviewed_at,
+                review_count, ease, interval_days, created_at, updated_at
+         FROM review_items
+         ORDER BY status ASC, due_at ASC, updated_at DESC",
+    )?;
+    let rows = stmt.query_map([], map_review_item_row)?;
+    let mut items = Vec::new();
+    for row in rows {
+        items.push(row?);
+    }
+    Ok(items)
+}
+
+pub fn complete_review_item(conn: &Connection, id: &str, rating: &str) -> Result<ReviewItem> {
+    let interval_days = review_interval_days(rating)?;
+    let trimmed = required_trimmed("review item id", id)?;
+    let now = chrono::Utc::now();
+    let due_at = (now + chrono::Duration::days(interval_days)).to_rfc3339();
+    let reviewed_at = now.to_rfc3339();
+    let ease_delta = match rating {
+        "again" => -0.2,
+        "hard" => -0.05,
+        "good" => 0.0,
+        "easy" => 0.15,
+        _ => 0.0,
+    };
+    conn.execute(
+        "UPDATE review_items
+         SET status = 'active',
+             due_at = ?1,
+             last_reviewed_at = ?2,
+             review_count = review_count + 1,
+             interval_days = ?3,
+             ease = MAX(1.3, COALESCE(ease, 2.5) + ?4),
+             updated_at = ?2
+         WHERE id = ?5",
+        params![due_at, reviewed_at, interval_days, ease_delta, trimmed],
+    )?;
+    get_review_item(conn, trimmed)?.ok_or_else(|| anyhow::anyhow!("review item not found: {trimmed}"))
+}
+
+pub fn snooze_review_item(conn: &Connection, id: &str, days: i64) -> Result<ReviewItem> {
+    let trimmed = required_trimmed("review item id", id)?;
+    if days < 1 {
+        anyhow::bail!("snooze days must be positive");
+    }
+    let now = chrono::Utc::now();
+    let due_at = (now + chrono::Duration::days(days)).to_rfc3339();
+    let updated_at = now.to_rfc3339();
+    conn.execute(
+        "UPDATE review_items SET due_at = ?1, updated_at = ?2 WHERE id = ?3",
+        params![due_at, updated_at, trimmed],
+    )?;
+    get_review_item(conn, trimmed)?.ok_or_else(|| anyhow::anyhow!("review item not found: {trimmed}"))
+}
+
+pub fn dismiss_review_item(conn: &Connection, id: &str) -> Result<()> {
+    let trimmed = id.trim();
+    if trimmed.is_empty() {
+        return Ok(());
+    }
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "UPDATE review_items SET status = 'dismissed', updated_at = ?1 WHERE id = ?2",
+        params![now, trimmed],
+    )?;
+    Ok(())
+}
+
+pub fn get_open_data_mirror_config(conn: &Connection) -> Result<OpenDataMirrorConfig> {
+    let mut stmt = conn.prepare(
+        "SELECT enabled, root_path, export_sources, export_evidence, export_reports, export_journal, export_gallery_index
+         FROM open_data_mirror_config
+         WHERE id = 1",
+    )?;
+    let mut rows = stmt.query([])?;
+    if let Some(row) = rows.next()? {
+        return Ok(OpenDataMirrorConfig {
+            enabled: row.get::<_, i64>(0)? != 0,
+            root_path: row.get(1)?,
+            export_sources: row.get::<_, i64>(2)? != 0,
+            export_evidence: row.get::<_, i64>(3)? != 0,
+            export_reports: row.get::<_, i64>(4)? != 0,
+            export_journal: row.get::<_, i64>(5)? != 0,
+            export_gallery_index: row.get::<_, i64>(6)? != 0,
+        });
+    }
+    Ok(default_open_data_mirror_config())
+}
+
+pub fn set_open_data_mirror_config(conn: &Connection, config: OpenDataMirrorConfig) -> Result<()> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let root_path = optional_trimmed(config.root_path.as_deref());
+    conn.execute(
+        "INSERT OR REPLACE INTO open_data_mirror_config
+            (id, enabled, root_path, export_sources, export_evidence, export_reports, export_journal, export_gallery_index, updated_at)
+         VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![
+            config.enabled as i64,
+            root_path,
+            config.export_sources as i64,
+            config.export_evidence as i64,
+            config.export_reports as i64,
+            config.export_journal as i64,
+            config.export_gallery_index as i64,
+            now
+        ],
+    )?;
+    Ok(())
+}
+
+pub fn add_indexed_folder(conn: &Connection, path: &str) -> Result<IndexedFolder> {
+    let path = required_trimmed("indexed folder path", path)?.to_string();
+    let name = Path::new(&path)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or(path.as_str())
+        .to_string();
+    let id = uuid::Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT OR IGNORE INTO indexed_folders (id, path, name, enabled, last_scanned_at, created_at)
+         VALUES (?1, ?2, ?3, 1, NULL, ?4)",
+        params![id, path, name, now],
+    )?;
+    get_indexed_folder_by_path(conn, &path)?.ok_or_else(|| anyhow::anyhow!("indexed folder not found after insert"))
+}
+
+pub fn list_indexed_folders(conn: &Connection) -> Result<Vec<IndexedFolder>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, path, name, enabled, last_scanned_at, created_at
+         FROM indexed_folders
+         ORDER BY created_at DESC",
+    )?;
+    let rows = stmt.query_map([], map_indexed_folder_row)?;
+    let mut folders = Vec::new();
+    for row in rows {
+        folders.push(row?);
+    }
+    Ok(folders)
+}
+
+pub fn get_indexed_folder(conn: &Connection, id: &str) -> Result<Option<IndexedFolder>> {
+    let trimmed = id.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    let mut stmt = conn.prepare(
+        "SELECT id, path, name, enabled, last_scanned_at, created_at
+         FROM indexed_folders
+         WHERE id = ?1",
+    )?;
+    let mut rows = stmt.query(params![trimmed])?;
+    let Some(row) = rows.next()? else {
+        return Ok(None);
+    };
+    Ok(Some(map_indexed_folder_row(row)?))
+}
+
+fn get_indexed_folder_by_path(conn: &Connection, path: &str) -> Result<Option<IndexedFolder>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, path, name, enabled, last_scanned_at, created_at
+         FROM indexed_folders
+         WHERE path = ?1",
+    )?;
+    let mut rows = stmt.query(params![path])?;
+    let Some(row) = rows.next()? else {
+        return Ok(None);
+    };
+    Ok(Some(map_indexed_folder_row(row)?))
+}
+
+pub fn upsert_indexed_file(
+    conn: &Connection,
+    folder_id: &str,
+    path: &str,
+    name: &str,
+    extension: Option<&str>,
+    size_bytes: Option<i64>,
+    modified_at: Option<&str>,
+    source_id: Option<&str>,
+) -> Result<IndexedFile> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let existing_id: Option<String> = conn
+        .query_row("SELECT id FROM indexed_files WHERE path = ?1", params![path], |row| row.get(0))
+        .optional()?;
+    let id = existing_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    conn.execute(
+        "INSERT OR REPLACE INTO indexed_files
+            (id, folder_id, path, name, extension, size_bytes, modified_at, source_id, indexed_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        params![id, folder_id, path, name, extension, size_bytes, modified_at, source_id, now],
+    )?;
+    get_indexed_file(conn, &id)?.ok_or_else(|| anyhow::anyhow!("indexed file not found after upsert: {id}"))
+}
+
+pub fn get_indexed_file(conn: &Connection, id: &str) -> Result<Option<IndexedFile>> {
+    let trimmed = id.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    let mut stmt = conn.prepare(
+        "SELECT id, folder_id, path, name, extension, size_bytes, modified_at, source_id, indexed_at
+         FROM indexed_files
+         WHERE id = ?1",
+    )?;
+    let mut rows = stmt.query(params![trimmed])?;
+    let Some(row) = rows.next()? else {
+        return Ok(None);
+    };
+    Ok(Some(map_indexed_file_row(row)?))
+}
+
+#[allow(dead_code)]
+pub fn list_indexed_files_for_folder(conn: &Connection, folder_id: &str) -> Result<Vec<IndexedFile>> {
+    let trimmed = folder_id.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut stmt = conn.prepare(
+        "SELECT id, folder_id, path, name, extension, size_bytes, modified_at, source_id, indexed_at
+         FROM indexed_files
+         WHERE folder_id = ?1
+         ORDER BY indexed_at DESC",
+    )?;
+    let rows = stmt.query_map(params![trimmed], map_indexed_file_row)?;
+    let mut files = Vec::new();
+    for row in rows {
+        files.push(row?);
+    }
+    Ok(files)
+}
+
+pub fn mark_indexed_folder_scanned(conn: &Connection, folder_id: &str, scanned_at: &str) -> Result<()> {
+    conn.execute(
+        "UPDATE indexed_folders SET last_scanned_at = ?1 WHERE id = ?2",
+        params![scanned_at, folder_id],
+    )?;
+    Ok(())
+}
+
+pub fn remove_indexed_folder(conn: &Connection, folder_id: &str) -> Result<()> {
+    let trimmed = folder_id.trim();
+    if trimmed.is_empty() {
+        return Ok(());
+    }
+    conn.execute("DELETE FROM indexed_files WHERE folder_id = ?1", params![trimmed])?;
+    conn.execute("DELETE FROM indexed_folders WHERE id = ?1", params![trimmed])?;
+    Ok(())
+}
+
+pub fn get_point(conn: &Connection, point_id: &str) -> Result<Option<StoredPoint>> {
+    let trimmed = point_id.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+
+    let mut stmt = conn.prepare(
+        "SELECT id, content, tag_type, parent_id, source_doc_name, source_excerpt, created_at, archived, starred
+         FROM points
+         WHERE id = ?1",
+    )?;
+    let mut rows = stmt.query(params![trimmed])?;
+    let Some(row) = rows.next()? else {
+        return Ok(None);
+    };
+    Ok(Some(map_point_row(row)?))
+}
+
 /// Read every non-archived point (newest first) including its parent link.
 pub fn list_points(conn: &Connection) -> Result<Vec<StoredPoint>> {
     let mut stmt = conn.prepare(
@@ -1539,6 +2365,84 @@ fn map_report_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ReportRecord> {
     })
 }
 
+fn map_journal_entry_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<JournalEntry> {
+    Ok(JournalEntry {
+        id: row.get(0)?,
+        query: row.get(1)?,
+        note: row.get(2)?,
+        tags_json: row.get(3)?,
+        source_ids_json: row.get(4)?,
+        point_ids_json: row.get(5)?,
+        evidence_ids_json: row.get(6)?,
+        report_ids_json: row.get(7)?,
+        created_report_id: row.get(8)?,
+        source_kind: row.get(9)?,
+        created_at: row.get(10)?,
+        invalidated_at: row.get(11)?,
+        invalidated_reason: row.get(12)?,
+    })
+}
+
+fn map_asset_relation_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AssetRelationRecord> {
+    Ok(AssetRelationRecord {
+        id: row.get(0)?,
+        from_kind: row.get(1)?,
+        from_id: row.get(2)?,
+        to_kind: row.get(3)?,
+        to_id: row.get(4)?,
+        relation: row.get(5)?,
+        reason: row.get(6)?,
+        score: row.get(7)?,
+        source_kind: row.get(8)?,
+        created_at: row.get(9)?,
+        vetted_at: row.get(10)?,
+    })
+}
+
+fn map_review_item_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ReviewItem> {
+    Ok(ReviewItem {
+        id: row.get(0)?,
+        target_kind: row.get(1)?,
+        target_id: row.get(2)?,
+        title: row.get(3)?,
+        note: row.get(4)?,
+        status: row.get(5)?,
+        priority: row.get(6)?,
+        due_at: row.get(7)?,
+        last_reviewed_at: row.get(8)?,
+        review_count: row.get(9)?,
+        ease: row.get(10)?,
+        interval_days: row.get(11)?,
+        created_at: row.get(12)?,
+        updated_at: row.get(13)?,
+    })
+}
+
+fn map_indexed_folder_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<IndexedFolder> {
+    Ok(IndexedFolder {
+        id: row.get(0)?,
+        path: row.get(1)?,
+        name: row.get(2)?,
+        enabled: row.get::<_, i64>(3)? != 0,
+        last_scanned_at: row.get(4)?,
+        created_at: row.get(5)?,
+    })
+}
+
+fn map_indexed_file_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<IndexedFile> {
+    Ok(IndexedFile {
+        id: row.get(0)?,
+        folder_id: row.get(1)?,
+        path: row.get(2)?,
+        name: row.get(3)?,
+        extension: row.get(4)?,
+        size_bytes: row.get(5)?,
+        modified_at: row.get(6)?,
+        source_id: row.get(7)?,
+        indexed_at: row.get(8)?,
+    })
+}
+
 fn required_trimmed<'a>(field: &str, value: &'a str) -> Result<&'a str> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -1570,9 +2474,298 @@ fn validate_evidence_stance(stance: &str) -> Result<()> {
 
 fn validate_report_kind(kind: &str) -> Result<()> {
     match kind {
-        "digest" | "synthesis" => Ok(()),
+        "digest" | "synthesis" | "investigation" => Ok(()),
         _ => anyhow::bail!("invalid report kind: {kind}"),
     }
+}
+
+fn validate_asset_kind(kind: &str) -> Result<()> {
+    match kind {
+        "source" | "point" | "evidence" | "report" | "journal" | "gallery" | "review" => Ok(()),
+        _ => anyhow::bail!("invalid asset kind: {kind}"),
+    }
+}
+
+fn validate_review_asset_kind(kind: &str) -> Result<()> {
+    match kind {
+        "source" | "point" | "evidence" | "report" | "journal" => Ok(()),
+        _ => anyhow::bail!("invalid review target kind: {kind}"),
+    }
+}
+
+fn validate_asset_relation(relation: &str) -> Result<()> {
+    match relation.trim() {
+        "co_cited"
+        | "same_source"
+        | "supports"
+        | "contradicts"
+        | "same_topic"
+        | "derived_from"
+        | "review_related" => Ok(()),
+        _ => anyhow::bail!("invalid asset relation: {relation}"),
+    }
+}
+
+fn validate_review_priority(priority: &str) -> Result<()> {
+    match priority {
+        "low" | "normal" | "high" => Ok(()),
+        _ => anyhow::bail!("invalid review priority: {priority}"),
+    }
+}
+
+fn review_interval_days(rating: &str) -> Result<i64> {
+    match rating {
+        "again" => Ok(1),
+        "hard" => Ok(3),
+        "good" => Ok(7),
+        "easy" => Ok(14),
+        _ => anyhow::bail!("invalid review rating: {rating}"),
+    }
+}
+
+fn default_open_data_mirror_config() -> OpenDataMirrorConfig {
+    OpenDataMirrorConfig {
+        enabled: false,
+        root_path: None,
+        export_sources: true,
+        export_evidence: true,
+        export_reports: true,
+        export_journal: true,
+        export_gallery_index: true,
+    }
+}
+
+fn json_string_array(values: Vec<String>) -> String {
+    let normalized = values
+        .into_iter()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+    serde_json::to_string(&normalized).unwrap_or_else(|_| "[]".to_string())
+}
+
+fn json_array_strings(value: &str) -> Vec<String> {
+    serde_json::from_str::<Vec<String>>(value).unwrap_or_default()
+}
+
+fn citation_asset(citation: &serde_json::Value) -> Option<(String, String)> {
+    let object = citation.as_object()?;
+    let kind = object.get("kind")?.as_str()?.trim();
+    let id = object.get("id")?.as_str()?.trim();
+    if kind.is_empty() || id.is_empty() || validate_asset_kind(kind).is_err() {
+        return None;
+    }
+    Some((kind.to_string(), id.to_string()))
+}
+
+fn report_citation_assets(report: &ReportRecord) -> Vec<(String, String)> {
+    let Ok(serde_json::Value::Array(citations)) = serde_json::from_str::<serde_json::Value>(&report.citations_json) else {
+        return Vec::new();
+    };
+    let mut seen = HashSet::new();
+    citations
+        .iter()
+        .filter_map(citation_asset)
+        .filter(|asset| seen.insert(asset.clone()))
+        .collect()
+}
+
+fn save_symmetric_relation(
+    conn: &Connection,
+    left_kind: &str,
+    left_id: &str,
+    right_kind: &str,
+    right_id: &str,
+    relation: &str,
+    reason: &str,
+    score: f64,
+) -> Result<usize> {
+    if left_kind == right_kind && left_id == right_id {
+        return Ok(0);
+    }
+    save_asset_relation(conn, SaveAssetRelationInput {
+        from_kind: left_kind.to_string(),
+        from_id: left_id.to_string(),
+        to_kind: right_kind.to_string(),
+        to_id: right_id.to_string(),
+        relation: relation.to_string(),
+        reason: reason.to_string(),
+        score,
+        source_kind: "auto".to_string(),
+    })?;
+    save_asset_relation(conn, SaveAssetRelationInput {
+        from_kind: right_kind.to_string(),
+        from_id: right_id.to_string(),
+        to_kind: left_kind.to_string(),
+        to_id: left_id.to_string(),
+        relation: relation.to_string(),
+        reason: reason.to_string(),
+        score,
+        source_kind: "auto".to_string(),
+    })?;
+    Ok(2)
+}
+
+fn rebuild_report_cocitations(conn: &Connection) -> Result<usize> {
+    let mut count = 0;
+    for report in list_recent_reports(conn, usize::MAX)? {
+        let assets = report_citation_assets(&report);
+        for (left_index, (left_kind, left_id)) in assets.iter().enumerate() {
+            count += save_symmetric_relation(
+                conn,
+                "report",
+                &report.id,
+                left_kind,
+                left_id,
+                "derived_from",
+                "Report cites this asset",
+                0.9,
+            )?;
+            for (right_kind, right_id) in assets.iter().skip(left_index + 1) {
+                count += save_symmetric_relation(
+                    conn,
+                    left_kind,
+                    left_id,
+                    right_kind,
+                    right_id,
+                    "co_cited",
+                    "Assets are cited together in a report",
+                    0.72,
+                )?;
+            }
+        }
+    }
+    Ok(count)
+}
+
+fn rebuild_evidence_relations(conn: &Connection) -> Result<usize> {
+    let mut count = 0;
+    for evidence in list_recent_evidence(conn, usize::MAX)? {
+        if let Some(source_id) = evidence.source_id.as_deref() {
+            count += save_symmetric_relation(
+                conn,
+                "evidence",
+                &evidence.id,
+                "source",
+                source_id,
+                "same_source",
+                "Evidence is linked to this Source",
+                0.85,
+            )?;
+        }
+        if let Some(point_id) = evidence.point_id.as_deref() {
+            count += save_symmetric_relation(
+                conn,
+                "evidence",
+                &evidence.id,
+                "point",
+                point_id,
+                "supports",
+                "Evidence was saved from this Point",
+                0.78,
+            )?;
+        }
+    }
+    Ok(count)
+}
+
+fn rebuild_journal_relations(conn: &Connection) -> Result<usize> {
+    let mut count = 0;
+    for entry in list_recent_journal_entries(conn, usize::MAX)? {
+        if entry.invalidated_at.is_some() {
+            continue;
+        }
+        let mut assets = Vec::new();
+        assets.extend(json_array_strings(&entry.source_ids_json).into_iter().map(|id| ("source".to_string(), id)));
+        assets.extend(json_array_strings(&entry.point_ids_json).into_iter().map(|id| ("point".to_string(), id)));
+        assets.extend(json_array_strings(&entry.evidence_ids_json).into_iter().map(|id| ("evidence".to_string(), id)));
+        assets.extend(json_array_strings(&entry.report_ids_json).into_iter().map(|id| ("report".to_string(), id)));
+        if let Some(report_id) = entry.created_report_id.as_deref() {
+            assets.push(("report".to_string(), report_id.to_string()));
+        }
+        let mut seen = HashSet::new();
+        assets.retain(|asset| seen.insert(asset.clone()));
+        for (kind, id) in &assets {
+            count += save_symmetric_relation(
+                conn,
+                "journal",
+                &entry.id,
+                kind,
+                id,
+                "same_topic",
+                "Journal entry references this asset",
+                0.68,
+            )?;
+        }
+        for (left_index, (left_kind, left_id)) in assets.iter().enumerate() {
+            for (right_kind, right_id) in assets.iter().skip(left_index + 1) {
+                count += save_symmetric_relation(
+                    conn,
+                    left_kind,
+                    left_id,
+                    right_kind,
+                    right_id,
+                    "same_topic",
+                    "Assets appear together in a Journal entry",
+                    0.58,
+                )?;
+            }
+        }
+    }
+    Ok(count)
+}
+
+fn rebuild_gallery_relations(conn: &Connection) -> Result<usize> {
+    let mut count = 0;
+    for item in list_gallery(conn)? {
+        for point_id in &item.point_ids {
+            count += save_symmetric_relation(
+                conn,
+                "gallery",
+                &item.id,
+                "point",
+                point_id,
+                "derived_from",
+                "Gallery image was generated from this Point",
+                0.7,
+            )?;
+        }
+    }
+    Ok(count)
+}
+
+fn rebuild_review_relations(conn: &Connection) -> Result<usize> {
+    let mut count = 0;
+    let items = list_all_review_items(conn)?;
+    for item in &items {
+        count += save_symmetric_relation(
+            conn,
+            "review",
+            &item.id,
+            &item.target_kind,
+            &item.target_id,
+            "review_related",
+            "Review item targets this asset",
+            0.65,
+        )?;
+    }
+    for (left_index, left) in items.iter().enumerate() {
+        for right in items.iter().skip(left_index + 1) {
+            if left.status == "active" && right.status == "active" {
+                count += save_symmetric_relation(
+                    conn,
+                    &left.target_kind,
+                    &left.target_id,
+                    &right.target_kind,
+                    &right.target_id,
+                    "review_related",
+                    "Assets are active in the Review Queue together",
+                    0.45,
+                )?;
+            }
+        }
+    }
+    Ok(count)
 }
 
 fn normalize_report_citations_json(value: &str) -> Result<String> {
@@ -2486,6 +3679,187 @@ mod tests {
 
         let search = search_reports(&conn, "Delete Me", 10).unwrap();
         assert!(search.is_empty());
+    }
+
+    #[test]
+    fn report_kind_accepts_investigation() {
+        let conn = memory_db();
+        let saved = save_report(&conn, report_input("Investigation", "investigation", "investigation")).unwrap();
+
+        assert_eq!(saved.kind, "investigation");
+        assert!(search_reports(&conn, "investigation", 10)
+            .unwrap()
+            .iter()
+            .any(|report| report.id == saved.id));
+    }
+
+    #[test]
+    fn journal_entries_list_search_and_invalidate() {
+        let conn = memory_db();
+        let entry = save_journal_entry(&conn, SaveJournalEntryInput {
+            query: "market durability".to_string(),
+            note: "Journal note about pricing power".to_string(),
+            tags: vec!["market".to_string(), "pricing".to_string()],
+            source_ids: vec!["source-1".to_string()],
+            point_ids: vec!["point-1".to_string()],
+            evidence_ids: vec!["evidence-1".to_string()],
+            report_ids: vec!["report-1".to_string()],
+            created_report_id: Some("report-1".to_string()),
+            source_kind: "investigation".to_string(),
+        }).unwrap();
+
+        assert_eq!(entry.query, "market durability");
+        assert_eq!(list_recent_journal_entries(&conn, 10).unwrap().len(), 1);
+        assert_eq!(search_journal_entries(&conn, "pricing", 10).unwrap()[0].id, entry.id);
+
+        invalidate_journal_entry(&conn, &entry.id, "superseded").unwrap();
+        let invalidated = get_journal_entry(&conn, &entry.id).unwrap().unwrap();
+        assert_eq!(invalidated.invalidated_reason.as_deref(), Some("superseded"));
+        assert!(search_journal_entries(&conn, "pricing", 10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn review_items_schedule_snooze_and_dismiss() {
+        let conn = memory_db();
+        let item = add_review_item(&conn, AddReviewItemInput {
+            target_kind: "source".to_string(),
+            target_id: "source-1".to_string(),
+            title: "Review source".to_string(),
+            note: Some("remember thesis".to_string()),
+            priority: Some("high".to_string()),
+            due_at: Some("2026-01-01T00:00:00Z".to_string()),
+        }).unwrap();
+
+        assert_eq!(list_due_review_items(&conn).unwrap()[0].id, item.id);
+        let completed = complete_review_item(&conn, &item.id, "easy").unwrap();
+        assert_eq!(completed.review_count, 1);
+        assert_eq!(completed.interval_days, Some(14));
+        assert!(completed.ease.unwrap() > 2.5);
+
+        let snoozed = snooze_review_item(&conn, &item.id, 3).unwrap();
+        assert_eq!(snoozed.status, "active");
+        dismiss_review_item(&conn, &item.id).unwrap();
+        let dismissed = get_review_item(&conn, &item.id).unwrap().unwrap();
+        assert_eq!(dismissed.status, "dismissed");
+    }
+
+    #[test]
+    fn mirror_config_round_trips_with_defaults() {
+        let conn = memory_db();
+        let default = get_open_data_mirror_config(&conn).unwrap();
+        assert!(!default.enabled);
+        assert!(default.export_sources);
+
+        set_open_data_mirror_config(&conn, OpenDataMirrorConfig {
+            enabled: true,
+            root_path: Some("D:/Mirror".to_string()),
+            export_sources: true,
+            export_evidence: false,
+            export_reports: true,
+            export_journal: false,
+            export_gallery_index: true,
+        }).unwrap();
+
+        let saved = get_open_data_mirror_config(&conn).unwrap();
+        assert!(saved.enabled);
+        assert_eq!(saved.root_path.as_deref(), Some("D:/Mirror"));
+        assert!(!saved.export_evidence);
+        assert!(!saved.export_journal);
+    }
+
+    #[test]
+    fn indexed_folders_and_files_round_trip_without_deleting_sources() {
+        let conn = memory_db();
+        let folder = add_indexed_folder(&conn, "D:/Research Notes").unwrap();
+        let duplicate = add_indexed_folder(&conn, "D:/Research Notes").unwrap();
+        assert_eq!(folder.id, duplicate.id);
+
+        let file = upsert_indexed_file(
+            &conn,
+            &folder.id,
+            "D:/Research Notes/a.md",
+            "a.md",
+            Some("md"),
+            Some(123),
+            Some("2026-07-05T00:00:00Z"),
+            Some("source-1"),
+        ).unwrap();
+        assert_eq!(file.source_id.as_deref(), Some("source-1"));
+        assert_eq!(list_indexed_files_for_folder(&conn, &folder.id).unwrap().len(), 1);
+
+        remove_indexed_folder(&conn, &folder.id).unwrap();
+        assert!(get_indexed_folder(&conn, &folder.id).unwrap().is_none());
+        assert!(list_indexed_files_for_folder(&conn, &folder.id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn rebuild_asset_relations_derives_report_journal_evidence_gallery_and_review_links() {
+        let mut conn = memory_db();
+        let source = upsert_source_document(
+            &conn,
+            "file",
+            "D:/docs/relation.md",
+            Some("Relation Source"),
+            r#"{"kind":"file"}"#,
+        )
+        .unwrap();
+        replace_source_chunks(&mut conn, &source.id, &["relation chunk".to_string()]).unwrap();
+        insert_point(&conn, "point-relation", "Point relation", None, "2026-07-05T00:00:00Z");
+        insert_point_source_link(&conn, "point-relation", &source.id, 0, Some("relation")).unwrap();
+        let evidence = save_evidence(&mut conn, evidence_input(
+            "Relation claim",
+            Some("point-relation"),
+            Some(&source.id),
+            "2026-07-05T00:01:00Z",
+        )).unwrap();
+        let mut report = report_input("Relation Report", "investigation", "relation");
+        report.citations_json = format!(
+            r#"[{{"kind":"source","label":"S1","id":"{}","title":"Source","excerpt":"source excerpt","sourceId":"{}","chunkIndex":0,"url":null}},{{"kind":"evidence","label":"E1","id":"{}","title":"Evidence","excerpt":"evidence excerpt","sourceId":"{}","chunkIndex":0,"url":null}}]"#,
+            source.id, source.id, evidence.id, source.id
+        );
+        let saved_report = save_report(&conn, report).unwrap();
+        let journal = save_journal_entry(&conn, SaveJournalEntryInput {
+            query: "relation query".to_string(),
+            note: "relation note".to_string(),
+            tags: Vec::new(),
+            source_ids: vec![source.id.clone()],
+            point_ids: vec!["point-relation".to_string()],
+            evidence_ids: vec![evidence.id.clone()],
+            report_ids: vec![saved_report.id.clone()],
+            created_report_id: Some(saved_report.id.clone()),
+            source_kind: "investigation".to_string(),
+        }).unwrap();
+        insert_gallery_item(
+            &conn,
+            &GalleryItem {
+                id: "gallery-relation".to_string(),
+                file_path: "D:/gallery/relation.webp".to_string(),
+                thumbnail_path: "D:/gallery/relation-thumb.webp".to_string(),
+                prompt: "relation diagram".to_string(),
+                generated_at: "2026-07-05T00:03:00Z".to_string(),
+                download_status: "ok".to_string(),
+                point_ids: vec!["point-relation".to_string()],
+                source_points: Vec::new(),
+            },
+        ).unwrap();
+        let review = add_review_item(&conn, AddReviewItemInput {
+            target_kind: "report".to_string(),
+            target_id: saved_report.id.clone(),
+            title: "Review report".to_string(),
+            note: None,
+            priority: None,
+            due_at: Some("2026-01-01T00:00:00Z".to_string()),
+        }).unwrap();
+
+        let count = rebuild_asset_relations(&conn).unwrap();
+        assert!(count > 0);
+        let source_relations = discover_related_assets(&conn, "source", &source.id).unwrap();
+        assert!(source_relations.iter().any(|relation| relation.relation == "co_cited"));
+        assert!(source_relations.iter().any(|relation| relation.from_kind == "journal" || relation.to_kind == "journal"));
+        let review_relations = discover_related_assets(&conn, "review", &review.id).unwrap();
+        assert!(review_relations.iter().any(|relation| relation.relation == "review_related"));
+        let journal_relations = discover_related_assets(&conn, "journal", &journal.id).unwrap();
+        assert!(!journal_relations.is_empty());
     }
 
     #[test]

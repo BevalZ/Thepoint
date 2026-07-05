@@ -25,9 +25,24 @@ const SYNTHESIS_SYSTEM: &str = "你是一位专业的多来源研究分析师。
 关键要求：冲突观点必须显式展示，不能静默融合；每个关键结论后使用 [S1]、[P1]、[E1] 等输入标签引用来源；没有足够引用的结论要标记为推断或不确定。\
 输出为 Markdown 格式。";
 
+const INVESTIGATION_SYSTEM: &str = "你是一位本地优先的个人研究调查员。用户会提供一个调查问题和一组带稳定标签的本地知识资产。\
+请生成一份 Investigation 调查报告，必须包含：\
+1. 调查问题\
+2. 结论摘要\
+3. 支持证据\
+4. 反对证据 / 冲突点\
+5. 不确定点\
+6. 引用清单\
+7. 后续问题\
+关键要求：每个关键结论必须使用输入标签引用来源，例如 [S1]、[P1]、[E1]；Journal 只能作为调查记忆线索，不能作为最终事实依据；没有足够 Source / Point / Evidence 引用的内容必须显式标记为推断或不确定。\
+输出为 Markdown 格式。";
+
 const MAX_SYNTHESIS_SOURCE_CHUNKS: usize = 8;
 const MAX_SYNTHESIS_EVIDENCE: usize = 24;
 const MAX_SYNTHESIS_POINTS: usize = 40;
+const MAX_INVESTIGATION_SEARCH_RESULTS: usize = 12;
+const MAX_INVESTIGATION_JOURNAL: usize = 8;
+const MAX_INVESTIGATION_RELATED: usize = 20;
 
 #[derive(serde::Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -42,6 +57,25 @@ pub struct GenerateSynthesisInput {
     pub include_starred: bool,
 }
 
+#[derive(serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct InvestigationScope {
+    pub source_ids: Vec<String>,
+    pub point_ids: Vec<String>,
+    pub evidence_ids: Vec<String>,
+    pub report_ids: Vec<String>,
+    pub include_library_search: bool,
+    pub include_journal: bool,
+}
+
+#[derive(serde::Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct InvestigationInput {
+    pub query: String,
+    pub scope: InvestigationScope,
+    pub mode: String,
+}
+
 #[derive(serde::Serialize, Clone, Debug, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct DigestCitation {
@@ -53,6 +87,8 @@ pub struct DigestCitation {
     pub source_id: Option<String>,
     pub chunk_index: Option<i64>,
     pub url: Option<String>,
+    pub quote: Option<String>,
+    pub reason: Option<String>,
 }
 
 #[derive(serde::Serialize, Clone, Debug, PartialEq, Eq)]
@@ -242,6 +278,358 @@ pub async fn generate_synthesis(
     Ok(DigestResult { content, citations })
 }
 
+#[tauri::command]
+pub async fn generate_investigation(
+    app: tauri::AppHandle<Wry>,
+    input: InvestigationInput,
+) -> Result<DigestResult, String> {
+    let query = input.query.trim().to_string();
+    if query.is_empty() {
+        return Err("调查问题不能为空".to_string());
+    }
+
+    let config = crate::commands::config::get_config(app.clone())?;
+    if config.openai_api_key.is_empty() {
+        return Err("尚未配置 API Key".to_string());
+    }
+
+    let mode = normalize_investigation_mode(&input.mode);
+    let db_path = crate::db::db_path(&app).map_err(|e| e.to_string())?;
+    let context = tokio::task::spawn_blocking({
+        let query = query.clone();
+        move || collect_investigation_context(&db_path, &query, input.scope)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+
+    if context.sources.is_empty() && context.points.is_empty() && context.evidence.is_empty() {
+        return Err("没有找到可用于调查的 Source、Point 或 Evidence 引用".to_string());
+    }
+
+    let input_text = investigation_input_text(&query, &mode, &context);
+    let citations = build_investigation_citations(&context);
+    let endpoint = crate::commands::config::completions_endpoint(
+        &config.openai_base_url,
+        &config.provider_key,
+        &config.custom_endpoint,
+    );
+    let body = serde_json::json!({
+        "model": config.openai_model,
+        "messages": [
+            { "role": "system", "content": INVESTIGATION_SYSTEM },
+            { "role": "user", "content": format!("调查深度：{mode}\n可引用资产数量：{}\n\n{}", citations.len(), input_text) }
+        ],
+        "temperature": match mode.as_str() {
+            "quick" => 0.35,
+            "deep" => 0.55,
+            _ => 0.45,
+        }
+    });
+
+    let mut builder = reqwest::Client::new()
+        .post(&endpoint)
+        .bearer_auth(&config.openai_api_key)
+        .json(&body);
+    if let Ok(map) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&config.extra_headers) {
+        for (k, v) in &map {
+            if let Some(s) = v.as_str() {
+                builder = builder.header(k.as_str(), s);
+            }
+        }
+    }
+
+    let resp = builder.send().await.map_err(|e| e.to_string())?;
+    let status = resp.status();
+    let raw = resp.text().await.map_err(|e| e.to_string())?;
+    if !status.is_success() {
+        return Err(format!("AI 返回错误 ({status}): {raw}"));
+    }
+
+    #[derive(serde::Deserialize)]
+    struct Resp { choices: Vec<Choice> }
+    #[derive(serde::Deserialize)]
+    struct Choice { message: Msg }
+    #[derive(serde::Deserialize)]
+    struct Msg { content: String }
+
+    let parsed: Resp = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+    let content = parsed.choices.into_iter().next()
+        .map(|c| c.message.content)
+        .ok_or_else(|| "模型未返回内容".to_string())?;
+
+    Ok(DigestResult { content, citations })
+}
+
+#[derive(Default)]
+struct InvestigationContext {
+    sources: Vec<SourceWorkspaceRecord>,
+    points: Vec<StoredPoint>,
+    point_contexts: Vec<Option<PointSourceContext>>,
+    evidence: Vec<EvidenceRecord>,
+    reports: Vec<crate::db::ReportRecord>,
+    journal: Vec<crate::db::JournalEntry>,
+    related: Vec<crate::db::AssetRelationRecord>,
+}
+
+fn collect_investigation_context(
+    db_path: &std::path::Path,
+    query: &str,
+    scope: InvestigationScope,
+) -> anyhow::Result<InvestigationContext> {
+    let conn = crate::db::open_db(db_path)?;
+    let mut context = InvestigationContext::default();
+    let mut seen_sources = HashSet::new();
+    let mut seen_points = HashSet::new();
+    let mut seen_evidence = HashSet::new();
+    let mut seen_reports = HashSet::new();
+
+    for id in normalized_unique_ids(scope.source_ids) {
+        if let Some(source) = crate::db::get_source_workspace(&conn, &id)? {
+            seen_sources.insert(source.source.id.clone());
+            context.sources.push(source);
+        }
+    }
+    for id in normalized_unique_ids(scope.point_ids) {
+        if let Some(point) = crate::db::get_point(&conn, &id)? {
+            seen_points.insert(point.id.clone());
+            context.point_contexts.push(crate::db::get_point_source_context(&conn, &point.id)?);
+            context.points.push(point);
+        }
+    }
+    for id in normalized_unique_ids(scope.evidence_ids) {
+        if let Some(record) = crate::db::get_evidence(&conn, &id)? {
+            seen_evidence.insert(record.id.clone());
+            context.evidence.push(record);
+        }
+    }
+    for id in normalized_unique_ids(scope.report_ids) {
+        if let Some(report) = crate::db::get_report(&conn, &id)? {
+            seen_reports.insert(report.id.clone());
+            context.reports.push(report);
+        }
+    }
+
+    if scope.include_journal {
+        context.journal = crate::db::search_journal_entries(&conn, query, MAX_INVESTIGATION_JOURNAL)?;
+    }
+
+    if scope.include_library_search {
+        for result in crate::db::search_workspace(&conn, query, MAX_INVESTIGATION_SEARCH_RESULTS)? {
+            match result.kind.as_str() {
+                "source" if seen_sources.insert(result.id.clone()) => {
+                    if let Some(source) = crate::db::get_source_workspace(&conn, &result.id)? {
+                        context.sources.push(source);
+                    }
+                }
+                "point" if seen_points.insert(result.id.clone()) => {
+                    if let Some(point) = crate::db::get_point(&conn, &result.id)? {
+                        context.point_contexts.push(crate::db::get_point_source_context(&conn, &point.id)?);
+                        context.points.push(point);
+                    }
+                }
+                _ => {}
+            }
+        }
+        for record in crate::db::search_evidence(&conn, query, MAX_INVESTIGATION_SEARCH_RESULTS)? {
+            if seen_evidence.insert(record.id.clone()) {
+                context.evidence.push(record);
+            }
+        }
+        for report in crate::db::search_reports(&conn, query, MAX_INVESTIGATION_SEARCH_RESULTS)? {
+            if seen_reports.insert(report.id.clone()) {
+                context.reports.push(report);
+            }
+        }
+    }
+
+    for (kind, id) in context_asset_ids(&context) {
+        for relation in crate::db::discover_related_assets(&conn, &kind, &id)? {
+            context.related.push(relation);
+            if context.related.len() >= MAX_INVESTIGATION_RELATED {
+                break;
+            }
+        }
+        if context.related.len() >= MAX_INVESTIGATION_RELATED {
+            break;
+        }
+    }
+
+    Ok(context)
+}
+
+fn context_asset_ids(context: &InvestigationContext) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    out.extend(context.sources.iter().map(|source| ("source".to_string(), source.source.id.clone())));
+    out.extend(context.points.iter().map(|point| ("point".to_string(), point.id.clone())));
+    out.extend(context.evidence.iter().map(|record| ("evidence".to_string(), record.id.clone())));
+    out.extend(context.reports.iter().map(|report| ("report".to_string(), report.id.clone())));
+    out
+}
+
+fn normalize_investigation_mode(mode: &str) -> String {
+    match mode.trim() {
+        "quick" | "deep" => mode.trim().to_string(),
+        _ => "standard".to_string(),
+    }
+}
+
+fn investigation_input_text(query: &str, mode: &str, context: &InvestigationContext) -> String {
+    let mut sections = vec![format!("## Investigation Query\n{query}\n\nMode: {mode}")];
+
+    if !context.sources.is_empty() {
+        let lines = context.sources.iter().enumerate().map(|(index, workspace)| {
+            let chunks = workspace.chunks.iter()
+                .take(MAX_SYNTHESIS_SOURCE_CHUNKS)
+                .map(|chunk| format!("- Chunk {}: {}", chunk.chunk_index, truncate_chars(&chunk.text, 520)))
+                .collect::<Vec<_>>()
+                .join("\n");
+            format!(
+                "[S{}] {}\nURI: {}\nChunks:\n{}",
+                index + 1,
+                workspace.source.title.as_deref().unwrap_or("Untitled Source"),
+                workspace.source.canonical_uri,
+                if chunks.is_empty() { "- No chunks".to_string() } else { chunks },
+            )
+        }).collect::<Vec<_>>().join("\n\n");
+        sections.push(format!("## Sources\n{lines}"));
+    }
+
+    if !context.points.is_empty() {
+        let lines = context.points.iter().enumerate().map(|(index, point)| {
+            format!(
+                "[P{}] [{}] {}\nSource: {}\nExcerpt: {}",
+                index + 1,
+                point.tag_type.as_deref().unwrap_or("Point"),
+                truncate_chars(&point.content, 480),
+                point.source_doc_name.as_deref().unwrap_or("none"),
+                point.source_excerpt.as_deref().unwrap_or("none"),
+            )
+        }).collect::<Vec<_>>().join("\n\n");
+        sections.push(format!("## Points\n{lines}"));
+    }
+
+    if !context.evidence.is_empty() {
+        let lines = context.evidence.iter().enumerate().map(|(index, record)| {
+            format!(
+                "[E{}] [{}]\nClaim: {}\nAnswer: {}\nReasoning: {}\nSource location: {} / {:?}",
+                index + 1,
+                record.verdict,
+                record.claim,
+                truncate_chars(&record.answer, 520),
+                record.reasoning.as_deref().unwrap_or("none"),
+                record.source_id.as_deref().unwrap_or("none"),
+                record.chunk_index,
+            )
+        }).collect::<Vec<_>>().join("\n\n");
+        sections.push(format!("## Evidence\n{lines}"));
+    }
+
+    if !context.reports.is_empty() {
+        let lines = context.reports.iter().enumerate().map(|(index, report)| {
+            format!(
+                "[R{}] [{}] {}\nSummary: {}\nBody excerpt: {}",
+                index + 1,
+                report.kind,
+                report.title,
+                report.summary,
+                truncate_chars(&report.body_md, 520),
+            )
+        }).collect::<Vec<_>>().join("\n\n");
+        sections.push(format!("## Prior Reports (context only unless their citations are reused)\n{lines}"));
+    }
+
+    if !context.journal.is_empty() {
+        let lines = context.journal.iter().enumerate().map(|(index, entry)| {
+            format!(
+                "[J{}] {}\nNote: {}\nAsset IDs: sources={}, points={}, evidence={}, reports={}",
+                index + 1,
+                entry.query,
+                truncate_chars(&entry.note, 420),
+                entry.source_ids_json,
+                entry.point_ids_json,
+                entry.evidence_ids_json,
+                entry.report_ids_json,
+            )
+        }).collect::<Vec<_>>().join("\n\n");
+        sections.push(format!("## Journal Memory (recall clues, not final evidence)\n{lines}"));
+    }
+
+    if !context.related.is_empty() {
+        let lines = context.related.iter().take(MAX_INVESTIGATION_RELATED).map(|relation| {
+            format!(
+                "- {}:{} -> {}:{} ({}, score {:.2}) {}",
+                relation.from_kind,
+                relation.from_id,
+                relation.to_kind,
+                relation.to_id,
+                relation.relation,
+                relation.score,
+                relation.reason,
+            )
+        }).collect::<Vec<_>>().join("\n");
+        sections.push(format!("## Related Assets (discovery clues)\n{lines}"));
+    }
+
+    sections.join("\n\n")
+}
+
+fn build_investigation_citations(context: &InvestigationContext) -> Vec<DigestCitation> {
+    let mut citations = Vec::new();
+
+    for (index, workspace) in context.sources.iter().enumerate() {
+        let first_chunk = workspace.chunks.first();
+        let excerpt = first_chunk
+            .map(|chunk| truncate_chars(&chunk.text, 260))
+            .unwrap_or_else(|| workspace.source.canonical_uri.clone());
+        citations.push(DigestCitation {
+            kind: "source".to_string(),
+            label: format!("S{}", index + 1),
+            id: workspace.source.id.clone(),
+            title: workspace.source.title.clone().unwrap_or_else(|| "Source".to_string()),
+            excerpt: excerpt.clone(),
+            source_id: Some(workspace.source.id.clone()),
+            chunk_index: first_chunk.map(|chunk| chunk.chunk_index),
+            url: Some(workspace.source.canonical_uri.clone()),
+            quote: Some(excerpt),
+            reason: Some("Source available in Investigation context".to_string()),
+        });
+    }
+
+    for (index, point) in context.points.iter().enumerate() {
+        let point_context = context.point_contexts.get(index).and_then(Option::as_ref);
+        citations.push(DigestCitation {
+            kind: "point".to_string(),
+            label: format!("P{}", index + 1),
+            id: point.id.clone(),
+            title: point.tag_type.clone().unwrap_or_else(|| "Point".to_string()),
+            excerpt: truncate_chars(&point.content, 260),
+            source_id: point_context.map(|ctx| ctx.source.id.clone()),
+            chunk_index: point_context.map(|ctx| ctx.chunk_index),
+            url: None,
+            quote: point.source_excerpt.clone(),
+            reason: Some("Point available in Investigation context".to_string()),
+        });
+    }
+
+    for (index, record) in context.evidence.iter().enumerate() {
+        citations.push(DigestCitation {
+            kind: "evidence".to_string(),
+            label: format!("E{}", index + 1),
+            id: record.id.clone(),
+            title: record.claim.clone(),
+            excerpt: truncate_chars(&record.answer, 260),
+            source_id: record.source_id.clone(),
+            chunk_index: record.chunk_index,
+            url: record.sources.first().map(|source| source.url.clone()),
+            quote: Some(truncate_chars(&record.answer, 260)),
+            reason: Some("Evidence available in Investigation context".to_string()),
+        });
+    }
+
+    citations
+}
+
 fn normalized_unique_ids(ids: Vec<String>) -> Vec<String> {
     let mut seen = HashSet::new();
     ids.into_iter()
@@ -385,6 +773,8 @@ fn build_digest_citations(
             source_id: context.map(|ctx| ctx.source.id.clone()),
             chunk_index: context.map(|ctx| ctx.chunk_index),
             url: None,
+            quote: point.source_excerpt.clone(),
+            reason: Some("Starred Point included in Digest input".to_string()),
         });
     }
 
@@ -398,6 +788,8 @@ fn build_digest_citations(
             source_id: record.source_id.clone(),
             chunk_index: record.chunk_index,
             url: record.sources.first().map(|source| source.url.clone()),
+            quote: Some(record.answer.clone()),
+            reason: Some("Selected Evidence included in Digest input".to_string()),
         });
     }
 
@@ -425,6 +817,8 @@ fn build_synthesis_citations(
             source_id: Some(workspace.source.id.clone()),
             chunk_index: first_chunk.map(|chunk| chunk.chunk_index),
             url: Some(workspace.source.canonical_uri.clone()),
+            quote: first_chunk.map(|chunk| truncate_chars(&chunk.text, 260)),
+            reason: Some("Selected Source included in Synthesis input".to_string()),
         });
     }
 
@@ -438,6 +832,8 @@ fn build_synthesis_citations(
             source_id: record.source_id.clone(),
             chunk_index: record.chunk_index,
             url: record.sources.first().map(|source| source.url.clone()),
+            quote: Some(truncate_chars(&record.answer, 260)),
+            reason: Some("Evidence linked to selected Source".to_string()),
         });
     }
 
@@ -452,6 +848,8 @@ fn build_synthesis_citations(
             source_id: context.map(|ctx| ctx.source.id.clone()),
             chunk_index: context.map(|ctx| ctx.chunk_index),
             url: None,
+            quote: point.source_excerpt.clone(),
+            reason: Some("Starred Point included in Synthesis input".to_string()),
         });
     }
 

@@ -4,13 +4,16 @@ import { digestMarkdownWithCitations } from './digestArtifacts'
 export type ReportKindFilter = 'all' | ReportKind
 
 export function reportKindLabel(kind: ReportKind): string {
-  return kind === 'synthesis' ? '多来源综合' : '知识研报'
+  if (kind === 'synthesis') return '多来源综合'
+  if (kind === 'investigation') return 'Investigation'
+  return '知识研报'
 }
 
 export const REPORT_KIND_FILTERS: { id: ReportKindFilter; label: string }[] = [
   { id: 'all', label: '全部' },
   { id: 'digest', label: reportKindLabel('digest') },
   { id: 'synthesis', label: reportKindLabel('synthesis') },
+  { id: 'investigation', label: reportKindLabel('investigation') },
 ]
 
 export function filterReportsByKind(records: ReportRecord[], kind: ReportKindFilter): ReportRecord[] {

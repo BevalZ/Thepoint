@@ -20,9 +20,11 @@ import {
   Info,
   Link,
   Loader2,
+  Link2,
   RotateCcw,
   ScrollText,
   ShieldCheck,
+  Sparkles,
   Star,
   Trash2,
   Upload,
@@ -31,9 +33,10 @@ import {
 import { useConfigStore, useExploreHistoryStore, useExploreStore, useStarStore } from '@/store'
 import { cn } from '@/lib/utils'
 import { useStarFly } from '@/hooks/useStarFly'
-import { analyzeTextBlock, describeImage, factCheckClaim, getSourceAssets, listRecentSources, saveEvidence, savePoints } from '@/api'
-import type { AppConfig, ChunkCard, EvidenceRecord, ExploreHistoryItem, ExploreSourceMetadata, FactCheckResult, ReportRecord, SourceAssetsRecord, SourceSummaryRecord } from '@/api/types'
+import { addReviewItem, analyzeTextBlock, describeImage, discoverRelatedAssets, factCheckClaim, generateInvestigation, getSourceAssets, listRecentJournalEntries, listRecentSources, saveEvidence, savePoints } from '@/api'
+import type { AppConfig, AssetRelationRecord, ChunkCard, DigestResult, EvidenceRecord, ExploreHistoryItem, ExploreSourceMetadata, FactCheckResult, JournalEntry, ReportRecord, SourceAssetsRecord, SourceSummaryRecord } from '@/api/types'
 import { ExternalLinkPreview } from '@/components/ExternalLinkPreview'
+import { DigestModal } from '@/components/DigestModal'
 import { reportKindLabel, reportMarkdownWithCitations } from '@/lib/reportArtifacts'
 import { evidenceMarkdown, markdownFileName, sourceAssetsMarkdown, sourceDisplayTitle } from '@/lib/workbenchArtifacts'
 
@@ -818,6 +821,20 @@ function formatHistoryDate(value: string): string {
   })
 }
 
+function parseJsonStringArray(value: string): string[] {
+  try {
+    const parsed: unknown = JSON.parse(value)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+  } catch {
+    return []
+  }
+}
+
+function exploreErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback
+}
+
 function formatBytes(bytes: number | null): string {
   if (bytes === null) return '未知'
   if (bytes < 1024) return `${bytes} B`
@@ -1100,28 +1117,47 @@ interface SourceAssetPanelProps {
   assets: SourceAssetsRecord | null
   loading: boolean
   error: string | null
+  journalEntries: JournalEntry[]
+  relations: AssetRelationRecord[]
+  relationsLoading: boolean
+  actionError: string | null
+  investigationLoading: boolean
+  reviewLoading: boolean
   onOpenSource: (sourceId: string, chunkIndex?: number | null) => void
   onExportSource: () => void
   onExportEvidence: (record: EvidenceRecord) => void
   onExportReport: (record: ReportRecord) => void
+  onGenerateInvestigation: () => void
+  onAddReview: () => void
+  onRefreshRelations: () => void
 }
 
 function SourceAssetPanel({
   assets,
   loading,
   error,
+  journalEntries,
+  relations,
+  relationsLoading,
+  actionError,
+  investigationLoading,
+  reviewLoading,
   onOpenSource,
   onExportSource,
   onExportEvidence,
   onExportReport,
+  onGenerateInvestigation,
+  onAddReview,
+  onRefreshRelations,
 }: SourceAssetPanelProps) {
   if (!assets && !loading && !error) return null
 
   const pointCount = assets?.points.length ?? 0
   const evidenceCount = assets?.evidence.length ?? 0
   const reportCount = assets?.reports.length ?? 0
+  const investigationCount = assets?.reports.filter((report) => report.kind === 'investigation').length ?? 0
   const galleryCount = assets?.gallery.length ?? 0
-  const totalCount = pointCount + evidenceCount + reportCount + galleryCount
+  const totalCount = pointCount + evidenceCount + reportCount + galleryCount + journalEntries.length + relations.length
 
   return (
     <section className="mx-6 mt-4 rounded-lg border border-border bg-bg-elevated px-4 py-3">
@@ -1139,27 +1175,64 @@ function SourceAssetPanel({
           </p>
         </div>
         {assets && (
-          <button
-            type="button"
-            onClick={onExportSource}
-            className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-accent"
-            title="导出来源资产 Markdown"
-          >
-            <Download size={13} />
-            导出
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={onGenerateInvestigation}
+              disabled={investigationLoading}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-accent disabled:opacity-50"
+              title="基于当前来源生成 Investigation"
+            >
+              {investigationLoading ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+              调查
+            </button>
+            <button
+              type="button"
+              onClick={onAddReview}
+              disabled={reviewLoading}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-accent disabled:opacity-50"
+              title="加入 Review Queue"
+            >
+              {reviewLoading ? <Loader2 size={13} className="animate-spin" /> : <Archive size={13} />}
+              Review
+            </button>
+            <button
+              type="button"
+              onClick={onRefreshRelations}
+              disabled={relationsLoading}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-accent disabled:opacity-50"
+              title="刷新 Related assets"
+            >
+              {relationsLoading ? <Loader2 size={13} className="animate-spin" /> : <Link2 size={13} />}
+              Related
+            </button>
+            <button
+              type="button"
+              onClick={onExportSource}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-accent"
+              title="导出来源资产 Markdown"
+            >
+              <Download size={13} />
+              导出
+            </button>
+          </div>
         )}
       </div>
 
-      {error && (
-        <div className="mt-3 rounded-md border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-300">
-          {error}
+      {(error || actionError) && (
+        <div className={cn(
+          'mt-3 rounded-md border px-3 py-2 text-xs',
+          actionError?.startsWith('已')
+            ? 'border-border bg-bg text-fg-muted'
+            : 'border-red-500/25 bg-red-500/10 text-red-300'
+        )}>
+          {error ?? actionError}
         </div>
       )}
 
       {assets && totalCount === 0 && !error && (
         <div className="mt-3 rounded-md border border-border bg-bg px-3 py-4 text-center text-xs text-fg-faint">
-          当前来源还没有可聚合的 Point、Evidence、Report 或 Gallery 图片。
+          当前来源还没有可聚合的 Point、Evidence、Report、Journal、Related 或 Gallery 图片。
         </div>
       )}
 
@@ -1244,6 +1317,22 @@ function SourceAssetPanel({
             )}
           </AssetGroup>
 
+          <AssetGroup title="Investigations" count={investigationCount} icon={<Sparkles size={13} />}>
+            {assets.reports.some((report) => report.kind === 'investigation') ? (
+              assets.reports
+                .filter((report) => report.kind === 'investigation')
+                .slice(0, 3)
+                .map((report) => (
+                  <div key={report.id} className="rounded-md border border-border bg-bg px-3 py-2">
+                    <p className="line-clamp-1 text-xs font-medium text-fg">{report.title}</p>
+                    <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-fg-muted">{report.summary}</p>
+                  </div>
+                ))
+            ) : (
+              <EmptyAssetGroup text="暂无当前来源 Investigation" />
+            )}
+          </AssetGroup>
+
           <AssetGroup title="Gallery" count={galleryCount} icon={<Images size={13} />}>
             {assets.gallery.length > 0 ? (
               assets.gallery.slice(0, 3).map((item) => (
@@ -1257,6 +1346,40 @@ function SourceAssetPanel({
               ))
             ) : (
               <EmptyAssetGroup text="暂无来源关联图片" />
+            )}
+          </AssetGroup>
+
+          <AssetGroup title="Journal" count={journalEntries.length} icon={<FileText size={13} />}>
+            {journalEntries.length > 0 ? (
+              journalEntries.slice(0, 3).map((entry) => (
+                <div key={entry.id} className={cn('rounded-md border border-border bg-bg px-3 py-2', entry.invalidatedAt && 'opacity-70')}>
+                  <div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-fg-faint">
+                    <span>{formatHistoryDate(entry.createdAt)}</span>
+                    {entry.invalidatedAt && <span className="text-red-300">失效</span>}
+                  </div>
+                  <p className="line-clamp-1 text-xs font-medium text-fg">{entry.query}</p>
+                  <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-fg-muted">{entry.note}</p>
+                </div>
+              ))
+            ) : (
+              <EmptyAssetGroup text="暂无来源相关 Journal" />
+            )}
+          </AssetGroup>
+
+          <AssetGroup title="Related" count={relations.length} icon={<Link2 size={13} />}>
+            {relations.length > 0 ? (
+              relations.slice(0, 3).map((relation) => (
+                <div key={relation.id} className="rounded-md border border-border bg-bg px-3 py-2">
+                  <div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-fg-faint">
+                    <span>{relation.toKind}</span>
+                    <span>{relation.relation}</span>
+                  </div>
+                  <p className="line-clamp-1 text-xs font-medium text-fg">{relation.toId}</p>
+                  <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-fg-muted">{relation.reason}</p>
+                </div>
+              ))
+            ) : (
+              <EmptyAssetGroup text="暂无 Related assets" />
             )}
           </AssetGroup>
         </div>
@@ -2900,6 +3023,13 @@ export default function Explore() {
   const [sourceAssets, setSourceAssets] = useState<SourceAssetsRecord | null>(null)
   const [sourceAssetsLoading, setSourceAssetsLoading] = useState(false)
   const [sourceAssetsError, setSourceAssetsError] = useState<string | null>(null)
+  const [sourceJournalEntries, setSourceJournalEntries] = useState<JournalEntry[]>([])
+  const [sourceRelations, setSourceRelations] = useState<AssetRelationRecord[]>([])
+  const [sourceRelationsLoading, setSourceRelationsLoading] = useState(false)
+  const [sourceAssetActionError, setSourceAssetActionError] = useState<string | null>(null)
+  const [sourceInvestigationLoading, setSourceInvestigationLoading] = useState(false)
+  const [sourceReviewLoading, setSourceReviewLoading] = useState(false)
+  const [sourceInvestigationResult, setSourceInvestigationResult] = useState<DigestResult | null>(null)
   const [selectionToolbar, setSelectionToolbar] = useState<SelectionToolbarState | null>(null)
   const [commentDialog, setCommentDialog] = useState<CommentDialogState | null>(null)
   const [commentDraft, setCommentDraft] = useState('')
@@ -3388,6 +3518,38 @@ export default function Explore() {
     return () => { alive = false }
   }, [sourceId, sourceOpenVersion])
 
+  useEffect(() => {
+    if (!sourceId) {
+      setSourceJournalEntries([])
+      setSourceRelations([])
+      setSourceRelationsLoading(false)
+      setSourceAssetActionError(null)
+      return
+    }
+
+    let alive = true
+    setSourceRelationsLoading(true)
+    setSourceAssetActionError(null)
+    Promise.all([
+      listRecentJournalEntries(),
+      discoverRelatedAssets('source', sourceId),
+    ])
+      .then(([entries, relations]) => {
+        if (!alive) return
+        setSourceJournalEntries(entries.filter((entry) => parseJsonStringArray(entry.sourceIdsJson).includes(sourceId)))
+        setSourceRelations(relations)
+      })
+      .catch((error: unknown) => {
+        if (!alive) return
+        setSourceJournalEntries([])
+        setSourceRelations([])
+        setSourceAssetActionError(exploreErrorMessage(error, '加载来源 Journal / Related 失败'))
+      })
+      .finally(() => { if (alive) setSourceRelationsLoading(false) })
+
+    return () => { alive = false }
+  }, [sourceId, sourceOpenVersion])
+
   const handleOpenCard = useCallback((card: ChunkCard, blockIndex: number, el: HTMLButtonElement) => {
     scrollToBlock(blockIndex)
     const rect = el.getBoundingClientRect()
@@ -3515,6 +3677,65 @@ export default function Explore() {
       reportMarkdownWithCitations(record)
     )
   }, [])
+
+  const handleGenerateSourceInvestigation = useCallback(async () => {
+    if (!sourceId || !sourceAssets || sourceInvestigationLoading) return
+    setSourceInvestigationLoading(true)
+    setSourceAssetActionError(null)
+    try {
+      const title = sourceDisplayTitle(sourceAssets.source)
+      const result = await generateInvestigation({
+        query: `调查当前来源：${title}`,
+        mode: 'standard',
+        scope: {
+          sourceIds: [sourceId],
+          pointIds: sourceAssets.points.map(point => point.id),
+          evidenceIds: sourceAssets.evidence.map(record => record.id),
+          reportIds: sourceAssets.reports.map(report => report.id),
+          includeLibrarySearch: true,
+          includeJournal: true,
+        },
+      })
+      setSourceInvestigationResult(result)
+    } catch (error: unknown) {
+      setSourceAssetActionError(exploreErrorMessage(error, '生成来源 Investigation 失败'))
+    } finally {
+      setSourceInvestigationLoading(false)
+    }
+  }, [sourceAssets, sourceId, sourceInvestigationLoading])
+
+  const handleAddSourceReview = useCallback(async () => {
+    if (!sourceId || !sourceAssets || sourceReviewLoading) return
+    setSourceReviewLoading(true)
+    setSourceAssetActionError(null)
+    try {
+      const title = sourceDisplayTitle(sourceAssets.source)
+      await addReviewItem({
+        targetKind: 'source',
+        targetId: sourceId,
+        title,
+        priority: 'normal',
+      })
+      setSourceAssetActionError('已加入 Review Queue。')
+    } catch (error: unknown) {
+      setSourceAssetActionError(exploreErrorMessage(error, '加入 Review Queue 失败'))
+    } finally {
+      setSourceReviewLoading(false)
+    }
+  }, [sourceAssets, sourceId, sourceReviewLoading])
+
+  const handleRefreshSourceRelations = useCallback(async () => {
+    if (!sourceId || sourceRelationsLoading) return
+    setSourceRelationsLoading(true)
+    setSourceAssetActionError(null)
+    try {
+      setSourceRelations(await discoverRelatedAssets('source', sourceId))
+    } catch (error: unknown) {
+      setSourceAssetActionError(exploreErrorMessage(error, '刷新 Related assets 失败'))
+    } finally {
+      setSourceRelationsLoading(false)
+    }
+  }, [sourceId, sourceRelationsLoading])
 
   const handleActivateHistory = (id: string) => {
     history.activate(id)
@@ -3670,10 +3891,19 @@ export default function Explore() {
               assets={sourceAssets}
               loading={sourceAssetsLoading}
               error={sourceAssetsError}
+              journalEntries={sourceJournalEntries}
+              relations={sourceRelations}
+              relationsLoading={sourceRelationsLoading}
+              actionError={sourceAssetActionError}
+              investigationLoading={sourceInvestigationLoading}
+              reviewLoading={sourceReviewLoading}
               onOpenSource={(nextSourceId, chunkIndex) => { void openSourceById(nextSourceId, chunkIndex) }}
               onExportSource={handleExportSourceAssets}
               onExportEvidence={handleExportEvidence}
               onExportReport={handleExportReport}
+              onGenerateInvestigation={() => void handleGenerateSourceInvestigation()}
+              onAddReview={() => void handleAddSourceReview()}
+              onRefreshRelations={() => void handleRefreshSourceRelations()}
             />
 
             {error && (
@@ -3817,6 +4047,16 @@ export default function Explore() {
           />
         )}
         {factBubble && !factBubble.collapsed && <FactCheckBubble bubble={factBubble} onClose={() => setFactBubble(null)} onSave={handleSaveFactCheck} />}
+        {sourceInvestigationResult && (
+          <DigestModal
+            result={sourceInvestigationResult}
+            title="来源 Investigation"
+            sourceName={sourceName ?? sourceId ?? '来源 Investigation'}
+            reportKind="investigation"
+            onOpenSource={(nextSourceId, chunkIndex) => { void openSourceById(nextSourceId, chunkIndex) }}
+            onClose={() => setSourceInvestigationResult(null)}
+          />
+        )}
         {imageViewer && <ImageLightbox image={imageViewer} onClose={() => setImageViewer(null)} />}
         {historyOpen && (
           <>

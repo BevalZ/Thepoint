@@ -1,6 +1,8 @@
 import type {
   AnalyticsData,
   AppConfig,
+  AddReviewItemInput,
+  AssetKind,
   ChunkCard,
   CommentatorProfile,
   ConfigProfile,
@@ -18,12 +20,16 @@ import type {
   GalleryPromptPreview,
   GallerySourcePoint,
   GenerateSuggestionResult,
+  InvestigationInput,
+  OpenDataMirrorConfig,
   MentalModel,
   PointSourceLinkInput,
   RelatedClassification,
   RelatedCandidateInput,
   ReportRecord,
+  ReviewRating,
   SaveReportInput,
+  SaveJournalEntryInput,
   SourceAssetsRecord,
   SourceDocumentRecord,
   StoredPoint,
@@ -127,6 +133,63 @@ export const searchReports = (query: string): Promise<ReportRecord[]> =>
 export const deleteReport = (reportId: string): Promise<void> =>
   invokeCommand('delete_report', { reportId })
 
+export const saveJournalEntry = (input: SaveJournalEntryInput) =>
+  invokeCommand('save_journal_entry', { input })
+
+export const listRecentJournalEntries = () =>
+  invokeCommand('list_recent_journal_entries')
+
+export const searchJournalEntries = (query: string) =>
+  invokeCommand('search_journal_entries', { query })
+
+export const invalidateJournalEntry = (id: string, reason: string) =>
+  invokeCommand('invalidate_journal_entry', { id, reason })
+
+export const discoverRelatedAssets = (kind: AssetKind, id: string) =>
+  invokeCommand('discover_related_assets', { kind, id })
+
+export const rebuildAssetRelations = () =>
+  invokeCommand('rebuild_asset_relations')
+
+export const addReviewItem = (input: AddReviewItemInput) =>
+  invokeCommand('add_review_item', { input })
+
+export const listDueReviewItems = () =>
+  invokeCommand('list_due_review_items')
+
+export const listAllReviewItems = () =>
+  invokeCommand('list_all_review_items')
+
+export const completeReviewItem = (id: string, rating: ReviewRating) =>
+  invokeCommand('complete_review_item', { id, rating })
+
+export const snoozeReviewItem = (id: string, days: number) =>
+  invokeCommand('snooze_review_item', { id, days })
+
+export const dismissReviewItem = (id: string) =>
+  invokeCommand('dismiss_review_item', { id })
+
+export const getOpenDataMirrorConfig = () =>
+  invokeCommand('get_open_data_mirror_config')
+
+export const setOpenDataMirrorConfig = (config: OpenDataMirrorConfig) =>
+  invokeCommand('set_open_data_mirror_config', { config })
+
+export const exportOpenDataMirror = () =>
+  invokeCommand('export_open_data_mirror')
+
+export const addIndexedFolder = (path: string) =>
+  invokeCommand('add_indexed_folder', { path })
+
+export const listIndexedFolders = () =>
+  invokeCommand('list_indexed_folders')
+
+export const scanIndexedFolder = (folderId: string) =>
+  invokeCommand('scan_indexed_folder', { folderId })
+
+export const removeIndexedFolder = (folderId: string) =>
+  invokeCommand('remove_indexed_folder', { folderId })
+
 export const listPoints = () => invokeCommand('list_points')
 
 export const archivePoint = (pointId: string) => invokeCommand('archive_point', { pointId })
@@ -229,6 +292,9 @@ export const generateSynthesis = (
   includeStarred: boolean
 ): Promise<DigestResult> =>
   invokeCommand('generate_synthesis', { input: { sourceIds, includeStarred } })
+
+export const generateInvestigation = (input: InvestigationInput): Promise<DigestResult> =>
+  invokeCommand('generate_investigation', { input })
 
 export const generateImage = () => invokeCommand('generate_image')
 export const prepareGalleryImagePrompt = (

@@ -172,6 +172,8 @@ export interface DigestCitation {
   sourceId: string | null
   chunkIndex: number | null
   url: string | null
+  quote?: string | null
+  reason?: string | null
 }
 
 export interface DigestResult {
@@ -179,7 +181,20 @@ export interface DigestResult {
   citations: DigestCitation[]
 }
 
-export type ReportKind = 'digest' | 'synthesis'
+export interface InvestigationInput {
+  query: string
+  scope: {
+    sourceIds: string[]
+    pointIds: string[]
+    evidenceIds: string[]
+    reportIds: string[]
+    includeLibrarySearch: boolean
+    includeJournal: boolean
+  }
+  mode: 'quick' | 'standard' | 'deep'
+}
+
+export type ReportKind = 'digest' | 'synthesis' | 'investigation'
 
 export interface ReportRecord {
   id: string
@@ -199,6 +214,138 @@ export interface SaveReportInput {
   bodyMd: string
   summary: string
   citationsJson: string
+}
+
+export interface SaveJournalEntryInput {
+  query: string
+  note: string
+  tags: string[]
+  sourceIds: string[]
+  pointIds: string[]
+  evidenceIds: string[]
+  reportIds: string[]
+  createdReportId?: string | null
+  sourceKind: string
+}
+
+export interface JournalEntry {
+  id: string
+  query: string
+  note: string
+  tagsJson: string
+  sourceIdsJson: string
+  pointIdsJson: string
+  evidenceIdsJson: string
+  reportIdsJson: string
+  createdReportId: string | null
+  sourceKind: string
+  createdAt: string
+  invalidatedAt: string | null
+  invalidatedReason: string | null
+}
+
+export type AssetKind = 'source' | 'point' | 'evidence' | 'report' | 'journal' | 'gallery' | 'review'
+
+export type AssetRelation =
+  | 'co_cited'
+  | 'same_source'
+  | 'supports'
+  | 'contradicts'
+  | 'same_topic'
+  | 'derived_from'
+  | 'review_related'
+
+export interface AssetRelationRecord {
+  id: string
+  fromKind: AssetKind
+  fromId: string
+  toKind: AssetKind
+  toId: string
+  relation: AssetRelation
+  reason: string
+  score: number
+  sourceKind: string
+  createdAt: string
+  vettedAt: string | null
+}
+
+export type ReviewTargetKind = 'source' | 'point' | 'evidence' | 'report' | 'journal'
+export type ReviewRating = 'again' | 'hard' | 'good' | 'easy'
+export type ReviewPriority = 'low' | 'normal' | 'high'
+
+export interface AddReviewItemInput {
+  targetKind: ReviewTargetKind
+  targetId: string
+  title: string
+  note?: string | null
+  priority?: ReviewPriority | null
+  dueAt?: string | null
+}
+
+export interface ReviewItem {
+  id: string
+  targetKind: ReviewTargetKind
+  targetId: string
+  title: string
+  note: string | null
+  status: 'active' | 'dismissed' | string
+  priority: ReviewPriority
+  dueAt: string
+  lastReviewedAt: string | null
+  reviewCount: number
+  ease: number | null
+  intervalDays: number | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface OpenDataMirrorConfig {
+  enabled: boolean
+  rootPath: string | null
+  exportSources: boolean
+  exportEvidence: boolean
+  exportReports: boolean
+  exportJournal: boolean
+  exportGalleryIndex: boolean
+}
+
+export interface MirrorExportResult {
+  rootPath: string
+  filesWritten: number
+  sources: number
+  evidence: number
+  reports: number
+  investigations: number
+  journal: number
+  gallery: number
+}
+
+export interface IndexedFolder {
+  id: string
+  path: string
+  name: string
+  enabled: boolean
+  lastScannedAt: string | null
+  createdAt: string
+}
+
+export interface IndexedFile {
+  id: string
+  folderId: string
+  path: string
+  name: string
+  extension: string | null
+  sizeBytes: number | null
+  modifiedAt: string | null
+  sourceId: string | null
+  indexedAt: string
+}
+
+export interface IndexedFolderScanResult {
+  folder: IndexedFolder
+  files: IndexedFile[]
+  indexedCount: number
+  metadataOnlyCount: number
 }
 
 export type RelatedRelation = 'same_view' | 'opposite_view' | 'similar_case' | 'evidence' | 'duplicate'

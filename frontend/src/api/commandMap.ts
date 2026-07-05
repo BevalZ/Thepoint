@@ -1,6 +1,9 @@
 import type {
   AnalyticsData,
   AppConfig,
+  AddReviewItemInput,
+  AssetKind,
+  AssetRelationRecord,
   ChunkCard,
   CommentatorProfile,
   ConfigProfile,
@@ -15,13 +18,22 @@ import type {
   GalleryPromptPreview,
   GallerySourcePoint,
   GenerateSuggestionResult,
+  IndexedFolder,
+  IndexedFolderScanResult,
+  InvestigationInput,
+  JournalEntry,
   MentalModel,
+  MirrorExportResult,
+  OpenDataMirrorConfig,
   PointSourceLinkInput,
   PointSourceContext,
   RelatedClassification,
   RelatedCandidateInput,
   ReportRecord,
+  ReviewItem,
+  ReviewRating,
   SaveReportInput,
+  SaveJournalEntryInput,
   SourceDocumentRecord,
   SourceAssetsRecord,
   SourceSummaryRecord,
@@ -138,6 +150,82 @@ export interface TauriCommandMap {
   }
   delete_report: {
     args: { reportId: string }
+    result: void
+  }
+  save_journal_entry: {
+    args: { input: SaveJournalEntryInput }
+    result: JournalEntry
+  }
+  list_recent_journal_entries: {
+    args: undefined
+    result: JournalEntry[]
+  }
+  search_journal_entries: {
+    args: { query: string }
+    result: JournalEntry[]
+  }
+  invalidate_journal_entry: {
+    args: { id: string; reason: string }
+    result: void
+  }
+  discover_related_assets: {
+    args: { kind: AssetKind; id: string }
+    result: AssetRelationRecord[]
+  }
+  rebuild_asset_relations: {
+    args: undefined
+    result: number
+  }
+  add_review_item: {
+    args: { input: AddReviewItemInput }
+    result: ReviewItem
+  }
+  list_due_review_items: {
+    args: undefined
+    result: ReviewItem[]
+  }
+  list_all_review_items: {
+    args: undefined
+    result: ReviewItem[]
+  }
+  complete_review_item: {
+    args: { id: string; rating: ReviewRating }
+    result: ReviewItem
+  }
+  snooze_review_item: {
+    args: { id: string; days: number }
+    result: ReviewItem
+  }
+  dismiss_review_item: {
+    args: { id: string }
+    result: void
+  }
+  get_open_data_mirror_config: {
+    args: undefined
+    result: OpenDataMirrorConfig
+  }
+  set_open_data_mirror_config: {
+    args: { config: OpenDataMirrorConfig }
+    result: void
+  }
+  export_open_data_mirror: {
+    args: undefined
+    result: MirrorExportResult
+  }
+  add_indexed_folder: {
+    args: { path: string }
+    result: IndexedFolder
+  }
+  list_indexed_folders: {
+    args: undefined
+    result: IndexedFolder[]
+  }
+  scan_indexed_folder: {
+    args: { folderId: string }
+    result: IndexedFolderScanResult
+  }
+  remove_indexed_folder: {
+    args: { folderId: string }
     result: void
   }
   list_points: {
@@ -287,6 +375,10 @@ export interface TauriCommandMap {
   }
   generate_synthesis: {
     args: { input: { sourceIds: string[]; includeStarred: boolean } }
+    result: DigestResult
+  }
+  generate_investigation: {
+    args: { input: InvestigationInput }
     result: DigestResult
   }
   generate_image: {

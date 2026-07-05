@@ -53,6 +53,12 @@ function browserPreviewFallback<T extends TauriCommandName>(
     case 'list_recent_sources':
     case 'list_recent_evidence':
     case 'list_recent_reports':
+    case 'list_recent_journal_entries':
+    case 'search_journal_entries':
+    case 'discover_related_assets':
+    case 'list_due_review_items':
+    case 'list_all_review_items':
+    case 'list_indexed_folders':
     case 'search_points':
     case 'search_workspace':
     case 'search_evidence':
@@ -82,6 +88,16 @@ function browserPreviewFallback<T extends TauriCommandName>(
     case 'get_evidence':
     case 'get_report':
       return null as TauriCommandResult<T>
+    case 'get_open_data_mirror_config':
+      return {
+        enabled: false,
+        rootPath: null,
+        exportSources: true,
+        exportEvidence: true,
+        exportReports: true,
+        exportJournal: true,
+        exportGalleryIndex: true,
+      } as TauriCommandResult<T>
     default:
       return undefined
   }

@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Eye, EyeOff, Check, RefreshCw, X, MessageSquare, Settings2, Pencil, Type, Palette, Bot, Search, ChevronDown, ChevronRight, Download, Plus, Brain } from 'lucide-react'
+import { open } from '@tauri-apps/plugin-dialog'
+import { Eye, EyeOff, Check, RefreshCw, X, MessageSquare, Settings2, Pencil, Type, Palette, Bot, Search, ChevronDown, ChevronRight, Download, Plus, Brain, Database, FolderOpen, Upload } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useConfigStore, useThemeStore, UI_FONTS, CODE_FONTS } from '@/store'
 import type { ThemeMode, UiFontKey, CodeFontKey, FontSize } from '@/store'
-import { fetchModels, importCommentatorFromSkill } from '@/api'
+import { addIndexedFolder, exportOpenDataMirror, fetchModels, getOpenDataMirrorConfig, importCommentatorFromSkill, listIndexedFolders, removeIndexedFolder, scanIndexedFolder, setOpenDataMirrorConfig } from '@/api'
 import { cn } from '@/lib/utils'
-import type { CommentatorProfile, ConfigProfile, MentalModel } from '@/api/types'
+import type { CommentatorProfile, ConfigProfile, IndexedFolder, IndexedFolderScanResult, MentalModel, MirrorExportResult, OpenDataMirrorConfig } from '@/api/types'
 
 const PROVIDERS = [
   { key: 'openai-compat', label: 'OpenAI compatible', baseUrl: 'https://api.openai.com', suffix: '/v1/chat/completions' },
@@ -370,7 +371,7 @@ const DEFAULT_LUXUN_STYLE = `# 鲁迅 的数字分身
 
 type ProviderKey = typeof PROVIDERS[number]['key']
 type ImageProviderKey = 'openai-compatible' | 'gemini-image'
-type TopTab = 'ai' | 'persona' | 'appearance'
+type TopTab = 'ai' | 'persona' | 'data' | 'appearance'
 type AiSubTab = 'chat' | 'image' | 'advanced' | 'search' | 'commentator' | 'framework'
 
 function genId() {
@@ -384,6 +385,10 @@ function frameworkKeyFromName(name: string) {
     .replace(/[^a-z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '')
   return `custom_${ascii || genId()}`
+}
+
+function settingsErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback
 }
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
@@ -486,11 +491,50 @@ export default function Settings() {
   const [jsonError, setJsonError] = useState<string | null>(null)
 
   const [saved, setSaved] = useState(false)
+  const [mirrorConfig, setMirrorConfig] = useState<OpenDataMirrorConfig | null>(null)
+  const [mirrorLoading, setMirrorLoading] = useState(false)
+  const [mirrorSaving, setMirrorSaving] = useState(false)
+  const [mirrorExporting, setMirrorExporting] = useState(false)
+  const [mirrorResult, setMirrorResult] = useState<MirrorExportResult | null>(null)
+  const [mirrorError, setMirrorError] = useState<string | null>(null)
+  const [indexedFolders, setIndexedFolders] = useState<IndexedFolder[]>([])
+  const [indexedLoading, setIndexedLoading] = useState(false)
+  const [indexedMutatingId, setIndexedMutatingId] = useState<string | null>(null)
+  const [indexedPathDraft, setIndexedPathDraft] = useState('')
+  const [indexedScanResult, setIndexedScanResult] = useState<IndexedFolderScanResult | null>(null)
+  const [indexedError, setIndexedError] = useState<string | null>(null)
+
+  async function loadDataSettings() {
+    setMirrorLoading(true)
+    setIndexedLoading(true)
+    setMirrorError(null)
+    setIndexedError(null)
+    try {
+      const [mirror, folders] = await Promise.all([
+        getOpenDataMirrorConfig(),
+        listIndexedFolders(),
+      ])
+      setMirrorConfig(mirror)
+      setIndexedFolders(folders)
+    } catch (error) {
+      const message = settingsErrorMessage(error, '加载数据设置失败')
+      setMirrorError(message)
+      setIndexedError(message)
+    } finally {
+      setMirrorLoading(false)
+      setIndexedLoading(false)
+    }
+  }
 
   useEffect(() => {
     if (!loaded) fetchConfig()
     loadProfiles()
   }, [loaded, fetchConfig, loadProfiles])
+
+  useEffect(() => {
+    if (topTab !== 'data') return
+    void loadDataSettings()
+  }, [topTab])
 
   useEffect(() => {
     if (!config) return
@@ -874,6 +918,108 @@ export default function Settings() {
     </motion.button>
   )
 
+  const updateMirrorConfig = (patch: Partial<OpenDataMirrorConfig>) => {
+    setMirrorConfig(current => current ? { ...current, ...patch } : current)
+  }
+
+  const handleChooseMirrorRoot = async () => {
+    setMirrorError(null)
+    try {
+      const selected = await open({ directory: true, multiple: false })
+      if (typeof selected === 'string') {
+        updateMirrorConfig({ rootPath: selected })
+      }
+    } catch (error) {
+      setMirrorError(settingsErrorMessage(error, '选择 Mirror 文件夹失败'))
+    }
+  }
+
+  const handleSaveMirrorConfig = async () => {
+    if (!mirrorConfig || mirrorSaving) return
+    setMirrorSaving(true)
+    setMirrorError(null)
+    try {
+      await setOpenDataMirrorConfig(mirrorConfig)
+      flash()
+    } catch (error) {
+      setMirrorError(settingsErrorMessage(error, '保存 Mirror 设置失败'))
+    } finally {
+      setMirrorSaving(false)
+    }
+  }
+
+  const handleExportMirror = async () => {
+    if (mirrorExporting) return
+    setMirrorExporting(true)
+    setMirrorError(null)
+    setMirrorResult(null)
+    try {
+      setMirrorResult(await exportOpenDataMirror())
+    } catch (error) {
+      setMirrorError(settingsErrorMessage(error, '导出 Mirror 失败'))
+    } finally {
+      setMirrorExporting(false)
+    }
+  }
+
+  const handlePickIndexedFolder = async () => {
+    setIndexedError(null)
+    try {
+      const selected = await open({ directory: true, multiple: false })
+      if (typeof selected === 'string') {
+        setIndexedPathDraft(selected)
+      }
+    } catch (error) {
+      setIndexedError(settingsErrorMessage(error, '选择索引文件夹失败'))
+    }
+  }
+
+  const handleAddIndexedFolder = async () => {
+    const path = indexedPathDraft.trim()
+    if (!path || indexedMutatingId) return
+    setIndexedMutatingId('__new__')
+    setIndexedError(null)
+    try {
+      const folder = await addIndexedFolder(path)
+      setIndexedFolders(current => [folder, ...current.filter(item => item.id !== folder.id)])
+      setIndexedPathDraft('')
+    } catch (error) {
+      setIndexedError(settingsErrorMessage(error, '添加索引文件夹失败'))
+    } finally {
+      setIndexedMutatingId(null)
+    }
+  }
+
+  const handleScanIndexedFolder = async (folderId: string) => {
+    if (indexedMutatingId) return
+    setIndexedMutatingId(folderId)
+    setIndexedError(null)
+    setIndexedScanResult(null)
+    try {
+      const result = await scanIndexedFolder(folderId)
+      setIndexedScanResult(result)
+      setIndexedFolders(current => current.map(folder => folder.id === result.folder.id ? result.folder : folder))
+    } catch (error) {
+      setIndexedError(settingsErrorMessage(error, '扫描索引文件夹失败'))
+    } finally {
+      setIndexedMutatingId(null)
+    }
+  }
+
+  const handleRemoveIndexedFolder = async (folderId: string) => {
+    if (indexedMutatingId) return
+    setIndexedMutatingId(folderId)
+    setIndexedError(null)
+    try {
+      await removeIndexedFolder(folderId)
+      setIndexedFolders(current => current.filter(folder => folder.id !== folderId))
+    } catch (error) {
+      setIndexedError(settingsErrorMessage(error, '移除索引文件夹失败'))
+    } finally {
+      setIndexedMutatingId(null)
+    }
+  }
+
   const renderProfileList = () => (
     profiles.length > 0 && (
       <Field label="已保存配置">
@@ -941,6 +1087,7 @@ export default function Settings() {
         {([
           { id: 'ai', icon: <Bot size={15} />, label: 'AI 配置' },
           { id: 'persona', icon: <Brain size={15} />, label: '评论与框架' },
+          { id: 'data', icon: <Database size={15} />, label: '数据' },
           { id: 'appearance', icon: <Palette size={15} />, label: '外观' },
         ] as const).map(t => (
           <button key={t.id} onClick={() => {
@@ -1581,6 +1728,197 @@ export default function Settings() {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Data tab */}
+      {topTab === 'data' && (
+        <div className="space-y-6">
+          <div className="overflow-hidden rounded-2xl border border-border bg-bg">
+            <div className="border-b border-border bg-bg-elevated/50 px-5 py-3">
+              <p className="text-sm font-medium text-fg">Open Data Mirror</p>
+              <p className="mt-0.5 text-xs text-fg-faint">导出可读 Markdown 快照；不是双向同步。</p>
+            </div>
+            <div className="space-y-4 p-5">
+              {mirrorLoading && !mirrorConfig ? (
+                <div className="flex min-h-20 items-center justify-center gap-2 text-sm text-fg-faint">
+                  <RefreshCw size={15} className="animate-spin" />
+                  加载 Mirror 设置…
+                </div>
+              ) : mirrorConfig ? (
+                <>
+                  <div className="flex items-center justify-between rounded-xl border border-border bg-bg-elevated px-4 py-3">
+                    <div>
+                      <p className="text-sm font-medium text-fg">启用 Mirror</p>
+                      <p className="mt-0.5 text-xs text-fg-muted">启用后导出命令会使用下方范围生成快照。</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => updateMirrorConfig({ enabled: !mirrorConfig.enabled })}
+                      aria-pressed={mirrorConfig.enabled}
+                      className={cn('relative h-6 w-11 rounded-full transition-colors', mirrorConfig.enabled ? 'bg-accent' : 'bg-border')}
+                    >
+                      <span className={cn('absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform', mirrorConfig.enabled ? 'translate-x-5' : 'translate-x-0')} />
+                    </button>
+                  </div>
+
+                  <Field label="Mirror 根目录">
+                    <div className="flex gap-2">
+                      <input
+                        value={mirrorConfig.rootPath ?? ''}
+                        onChange={event => updateMirrorConfig({ rootPath: event.target.value || null })}
+                        placeholder="选择或输入导出目录"
+                        className="min-w-0 flex-1 rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm outline-none placeholder:text-fg-faint focus:border-accent"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => void handleChooseMirrorRoot()}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-bg-elevated px-3 py-2 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg"
+                      >
+                        <FolderOpen size={13} />
+                        选择
+                      </button>
+                    </div>
+                  </Field>
+
+                  <div className="grid grid-cols-2 gap-2 text-xs text-fg-muted">
+                    {([
+                      ['exportSources', 'Sources'],
+                      ['exportEvidence', 'Evidence'],
+                      ['exportReports', 'Reports'],
+                      ['exportJournal', 'Journal'],
+                      ['exportGalleryIndex', 'Gallery index'],
+                    ] as const).map(([key, label]) => (
+                      <label key={key} className="flex items-center gap-2 rounded-lg border border-border bg-bg-elevated px-3 py-2">
+                        <input
+                          type="checkbox"
+                          checked={mirrorConfig[key]}
+                          onChange={event => updateMirrorConfig({ [key]: event.target.checked })}
+                          className="h-3.5 w-3.5 accent-[var(--color-accent)]"
+                        />
+                        {label}
+                      </label>
+                    ))}
+                  </div>
+
+                  {mirrorError && <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">{mirrorError}</p>}
+                  {mirrorResult && (
+                    <p className="rounded-lg border border-border bg-bg-elevated px-3 py-2 text-xs text-fg-muted">
+                      已写入 {mirrorResult.filesWritten} 个文件：Sources {mirrorResult.sources} · Evidence {mirrorResult.evidence} · Reports {mirrorResult.reports} · Investigations {mirrorResult.investigations} · Journal {mirrorResult.journal} · Gallery {mirrorResult.gallery}
+                    </p>
+                  )}
+
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => void handleSaveMirrorConfig()}
+                      disabled={mirrorSaving}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+                    >
+                      {mirrorSaving ? <RefreshCw size={14} className="animate-spin" /> : <Check size={14} />}
+                      保存设置
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleExportMirror()}
+                      disabled={mirrorExporting || !mirrorConfig.enabled}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-bg-elevated px-4 py-2 text-sm text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg disabled:opacity-50"
+                    >
+                      {mirrorExporting ? <RefreshCw size={14} className="animate-spin" /> : <Upload size={14} />}
+                      导出 Mirror
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <p className="text-sm text-fg-faint">Mirror 设置不可用。</p>
+              )}
+            </div>
+          </div>
+
+          <div className="overflow-hidden rounded-2xl border border-border bg-bg">
+            <div className="border-b border-border bg-bg-elevated/50 px-5 py-3">
+              <p className="text-sm font-medium text-fg">Indexed Folders</p>
+              <p className="mt-0.5 text-xs text-fg-faint">索引外部文件夹的文本快照和文件元数据，不移动原文件。</p>
+            </div>
+            <div className="space-y-4 p-5">
+              <div className="flex gap-2">
+                <input
+                  value={indexedPathDraft}
+                  onChange={event => setIndexedPathDraft(event.target.value)}
+                  placeholder="选择或输入本地文件夹路径"
+                  className="min-w-0 flex-1 rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm outline-none placeholder:text-fg-faint focus:border-accent"
+                />
+                <button
+                  type="button"
+                  onClick={() => void handlePickIndexedFolder()}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-bg-elevated px-3 py-2 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg"
+                >
+                  <FolderOpen size={13} />
+                  选择
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleAddIndexedFolder()}
+                  disabled={!indexedPathDraft.trim() || indexedMutatingId !== null}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+                >
+                  <Plus size={13} />
+                  添加
+                </button>
+              </div>
+
+              {indexedError && <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">{indexedError}</p>}
+              {indexedScanResult && (
+                <p className="rounded-lg border border-border bg-bg-elevated px-3 py-2 text-xs text-fg-muted">
+                  {indexedScanResult.folder.name}: 索引 {indexedScanResult.indexedCount} 个文本文件，记录 {indexedScanResult.metadataOnlyCount} 个元数据文件。
+                </p>
+              )}
+
+              {indexedLoading ? (
+                <div className="flex min-h-20 items-center justify-center gap-2 text-sm text-fg-faint">
+                  <RefreshCw size={15} className="animate-spin" />
+                  加载 Indexed Folders…
+                </div>
+              ) : indexedFolders.length > 0 ? (
+                <div className="divide-y divide-border rounded-xl border border-border bg-bg-elevated">
+                  {indexedFolders.map(folder => (
+                    <div key={folder.id} className="flex items-start gap-3 px-4 py-3">
+                      <FolderOpen size={15} className="mt-0.5 shrink-0 text-accent" />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-fg">{folder.name}</p>
+                        <p className="mt-1 truncate text-xs text-fg-faint">{folder.path}</p>
+                        <p className="mt-1 text-[11px] text-fg-faint">
+                          {folder.enabled ? 'enabled' : 'disabled'} · last scan {folder.lastScannedAt ? new Date(folder.lastScannedAt).toLocaleString('zh-CN') : 'never'}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => void handleScanIndexedFolder(folder.id)}
+                          disabled={indexedMutatingId !== null}
+                          className="rounded-md border border-border px-2 py-1.5 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-accent disabled:opacity-50"
+                        >
+                          {indexedMutatingId === folder.id ? <RefreshCw size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleRemoveIndexedFolder(folder.id)}
+                          disabled={indexedMutatingId !== null}
+                          className="rounded-md border border-border px-2 py-1.5 text-xs text-fg-muted transition-colors hover:bg-red-500/10 hover:text-red-300 disabled:opacity-50"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="rounded-xl border border-dashed border-border px-4 py-5 text-center text-sm text-fg-faint">
+                  还没有 Indexed Folder。
+                </p>
+              )}
+            </div>
           </div>
         </div>
       )}

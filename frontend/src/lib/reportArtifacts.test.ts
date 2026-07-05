@@ -80,10 +80,12 @@ describe('report artifact helpers', () => {
   it('filters reports by kind while preserving order', () => {
     const digest = report({ id: 'report-digest', kind: 'digest' })
     const synthesis = report({ id: 'report-synthesis', kind: 'synthesis' })
-    const records = [synthesis, digest]
+    const investigation = report({ id: 'report-investigation', kind: 'investigation' })
+    const records = [synthesis, investigation, digest]
 
     expect(filterReportsByKind(records, 'all')).toEqual(records)
     expect(filterReportsByKind(records, 'digest')).toEqual([digest])
     expect(filterReportsByKind(records, 'synthesis')).toEqual([synthesis])
+    expect(filterReportsByKind(records, 'investigation')).toEqual([investigation])
   })
 })
