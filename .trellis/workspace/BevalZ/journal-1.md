@@ -473,3 +473,38 @@ Filled project-specific Trellis frontend and backend specs, removed remaining ba
 ### Next Steps
 
 - None - task complete
+
+
+## Session 15: Workbench readiness assets
+
+**Date**: 2026-07-05
+**Task**: Workbench readiness assets
+**Branch**: `main`
+
+### Summary
+
+Added Source asset aggregation, Gallery unified search, Markdown exports, E2E evidence docs, and updated specs for the new cross-layer contracts.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `edc5761` | (see git log) |
+| `965d070` | (see git log) |
+| `ba79ad1` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
