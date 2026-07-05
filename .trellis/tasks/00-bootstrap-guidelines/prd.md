@@ -22,7 +22,7 @@ the rest conversationally.
 ## Status (update the checkboxes as you complete each item)
 
 - [ ] Fill backend guidelines
-- [ ] Fill frontend guidelines
+- [x] Fill frontend guidelines
 - [ ] Add code examples
 
 ---
