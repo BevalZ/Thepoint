@@ -1027,3 +1027,175 @@ DELETE FROM evidence_records WHERE id IN (SELECT id FROM reports WHERE id = ?1);
 // Delete only the report asset; citations remain historical references.
 DELETE FROM reports WHERE id = ?1;
 ```
+
+---
+
+## Scenario: Report Citation Locator And Audit
+
+### 1. Scope / Trigger
+
+- Trigger: saved Report citations need post-save quote location and stale/missing diagnostics without changing the current report archive table shape.
+- Applies to: `src-tauri/src/commands/library.rs`, `src-tauri/src/lib.rs`, `frontend/src/api/*`, and `frontend/src/components/ReportModal.tsx`.
+- This is a computed audit contract. Do not introduce `report_citations` or `report_claims` tables until a later save-time claims/citations slice explicitly requires durable per-citation rows.
+
+### 2. Signatures
+
+Backend command DTOs:
+
+```rust
+CitationLocatorInput {
+  kind: String,
+  id: String,
+  quote: Option<String>,
+  excerpt: Option<String>,
+  source_id: Option<String>,
+  chunk_index: Option<i64>,
+  source_text_hash: Option<String>,
+}
+
+CitationLocatorResult {
+  status: String,
+  target_kind: String,
+  target_id: String,
+  target_title: Option<String>,
+  quote: Option<String>,
+  match_count: i64,
+  locations: Vec<CitationLocation>,
+  source_text_hash: Option<String>,
+  message: Option<String>,
+}
+
+ReportCitationAudit {
+  report_id: String,
+  total: i64,
+  located_count: i64,
+  multiple_matches_count: i64,
+  not_found_count: i64,
+  stale_count: i64,
+  target_missing_count: i64,
+  not_applicable_count: i64,
+  citations: Vec<ReportCitationAuditItem>,
+}
+```
+
+Backend commands:
+
+```rust
+locate_citation_quote(app, input: CitationLocatorInput) -> Result<CitationLocatorResult, String>
+load_report_citation_audit(app, report_id: String) -> Result<Option<ReportCitationAudit>, String>
+```
+
+Frontend API:
+
+```ts
+locateCitationQuote(input: CitationLocatorInput): Promise<CitationLocatorResult>
+loadReportCitationAudit(reportId: string): Promise<ReportCitationAudit | null>
+```
+
+Report citation JSON fields consumed by audit:
+
+```json
+{
+  "kind": "source",
+  "id": "source-id",
+  "label": "S1",
+  "title": "Source title",
+  "quote": "exact quote",
+  "excerpt": "fallback quote",
+  "sourceId": "source-id",
+  "chunkIndex": 0,
+  "sourceTextHash": "fnv1a64:..."
+}
+```
+
+Snake-case aliases `source_id`, `chunk_index`, and `source_text_hash` are accepted when reading persisted citation JSON.
+
+### 3. Contracts
+
+- Locator targets are `source`, `point`, and `evidence`.
+- `quote` is preferred over `excerpt`; if both are blank or missing, return `not_applicable`.
+- Source targets locate against the selected `chunk_index` when present, otherwise against all Source chunks joined with blank lines.
+- Point targets locate against point content plus non-empty source excerpt.
+- Evidence targets locate against claim, answer, reasoning, context, and evidence source snippets.
+- Text hash is computed as stable FNV-1a and serialized as `fnv1a64:<16 hex chars>`.
+- If input has non-empty `source_text_hash` and it differs from the current target text hash, status is `stale` even if quote text still matches.
+- `load_report_citation_audit` returns `Ok(None)` for a missing or blank report id through the existing `get_report` behavior.
+- Malformed citation entries in `reports.citations_json` are skipped defensively instead of failing the modal.
+- Browser preview fallback returns `null` for report audit. Do not invent a fake successful audit without the Tauri/Rust runtime.
+
+Locator statuses:
+
+```text
+located | multiple_matches | not_found | stale | target_missing | not_applicable
+```
+
+### 4. Validation & Error Matrix
+
+| Condition | Behavior |
+|---|---|
+| Blank `kind` or `id` | Return `target_missing` if quote/excerpt exists, because no target can be resolved |
+| Unsupported `kind` | Return `target_missing` |
+| Missing Source/Point/Evidence row | Return `target_missing` |
+| Missing `quote` and `excerpt` | Return `not_applicable` |
+| Quote appears once | Return `located` with one `CitationLocation` |
+| Quote appears more than once | Return `multiple_matches` with all exact matches |
+| Quote appears zero times | Return `not_found` |
+| Provided text hash differs from current target text hash | Return `stale` and include the current hash |
+| Report row missing | `load_report_citation_audit` returns `Ok(None)` |
+| Report citation JSON malformed or non-array | Audit returns zero parsed citations |
+| SQLite failure | Command returns `Err(String)` |
+
+### 5. Good/Base/Bad Cases
+
+- Good: a saved Report citation has `quote`, target Source text still contains it once, and ReportModal shows `located` plus the matched snippet.
+- Good: a saved Report citation has a stale `sourceTextHash`, and audit shows `stale` so the user knows to re-check the evidence.
+- Base: a citation has only `excerpt`; locator uses it as the quote target.
+- Base: a citation has no quote/excerpt; audit counts it as `not_applicable` without hiding the citation metadata.
+- Bad: treating a missing target as a successful citation because the citation JSON still has a title or URL.
+- Bad: mutating report body or citation JSON during audit. Audit must remain read-only.
+
+### 6. Tests Required
+
+- Rust command/helper tests: exact source quote returns `located`, span offsets, and current text hash.
+- Rust command/helper tests: repeated point quote returns `multiple_matches`.
+- Rust command/helper tests: absent quote returns `not_found`.
+- Rust command/helper tests: mismatched saved hash returns `stale`.
+- Rust command/helper tests: missing target returns `target_missing`.
+- Rust command/helper tests: no quote/excerpt returns `not_applicable`.
+- Rust command/helper tests: evidence text can be located from excerpt fallback.
+- Rust command/helper tests: saved Report audit count fields match per-citation locator statuses.
+- Frontend typecheck: commandMap, API wrappers, and ReportModal compile with `ReportCitationAudit`.
+- Boundary check: ReportModal loads audit through `frontend/src/api`, never direct Tauri `invoke`.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+// Audit must not silently accept historical labels as proof that a citation is still valid.
+if citation.title.is_some() {
+    status = "located";
+}
+```
+
+#### Correct
+
+```rust
+// Recompute against current target text and expose stale/missing/not-found states.
+let current_hash = stable_text_hash(&target.text);
+let locations = locate_quote_spans(&target.text, &quote);
+```
+
+#### Wrong
+
+```ts
+// Bypasses the typed API boundary and duplicates command payload details.
+const audit = await invoke('load_report_citation_audit', { reportId: report.id })
+```
+
+#### Correct
+
+```ts
+// Keeps command names, payloads, result types, and browser fallback centralized.
+const audit = await loadReportCitationAudit(report.id)
+```
