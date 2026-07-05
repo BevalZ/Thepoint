@@ -51,8 +51,12 @@ function browserPreviewFallback<T extends TauriCommandName>(
     case 'list_gallery':
     case 'list_marked_dates':
     case 'list_recent_sources':
+    case 'list_recent_evidence':
+    case 'list_recent_reports':
     case 'search_points':
     case 'search_workspace':
+    case 'search_evidence':
+    case 'search_reports':
     case 'list_suggestions_by_date':
       return [] as TauriCommandResult<T>
     case 'get_starred_count':
@@ -73,6 +77,8 @@ function browserPreviewFallback<T extends TauriCommandName>(
     case 'get_point_source_context':
     case 'open_source_workspace':
     case 'get_source_workspace_summary':
+    case 'get_evidence':
+    case 'get_report':
       return null as TauriCommandResult<T>
     default:
       return undefined

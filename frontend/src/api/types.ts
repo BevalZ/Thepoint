@@ -179,6 +179,28 @@ export interface DigestResult {
   citations: DigestCitation[]
 }
 
+export type ReportKind = 'digest' | 'synthesis'
+
+export interface ReportRecord {
+  id: string
+  title: string
+  kind: ReportKind
+  sourceName: string | null
+  bodyMd: string
+  summary: string
+  citationsJson: string
+  createdAt: string
+}
+
+export interface SaveReportInput {
+  title: string
+  kind: ReportKind
+  sourceName?: string | null
+  bodyMd: string
+  summary: string
+  citationsJson: string
+}
+
 export type RelatedRelation = 'same_view' | 'opposite_view' | 'similar_case' | 'evidence' | 'duplicate'
 
 export interface RelatedCandidateInput {

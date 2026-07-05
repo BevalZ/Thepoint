@@ -20,6 +20,8 @@ import type {
   PointSourceContext,
   RelatedClassification,
   RelatedCandidateInput,
+  ReportRecord,
+  SaveReportInput,
   SourceDocumentRecord,
   SourceSummaryRecord,
   SourceWorkspaceRecord,
@@ -112,6 +114,22 @@ export interface TauriCommandMap {
   search_evidence: {
     args: { query: string }
     result: EvidenceRecord[]
+  }
+  save_report: {
+    args: { input: SaveReportInput }
+    result: ReportRecord
+  }
+  list_recent_reports: {
+    args: undefined
+    result: ReportRecord[]
+  }
+  get_report: {
+    args: { reportId: string }
+    result: ReportRecord | null
+  }
+  search_reports: {
+    args: { query: string }
+    result: ReportRecord[]
   }
   list_points: {
     args: undefined

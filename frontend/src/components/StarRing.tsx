@@ -175,7 +175,6 @@ export function StarRing({ onNavigateGallery, onOpenSource }: StarRingProps) {
   const [generating, setGenerating] = useState(false)
   const [clearing, setClearing] = useState(false)
   const [digest, setDigest] = useState<DigestResult | null>(null)
-  const [digestPoints, setDigestPoints] = useState<StoredPoint[]>([])
   const [panelOpen, setPanelOpen] = useState(false)
   const [digestError, setDigestError] = useState<string | null>(null)
   const [imagePromptOpen, setImagePromptOpen] = useState(false)
@@ -249,11 +248,9 @@ export function StarRing({ onNavigateGallery, onOpenSource }: StarRingProps) {
     if (!canGenerate || generating) return
     setGenerating(true)
     setDigestError(null)
-    const pointsForDigest = points
     const evidenceIds = selectedEvidence.map((record) => record.id)
     try {
       const result = await generateDigest(evidenceIds)
-      setDigestPoints(pointsForDigest)
       setDigest(result)
       setPanelOpen(false)
       clearEvidenceInput()
@@ -630,7 +627,6 @@ export function StarRing({ onNavigateGallery, onOpenSource }: StarRingProps) {
         {digest && (
           <DigestModal
             result={digest}
-            starredPoints={digestPoints}
             onOpenSource={onOpenSource}
             onClose={() => setDigest(null)}
           />

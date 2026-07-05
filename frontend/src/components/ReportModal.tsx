@@ -1,62 +1,35 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { X, Copy, Download, BookmarkPlus, Check, Loader2, LocateFixed, ExternalLink } from 'lucide-react'
-import { saveReport } from '@/api'
+import { Check, Copy, Download, ExternalLink, LocateFixed, X } from 'lucide-react'
 import { Markdown } from '@/components/Markdown'
-import type { DigestCitation, DigestResult, ReportKind } from '@/api/types'
-import {
-  DIGEST_SOURCE_NAME,
-  citationKindLabel,
-  digestMarkdownWithCitations,
-} from '@/lib/digestArtifacts'
-import { reportSaveInput } from '@/lib/reportArtifacts'
+import type { ReportRecord } from '@/api/types'
+import { citationKindLabel } from '@/lib/digestArtifacts'
+import { digestResultFromReport, reportKindLabel, reportMarkdownWithCitations } from '@/lib/reportArtifacts'
 
-interface Props {
-  result: DigestResult
+interface ReportModalProps {
+  report: ReportRecord
   onClose: () => void
   onOpenSource?: (sourceId: string, focusChunkIndex?: number | null) => void
-  title?: string
-  sourceName?: string
-  reportKind?: ReportKind
 }
 
-export function DigestModal({
-  result,
-  onClose,
-  onOpenSource,
-  title = '知识研报',
-  sourceName = DIGEST_SOURCE_NAME,
-  reportKind = 'digest',
-}: Props) {
+export function ReportModal({ report, onClose, onOpenSource }: ReportModalProps) {
   const [copied, setCopied] = useState(false)
-  const [archived, setArchived] = useState(false)
-  const [archiving, setArchiving] = useState(false)
+  const result = digestResultFromReport(report)
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(digestMarkdownWithCitations(result))
+    await navigator.clipboard.writeText(reportMarkdownWithCitations(report))
     setCopied(true)
     setTimeout(() => setCopied(false), 1800)
   }
 
   const handleDownload = () => {
-    const blob = new Blob([digestMarkdownWithCitations(result)], { type: 'text/markdown;charset=utf-8' })
+    const blob = new Blob([reportMarkdownWithCitations(report)], { type: 'text/markdown;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `digest-${new Date().toISOString().slice(0, 10)}.md`
+    a.download = `report-${report.kind}-${report.createdAt.slice(0, 10)}-${report.id.slice(0, 8)}.md`
     a.click()
     URL.revokeObjectURL(url)
-  }
-
-  const handleArchive = async () => {
-    if (archived || archiving) return
-    setArchiving(true)
-    try {
-      await saveReport(reportSaveInput(result, reportKind, title, sourceName))
-      setArchived(true)
-    } finally {
-      setArchiving(false)
-    }
   }
 
   return (
@@ -71,11 +44,19 @@ export function DigestModal({
         exit={{ scale: 0.95, opacity: 0, y: 8 }}
         transition={{ type: 'spring', stiffness: 300, damping: 28 }}
         className="relative flex max-h-[80vh] w-full max-w-2xl flex-col rounded-2xl border border-border bg-bg-elevated shadow-2xl"
-        onClick={e => e.stopPropagation()}
+        onClick={event => event.stopPropagation()}
       >
         <div className="flex shrink-0 items-center justify-between border-b border-border px-6 py-4">
-          <span className="text-sm font-semibold text-fg">{title}</span>
-          <div className="flex items-center gap-2">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-semibold text-fg">{report.title}</span>
+              <span className="rounded-md border border-border px-2 py-0.5 text-[11px] text-fg-faint">
+                {reportKindLabel(report.kind)}
+              </span>
+            </div>
+            <p className="mt-1 truncate text-xs text-fg-faint">{report.summary}</p>
+          </div>
+          <div className="ml-4 flex shrink-0 items-center gap-2">
             <button onClick={handleCopy}
               className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg">
               {copied ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
@@ -84,11 +65,6 @@ export function DigestModal({
             <button onClick={handleDownload}
               className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg">
               <Download size={12} />下载 MD
-            </button>
-            <button onClick={handleArchive} disabled={archived || archiving}
-              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg disabled:opacity-50">
-              {archiving ? <Loader2 size={12} className="animate-spin" /> : <BookmarkPlus size={12} />}
-              {archived ? '已保存' : '保存报告'}
             </button>
             <button onClick={onClose}
               className="rounded-md p-1.5 text-fg-muted transition-colors hover:bg-bg-hover">
@@ -107,8 +83,7 @@ export function DigestModal({
               </div>
               <div className="space-y-2">
                 {result.citations.map((citation) => {
-                  const openSource = onOpenSource
-                  const canOpenSource = Boolean(citation.sourceId && openSource)
+                  const canOpenSource = Boolean(citation.sourceId && onOpenSource)
                   return (
                     <article key={`${citation.kind}-${citation.id}-${citation.label}`} className="rounded-lg border border-border bg-bg px-3 py-2">
                       <div className="flex items-start gap-3">
@@ -137,7 +112,7 @@ export function DigestModal({
                           {canOpenSource && (
                             <button
                               type="button"
-                              onClick={() => openSource?.(citation.sourceId!, citation.chunkIndex)}
+                              onClick={() => onOpenSource?.(citation.sourceId!, citation.chunkIndex)}
                               className="rounded-md border border-border px-2 py-1 text-fg-muted transition-colors hover:bg-bg-hover hover:text-accent"
                               title="回到来源块"
                             >

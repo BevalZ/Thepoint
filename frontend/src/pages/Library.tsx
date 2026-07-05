@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Loader2, AlertCircle, BookMarked, Search, X, LayoutList, Table2, Columns3, FolderOpen, Archive, FileText, LocateFixed, BookmarkPlus, Check, Sparkles, ShieldCheck, RefreshCw } from 'lucide-react'
+import { Loader2, AlertCircle, BookMarked, Search, X, LayoutList, Table2, Columns3, FolderOpen, Archive, FileText, LocateFixed, BookmarkPlus, Check, Sparkles, ShieldCheck, RefreshCw, ScrollText } from 'lucide-react'
 import { useDeepenStore, useEvidenceDigestStore, useLibraryStore, useStarStore, useSynthesisStore } from '@/store'
 import { PointTree } from '@/components/PointTree'
 import { EvidenceList } from '@/components/EvidenceList'
 import { DigestModal } from '@/components/DigestModal'
+import { ReportModal } from '@/components/ReportModal'
 import { GroupedView } from '@/components/library/GroupedView'
 import { ListView } from '@/components/library/ListView'
 import { TableView } from '@/components/library/TableView'
@@ -12,13 +13,14 @@ import { SourceExcerptButton } from '@/components/SourceExcerptButton'
 import { cn } from '@/lib/utils'
 import { EVIDENCE_VERDICT_FILTERS, filterEvidenceByVerdict } from '@/lib/evidenceLedger'
 import type { EvidenceVerdictFilter } from '@/lib/evidenceLedger'
-import type { DigestResult, EvidenceRecord, StoredPoint, WorkspaceSearchResult } from '@/api/types'
-import { generateSynthesis, listRecentEvidence, searchEvidence, searchWorkspace } from '@/api'
+import { reportKindLabel } from '@/lib/reportArtifacts'
+import type { DigestResult, EvidenceRecord, ReportRecord, WorkspaceSearchResult } from '@/api/types'
+import { generateSynthesis, listRecentEvidence, listRecentReports, searchEvidence, searchReports, searchWorkspace } from '@/api'
 
 const LS_VIEW = 'lib-view-mode'
 const LS_LIBRARY_MODE = 'lib-content-mode'
 type ViewMode = 'grouped' | 'list' | 'table' | 'kanban'
-type LibraryMode = 'points' | 'evidence'
+type LibraryMode = 'points' | 'evidence' | 'reports'
 
 const VIEW_OPTS: { id: ViewMode; icon: React.ReactNode; label: string }[] = [
   { id: 'grouped', icon: <FolderOpen size={14} />, label: '折叠栏' },
@@ -30,6 +32,7 @@ const VIEW_OPTS: { id: ViewMode; icon: React.ReactNode; label: string }[] = [
 const LIBRARY_MODE_OPTS: { id: LibraryMode; icon: React.ReactNode; label: string }[] = [
   { id: 'points', icon: <BookMarked size={14} />, label: '观点' },
   { id: 'evidence', icon: <ShieldCheck size={14} />, label: 'Evidence' },
+  { id: 'reports', icon: <ScrollText size={14} />, label: 'Reports' },
 ]
 
 interface LibraryProps {
@@ -41,7 +44,7 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
   const { points, archivedPoints, loading, error, fetch, fetchArchived, archivePoint, unarchivePoint } = useLibraryStore()
   const { fetchMentalModels } = useDeepenStore()
   const { has: hasEvidenceForDigest, toggle: toggleEvidenceForDigest } = useEvidenceDigestStore()
-  const { count: starredCount, points: starredPoints, init: initStars } = useStarStore()
+  const { count: starredCount, init: initStars } = useStarStore()
   const {
     sources: synthesisSources,
     hasSource: hasSynthesisSource,
@@ -52,6 +55,7 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
   const [query, setQuery] = useState('')
   const [searchResults, setSearchResults] = useState<WorkspaceSearchResult[] | null>(null)
   const [evidenceResults, setEvidenceResults] = useState<EvidenceRecord[] | null>(null)
+  const [reportResults, setReportResults] = useState<ReportRecord[] | null>(null)
   const [searching, setSearching] = useState(false)
   const [libraryMode, setLibraryMode] = useState<LibraryMode>(() => (localStorage.getItem(LS_LIBRARY_MODE) as LibraryMode) ?? 'points')
   const [viewMode, setViewMode] = useState<ViewMode>(() => (localStorage.getItem(LS_VIEW) as ViewMode) ?? 'grouped')
@@ -60,6 +64,10 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
   const [evidenceLoading, setEvidenceLoading] = useState(false)
   const [evidenceError, setEvidenceError] = useState<string | null>(null)
   const [evidenceVerdictFilter, setEvidenceVerdictFilter] = useState<EvidenceVerdictFilter>('all')
+  const [recentReports, setRecentReports] = useState<ReportRecord[]>([])
+  const [reportsLoading, setReportsLoading] = useState(false)
+  const [reportsError, setReportsError] = useState<string | null>(null)
+  const [selectedReport, setSelectedReport] = useState<ReportRecord | null>(null)
   const [includeStarred, setIncludeStarred] = useState(false)
   const [synthesisGenerating, setSynthesisGenerating] = useState(false)
   const [synthesisError, setSynthesisError] = useState<string | null>(null)
@@ -81,33 +89,64 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
     }
   }, [])
 
+  const loadRecentReports = useCallback(async () => {
+    setReportsLoading(true)
+    setReportsError(null)
+    try {
+      setRecentReports(await listRecentReports())
+    } catch (error) {
+      setRecentReports([])
+      setReportsError(error instanceof Error ? error.message : '加载 Reports 失败，请稍后重试。')
+    } finally {
+      setReportsLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     if (showArchived) fetchArchived()
   }, [showArchived, fetchArchived])
 
   useEffect(() => {
     if (libraryMode === 'evidence') void loadRecentEvidence()
-  }, [libraryMode, loadRecentEvidence])
+    if (libraryMode === 'reports') void loadRecentReports()
+  }, [libraryMode, loadRecentEvidence, loadRecentReports])
 
   useEffect(() => {
     if (timerRef.current) clearTimeout(timerRef.current)
     if (!query.trim()) {
       setSearchResults(null)
       setEvidenceResults(null)
+      setReportResults(null)
       setSearching(false)
       return
     }
     setSearchResults(null)
     setEvidenceResults(null)
+    setReportResults(null)
     setSearching(true)
     let alive = true
     timerRef.current = setTimeout(() => {
+      if (libraryMode === 'reports') {
+        searchReports(query)
+          .then((reports) => {
+            if (!alive) return
+            setReportResults(reports)
+          })
+          .catch(() => {
+            if (!alive) return
+            setReportResults([])
+          })
+          .finally(() => { if (alive) setSearching(false) })
+        return
+      }
+
       if (libraryMode === 'evidence') {
         searchEvidence(query)
           .then((evidence) => {
             if (!alive) return
             setSearchResults(null)
             setEvidenceResults(evidence)
+            setReportResults(null)
           })
           .catch(() => {
             if (!alive) return
@@ -123,6 +162,7 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
           if (!alive) return
           setSearchResults(workspace)
           setEvidenceResults(evidence)
+          setReportResults(null)
         })
         .catch(() => {
           if (!alive) return
@@ -157,11 +197,15 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
   const totalSearchResults = (searchResults?.length ?? 0) + (evidenceResults?.length ?? 0)
   const ledgerEvidenceRecords = searchActive ? (evidenceResults ?? []) : recentEvidence
   const filteredLedgerEvidence = filterEvidenceByVerdict(ledgerEvidenceRecords, evidenceVerdictFilter)
+  const visibleReports = searchActive ? (reportResults ?? []) : recentReports
   const showSynthesisPanel = libraryMode === 'points' && (synthesisSources.length > 0 || starredCount > 0)
   const canGenerateSynthesis = synthesisSources.length > 0 || (includeStarred && starredCount > 0)
-  const libraryDescription = libraryMode === 'evidence'
-    ? '已保存的事实审查证据，按时间、搜索和 verdict 复查。'
-    : '已保存的全部观点，按来源文档分组。'
+  const libraryDescription =
+    libraryMode === 'reports'
+      ? '已保存的研报和多来源综合，保留结构化引用。'
+      : libraryMode === 'evidence'
+        ? '已保存的事实审查证据，按时间、搜索和 verdict 复查。'
+        : '已保存的全部观点，按来源文档分组。'
 
   const handleOpenSearchResult = (result: WorkspaceSearchResult) => {
     if (result.kind === 'source') {
@@ -241,7 +285,13 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
         <div className="flex-1 flex items-center gap-2 rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm">
           <Search size={15} className="shrink-0 text-fg-muted" />
           <input className="flex-1 bg-transparent text-fg outline-none placeholder:text-fg-faint"
-            placeholder={libraryMode === 'evidence' ? '搜索 claim、答案或证据来源…' : '搜索观点、来源或证据…'}
+            placeholder={
+              libraryMode === 'reports'
+                ? '搜索报告标题、摘要、正文或引用…'
+                : libraryMode === 'evidence'
+                  ? '搜索 claim、答案或证据来源…'
+                  : '搜索观点、来源或证据…'
+            }
             value={query}
             onChange={e => setQuery(e.target.value)}
           />
@@ -272,12 +322,12 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
         ) : (
           <button
             type="button"
-            onClick={() => void loadRecentEvidence()}
-            disabled={evidenceLoading}
+            onClick={() => void (libraryMode === 'reports' ? loadRecentReports() : loadRecentEvidence())}
+            disabled={libraryMode === 'reports' ? reportsLoading : evidenceLoading}
             className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm text-fg-muted transition-colors hover:text-fg disabled:opacity-50"
-            title="刷新 Evidence"
+            title={libraryMode === 'reports' ? '刷新 Reports' : '刷新 Evidence'}
           >
-            <RefreshCw size={14} className={cn(evidenceLoading && 'animate-spin')} />
+            <RefreshCw size={14} className={cn((libraryMode === 'reports' ? reportsLoading : evidenceLoading) && 'animate-spin')} />
             刷新
           </button>
         )}
@@ -356,7 +406,57 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
       )}
 
       <div className="mt-6 flex-1">
-        {libraryMode === 'evidence' ? (
+        {libraryMode === 'reports' ? (
+          <div className="space-y-4 pb-6">
+            <div className="flex items-center justify-between text-xs text-fg-faint">
+              <span>{searchActive ? 'Reports 搜索结果' : '最近 Reports'}</span>
+              <span>{visibleReports.length}</span>
+            </div>
+
+            {reportsError && !searchActive ? (
+              <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+                <AlertCircle size={16} className="mt-0.5 shrink-0" />
+                <span className="break-words">{reportsError}</span>
+              </div>
+            ) : (searchActive && reportResults === null) || (!searchActive && reportsLoading) ? (
+              <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-fg-faint">
+                <Loader2 size={16} className="animate-spin" />加载 Reports…
+              </div>
+            ) : visibleReports.length > 0 ? (
+              <div className="space-y-2">
+                {visibleReports.map((report) => (
+                  <button
+                    key={report.id}
+                    type="button"
+                    onClick={() => setSelectedReport(report)}
+                    className="flex w-full items-start gap-3 rounded-lg border border-border bg-bg-elevated px-4 py-3 text-left transition-colors hover:bg-bg-hover"
+                  >
+                    <ScrollText size={15} className="mt-0.5 shrink-0 text-accent" />
+                    <span className="min-w-0 flex-1">
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="truncate text-sm font-medium text-fg">{report.title}</span>
+                        <span className="shrink-0 rounded-md border border-border px-2 py-0.5 text-[11px] text-fg-faint">
+                          {reportKindLabel(report.kind)}
+                        </span>
+                      </span>
+                      <span className="mt-1 line-clamp-2 text-xs leading-relaxed text-fg-muted">{report.summary}</span>
+                      <span className="mt-2 block text-[11px] text-fg-faint">{formatReportDate(report.createdAt)}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="flex min-h-40 flex-col items-center justify-center gap-2 text-center text-sm text-fg-faint">
+                <ScrollText size={24} className="opacity-50" />
+                <p>
+                  {searchActive
+                    ? '没有符合当前搜索的 Report。'
+                    : '还没有保存 Report。生成研报或多来源综合后，点击“保存报告”沉淀到这里。'}
+                </p>
+              </div>
+            )}
+          </div>
+        ) : libraryMode === 'evidence' ? (
           <div className="space-y-4 pb-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="flex overflow-hidden rounded-lg border border-border bg-bg-elevated">
@@ -535,13 +635,31 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
       {synthesisResult && (
         <DigestModal
           result={synthesisResult}
-          starredPoints={includeStarred ? starredPoints : []}
           title="多来源综合"
           sourceName="多来源综合"
+          reportKind="synthesis"
           onOpenSource={onOpenSource}
           onClose={() => setSynthesisResult(null)}
         />
       )}
+      {selectedReport && (
+        <ReportModal
+          report={selectedReport}
+          onOpenSource={onOpenSource}
+          onClose={() => setSelectedReport(null)}
+        />
+      )}
     </div>
   )
+}
+
+function formatReportDate(value: string): string {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
 }

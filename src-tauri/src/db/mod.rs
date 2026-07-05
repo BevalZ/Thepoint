@@ -153,6 +153,30 @@ pub struct SaveEvidenceInput {
     pub sources: Vec<SaveEvidenceSourceInput>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ReportRecord {
+    pub id: String,
+    pub title: String,
+    pub kind: String,
+    pub source_name: Option<String>,
+    pub body_md: String,
+    pub summary: String,
+    pub citations_json: String,
+    pub created_at: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveReportInput {
+    pub title: String,
+    pub kind: String,
+    pub source_name: Option<String>,
+    pub body_md: String,
+    pub summary: String,
+    pub citations_json: String,
+}
+
 /// Resolve the SQLite file path inside the app data dir, creating the dir if needed.
 pub fn db_path(app: &AppHandle<Wry>) -> Result<PathBuf> {
     let dir = app
@@ -363,6 +387,24 @@ pub fn init_db(conn: &Connection) -> Result<()> {
         CREATE INDEX IF NOT EXISTS idx_suggestions_created_at ON suggestions(created_at DESC);",
     )
     .context("failed to create suggestions table")?;
+
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS reports (
+            id              TEXT PRIMARY KEY,
+            title           TEXT NOT NULL,
+            kind            TEXT NOT NULL CHECK (kind IN ('digest', 'synthesis')),
+            source_name     TEXT,
+            body_md         TEXT NOT NULL,
+            summary         TEXT NOT NULL,
+            citations_json  TEXT NOT NULL,
+            created_at      TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_reports_kind
+            ON reports(kind);
+        CREATE INDEX IF NOT EXISTS idx_reports_created_at
+            ON reports(created_at DESC);",
+    )
+    .context("failed to create reports table")?;
 
     Ok(())
 }
@@ -828,6 +870,90 @@ fn list_evidence_sources(conn: &Connection, evidence_id: &str) -> Result<Vec<Evi
     Ok(sources)
 }
 
+pub fn save_report(conn: &Connection, input: SaveReportInput) -> Result<ReportRecord> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+    let title = required_trimmed("report title", &input.title)?.to_string();
+    let kind = input.kind.trim().to_string();
+    validate_report_kind(&kind)?;
+    let source_name = optional_trimmed(input.source_name.as_deref());
+    let body_md = required_trimmed("report body", &input.body_md)?.to_string();
+    let summary = required_trimmed("report summary", &input.summary)?.to_string();
+    let citations_json = normalize_report_citations_json(&input.citations_json)?;
+
+    conn.execute(
+        "INSERT INTO reports (id, title, kind, source_name, body_md, summary, citations_json, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![id, title, kind, source_name, body_md, summary, citations_json, now],
+    )?;
+
+    get_report(conn, &id)?.ok_or_else(|| anyhow::anyhow!("saved report not found: {id}"))
+}
+
+pub fn get_report(conn: &Connection, report_id: &str) -> Result<Option<ReportRecord>> {
+    if report_id.trim().is_empty() {
+        return Ok(None);
+    }
+
+    let mut stmt = conn.prepare(
+        "SELECT id, title, kind, source_name, body_md, summary, citations_json, created_at
+         FROM reports
+         WHERE id = ?1",
+    )?;
+    let mut rows = stmt.query(params![report_id])?;
+    let Some(row) = rows.next()? else {
+        return Ok(None);
+    };
+
+    Ok(Some(map_report_row(row)?))
+}
+
+pub fn list_recent_reports(conn: &Connection, limit: usize) -> Result<Vec<ReportRecord>> {
+    if limit == 0 {
+        return Ok(Vec::new());
+    }
+
+    let mut stmt = conn.prepare(
+        "SELECT id, title, kind, source_name, body_md, summary, citations_json, created_at
+         FROM reports
+         ORDER BY created_at DESC
+         LIMIT ?1",
+    )?;
+    let rows = stmt.query_map(params![limit as i64], map_report_row)?;
+    let mut reports = Vec::new();
+    for row in rows {
+        reports.push(row?);
+    }
+    Ok(reports)
+}
+
+pub fn search_reports(conn: &Connection, query: &str, limit: usize) -> Result<Vec<ReportRecord>> {
+    let trimmed = query.trim();
+    if trimmed.is_empty() || limit == 0 {
+        return Ok(Vec::new());
+    }
+
+    let pattern = format!("%{}%", escape_like(trimmed));
+    let mut stmt = conn.prepare(
+        "SELECT id, title, kind, source_name, body_md, summary, citations_json, created_at
+         FROM reports
+         WHERE title LIKE ?1 ESCAPE '\\'
+            OR kind LIKE ?1 ESCAPE '\\'
+            OR source_name LIKE ?1 ESCAPE '\\'
+            OR body_md LIKE ?1 ESCAPE '\\'
+            OR summary LIKE ?1 ESCAPE '\\'
+            OR citations_json LIKE ?1 ESCAPE '\\'
+         ORDER BY created_at DESC
+         LIMIT ?2",
+    )?;
+    let rows = stmt.query_map(params![pattern, limit as i64], map_report_row)?;
+    let mut reports = Vec::new();
+    for row in rows {
+        reports.push(row?);
+    }
+    Ok(reports)
+}
+
 /// Read every non-archived point (newest first) including its parent link.
 pub fn list_points(conn: &Connection) -> Result<Vec<StoredPoint>> {
     let mut stmt = conn.prepare(
@@ -1264,6 +1390,19 @@ fn map_evidence_source_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Evidence
     })
 }
 
+fn map_report_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ReportRecord> {
+    Ok(ReportRecord {
+        id: row.get(0)?,
+        title: row.get(1)?,
+        kind: row.get(2)?,
+        source_name: row.get(3)?,
+        body_md: row.get(4)?,
+        summary: row.get(5)?,
+        citations_json: row.get(6)?,
+        created_at: row.get(7)?,
+    })
+}
+
 fn required_trimmed<'a>(field: &str, value: &'a str) -> Result<&'a str> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -1291,6 +1430,26 @@ fn validate_evidence_stance(stance: &str) -> Result<()> {
         "support" | "contradict" | "context" | "unknown" => Ok(()),
         _ => anyhow::bail!("invalid evidence source stance: {stance}"),
     }
+}
+
+fn validate_report_kind(kind: &str) -> Result<()> {
+    match kind {
+        "digest" | "synthesis" => Ok(()),
+        _ => anyhow::bail!("invalid report kind: {kind}"),
+    }
+}
+
+fn normalize_report_citations_json(value: &str) -> Result<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        anyhow::bail!("report citations json is required");
+    }
+    let parsed: serde_json::Value = serde_json::from_str(trimmed)
+        .context("report citations json must be valid JSON")?;
+    if !parsed.is_array() {
+        anyhow::bail!("report citations json must be an array");
+    }
+    Ok(parsed.to_string())
 }
 
 /// Toggle starred on a point; returns new total starred count.
@@ -1556,6 +1715,19 @@ mod tests {
                 snippet: Some(format!("{claim} source snippet")),
                 stance: "support".to_string(),
             }],
+        }
+    }
+
+    fn report_input(title: &str, kind: &str, created_label: &str) -> SaveReportInput {
+        SaveReportInput {
+            title: title.to_string(),
+            kind: kind.to_string(),
+            source_name: Some(format!("{kind} source")),
+            body_md: format!("# {title}\n\nReport body with {created_label}"),
+            summary: format!("{title} summary"),
+            citations_json: format!(
+                r#"[{{"kind":"source","label":"S1","id":"source-{created_label}","title":"Source {created_label}","excerpt":"quoted evidence","sourceId":"source-{created_label}","chunkIndex":0,"url":"https://example.com/{created_label}"}}]"#
+            ),
         }
     }
 
@@ -1988,6 +2160,92 @@ mod tests {
         let mut empty_url = evidence_input("empty url evidence", None, None, "2026-07-05T00:02:00Z");
         empty_url.sources[0].url = "   ".to_string();
         assert!(save_evidence(&mut conn, empty_url).is_err());
+    }
+
+    #[test]
+    fn save_report_persists_and_reads_structured_citations() {
+        let conn = memory_db();
+        let mut input = report_input("  Strategy Digest  ", "digest", "digest-1");
+        input.summary = "  A concise report summary.  ".to_string();
+
+        let saved = save_report(&conn, input).unwrap();
+
+        assert_eq!(saved.title, "Strategy Digest");
+        assert_eq!(saved.kind, "digest");
+        assert_eq!(saved.summary, "A concise report summary.");
+        assert!(saved.citations_json.contains("\"label\":\"S1\""));
+
+        let fetched = get_report(&conn, &saved.id).unwrap().unwrap();
+        assert_eq!(fetched.id, saved.id);
+        assert_eq!(fetched.source_name.as_deref(), Some("digest source"));
+        assert_eq!(fetched.body_md, "#   Strategy Digest  \n\nReport body with digest-1");
+    }
+
+    #[test]
+    fn list_recent_reports_returns_newest_with_limit() {
+        let conn = memory_db();
+
+        let first = save_report(&conn, report_input("First Report", "digest", "first")).unwrap();
+        let second = save_report(&conn, report_input("Second Report", "synthesis", "second")).unwrap();
+        let third = save_report(&conn, report_input("Third Report", "digest", "third")).unwrap();
+
+        conn.execute(
+            "UPDATE reports SET created_at = ?1 WHERE id = ?2",
+            params!["2026-07-05T00:01:00Z", first.id],
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE reports SET created_at = ?1 WHERE id = ?2",
+            params!["2026-07-05T00:03:00Z", second.id],
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE reports SET created_at = ?1 WHERE id = ?2",
+            params!["2026-07-05T00:02:00Z", third.id],
+        )
+        .unwrap();
+
+        let reports = list_recent_reports(&conn, 2).unwrap();
+
+        assert_eq!(reports.len(), 2);
+        assert_eq!(reports[0].title, "Second Report");
+        assert_eq!(reports[1].title, "Third Report");
+        assert!(list_recent_reports(&conn, 0).unwrap().is_empty());
+    }
+
+    #[test]
+    fn search_reports_matches_body_summary_and_citations() {
+        let conn = memory_db();
+        let saved = save_report(&conn, report_input("Market Report", "synthesis", "alpha")).unwrap();
+        save_report(&conn, report_input("Unrelated Report", "digest", "beta")).unwrap();
+
+        for term in ["Market", "synthesis source", "Report body", "Source alpha", "https://example.com/alpha"] {
+            let reports = search_reports(&conn, term, 10).unwrap();
+            assert!(
+                reports.iter().any(|report| report.id == saved.id),
+                "expected search term {term} to return saved report"
+            );
+        }
+    }
+
+    #[test]
+    fn save_report_rejects_invalid_kind_blank_body_and_invalid_citations() {
+        let conn = memory_db();
+
+        let invalid_kind = report_input("Invalid Kind", "memo", "invalid-kind");
+        assert!(save_report(&conn, invalid_kind).is_err());
+
+        let mut blank_body = report_input("Blank Body", "digest", "blank-body");
+        blank_body.body_md = "   ".to_string();
+        assert!(save_report(&conn, blank_body).is_err());
+
+        let mut invalid_json = report_input("Invalid JSON", "digest", "invalid-json");
+        invalid_json.citations_json = "{not-json".to_string();
+        assert!(save_report(&conn, invalid_json).is_err());
+
+        let mut non_array_json = report_input("Non Array JSON", "digest", "non-array");
+        non_array_json.citations_json = r#"{"kind":"source"}"#.to_string();
+        assert!(save_report(&conn, non_array_json).is_err());
     }
 
     #[test]

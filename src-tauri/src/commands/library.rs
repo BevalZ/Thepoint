@@ -22,6 +22,17 @@ pub struct SaveEvidenceCommandInput {
     pub chunk_index: Option<i64>,
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveReportCommandInput {
+    pub title: String,
+    pub kind: String,
+    pub source_name: Option<String>,
+    pub body_md: String,
+    pub summary: String,
+    pub citations_json: String,
+}
+
 /// Persist a batch of extracted points into the local library. Returns generated IDs.
 #[tauri::command]
 pub async fn save_points(
@@ -207,6 +218,76 @@ pub async fn search_evidence(
     .await
     .map_err(|e| e.to_string())?
     .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn save_report(
+    app: tauri::AppHandle<Wry>,
+    input: SaveReportCommandInput,
+) -> Result<db::ReportRecord, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<db::ReportRecord> {
+        let conn = db::open_db(&path)?;
+        db::save_report(&conn, report_command_input_to_db(input))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn list_recent_reports(
+    app: tauri::AppHandle<Wry>,
+) -> Result<Vec<db::ReportRecord>, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<db::ReportRecord>> {
+        let conn = db::open_db(&path)?;
+        db::list_recent_reports(&conn, 120)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_report(
+    app: tauri::AppHandle<Wry>,
+    report_id: String,
+) -> Result<Option<db::ReportRecord>, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<Option<db::ReportRecord>> {
+        let conn = db::open_db(&path)?;
+        db::get_report(&conn, &report_id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn search_reports(
+    app: tauri::AppHandle<Wry>,
+    query: String,
+) -> Result<Vec<db::ReportRecord>, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<db::ReportRecord>> {
+        let conn = db::open_db(&path)?;
+        db::search_reports(&conn, &query, 40)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+fn report_command_input_to_db(input: SaveReportCommandInput) -> db::SaveReportInput {
+    db::SaveReportInput {
+        title: input.title,
+        kind: input.kind,
+        source_name: input.source_name,
+        body_md: input.body_md,
+        summary: input.summary,
+        citations_json: input.citations_json,
+    }
 }
 
 fn fact_check_result_to_evidence(input: SaveEvidenceCommandInput) -> db::SaveEvidenceInput {
@@ -534,5 +615,26 @@ mod tests {
         assert_eq!(evidence.sources.len(), 1);
         assert_eq!(evidence.sources[0].stance, "unknown");
         assert_eq!(evidence.sources[0].url, "https://example.com/report");
+    }
+
+    #[test]
+    fn report_command_input_to_db_preserves_fields() {
+        let input = SaveReportCommandInput {
+            title: "Digest Title".to_string(),
+            kind: "digest".to_string(),
+            source_name: Some("知识研报".to_string()),
+            body_md: "# Digest Title".to_string(),
+            summary: "Digest summary".to_string(),
+            citations_json: "[]".to_string(),
+        };
+
+        let report = report_command_input_to_db(input);
+
+        assert_eq!(report.title, "Digest Title");
+        assert_eq!(report.kind, "digest");
+        assert_eq!(report.source_name.as_deref(), Some("知识研报"));
+        assert_eq!(report.body_md, "# Digest Title");
+        assert_eq!(report.summary, "Digest summary");
+        assert_eq!(report.citations_json, "[]");
     }
 }

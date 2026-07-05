@@ -39,7 +39,9 @@ Use this checklist before releasing changes that touch Source, Point, Evidence, 
    - Generate Digest from the ring.
    - Confirm the Digest modal shows Markdown content and a structured citation list.
    - Confirm `[P*]` and `[E*]` citations have correct labels and source/chunk return where available.
-   - Save the Digest to the Library and confirm the saved source excerpt includes a citation appendix.
+   - Save the Digest as a Report.
+   - Open Library -> Reports and confirm the saved Digest appears.
+   - Reopen the saved Report and confirm copy/download output includes the citation appendix.
 
 7. Generate multi-source synthesis.
    - Search Library for at least two Sources.
@@ -48,6 +50,7 @@ Use this checklist before releasing changes that touch Source, Point, Evidence, 
    - Generate synthesis.
    - Confirm the report includes common themes, aligned claims, conflicting claims, evidence strength, unresolved questions, next steps, and citations.
    - Confirm `[S*]`, `[P*]`, and `[E*]` citation entries can open Source/Chunk when metadata is present.
+   - Save the synthesis as a Report and confirm it reopens from Library -> Reports.
 
 8. Empty and degradation states.
    - Evidence without source context shows “无来源定位” and no broken jump button.
@@ -65,6 +68,7 @@ npm run typecheck
 npm run check:boundaries
 cd ..
 cargo test --manifest-path src-tauri\Cargo.toml evidence
+cargo test --manifest-path src-tauri\Cargo.toml report
 cargo test --manifest-path src-tauri\Cargo.toml digest
 cargo test --manifest-path src-tauri\Cargo.toml synthesis
 cargo check --manifest-path src-tauri\Cargo.toml

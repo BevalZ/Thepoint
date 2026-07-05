@@ -22,6 +22,8 @@ import type {
   PointSourceLinkInput,
   RelatedClassification,
   RelatedCandidateInput,
+  ReportRecord,
+  SaveReportInput,
   SourceDocumentRecord,
   StoredPoint,
   Suggestion,
@@ -105,6 +107,18 @@ export const getEvidence = (evidenceId: string): Promise<EvidenceRecord | null> 
 
 export const searchEvidence = (query: string): Promise<EvidenceRecord[]> =>
   invokeCommand('search_evidence', { query })
+
+export const saveReport = (input: SaveReportInput): Promise<ReportRecord> =>
+  invokeCommand('save_report', { input })
+
+export const listRecentReports = (): Promise<ReportRecord[]> =>
+  invokeCommand('list_recent_reports')
+
+export const getReport = (reportId: string): Promise<ReportRecord | null> =>
+  invokeCommand('get_report', { reportId })
+
+export const searchReports = (query: string): Promise<ReportRecord[]> =>
+  invokeCommand('search_reports', { query })
 
 export const listPoints = () => invokeCommand('list_points')
 
