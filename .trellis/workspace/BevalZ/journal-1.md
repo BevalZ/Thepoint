@@ -542,3 +542,37 @@ Ran a Tauri desktop startup smoke pass, verified dev runtime processes and port 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 17: Foliole Marginalia research workspace
+
+**Date**: 2026-07-06
+**Task**: Foliole Marginalia research workspace
+**Branch**: `main`
+
+### Summary
+
+Implemented the local research workspace: Investigation reports, Journal memory, related asset discovery, Review Queue, Open Data Mirror, indexed folders, UI/API wiring, docs/spec updates, and verification.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `eb64924` | (see git log) |
+| `e74171c` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
