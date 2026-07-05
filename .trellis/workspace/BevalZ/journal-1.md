@@ -404,3 +404,37 @@ Changed ignore rules so Trellis project state, specs, tasks, and workspace journ
 ### Next Steps
 
 - None - task complete
+
+
+## Session 13: Unify Library Search Results
+
+**Date**: 2026-07-05
+**Task**: Unify Library Search Results
+**Branch**: `main`
+
+### Summary
+
+Added default Library search aggregation for Source, Point, Evidence, and Reports; documented the frontend unified search contract.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e0b25af` | (see git log) |
+| `3f477d9` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
