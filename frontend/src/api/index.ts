@@ -120,6 +120,9 @@ export const getReport = (reportId: string): Promise<ReportRecord | null> =>
 export const searchReports = (query: string): Promise<ReportRecord[]> =>
   invokeCommand('search_reports', { query })
 
+export const deleteReport = (reportId: string): Promise<void> =>
+  invokeCommand('delete_report', { reportId })
+
 export const listPoints = () => invokeCommand('list_points')
 
 export const archivePoint = (pointId: string) => invokeCommand('archive_point', { pointId })

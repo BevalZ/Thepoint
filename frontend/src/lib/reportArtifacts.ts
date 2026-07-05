@@ -1,8 +1,21 @@
 import type { DigestCitation, DigestResult, ReportKind, ReportRecord, SaveReportInput } from '@/api/types'
 import { digestMarkdownWithCitations } from './digestArtifacts'
 
+export type ReportKindFilter = 'all' | ReportKind
+
 export function reportKindLabel(kind: ReportKind): string {
   return kind === 'synthesis' ? '多来源综合' : '知识研报'
+}
+
+export const REPORT_KIND_FILTERS: { id: ReportKindFilter; label: string }[] = [
+  { id: 'all', label: '全部' },
+  { id: 'digest', label: reportKindLabel('digest') },
+  { id: 'synthesis', label: reportKindLabel('synthesis') },
+]
+
+export function filterReportsByKind(records: ReportRecord[], kind: ReportKindFilter): ReportRecord[] {
+  if (kind === 'all') return records
+  return records.filter((record) => record.kind === kind)
 }
 
 export function reportSummaryFromMarkdown(content: string, maxLength = 120): string {

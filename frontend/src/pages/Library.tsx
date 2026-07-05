@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Loader2, AlertCircle, BookMarked, Search, X, LayoutList, Table2, Columns3, FolderOpen, Archive, FileText, LocateFixed, BookmarkPlus, Check, Sparkles, ShieldCheck, RefreshCw, ScrollText } from 'lucide-react'
+import { Loader2, AlertCircle, BookMarked, Search, X, LayoutList, Table2, Columns3, FolderOpen, Archive, FileText, LocateFixed, BookmarkPlus, Check, Sparkles, ShieldCheck, RefreshCw, ScrollText, Trash2 } from 'lucide-react'
 import { useDeepenStore, useEvidenceDigestStore, useLibraryStore, useStarStore, useSynthesisStore } from '@/store'
 import { PointTree } from '@/components/PointTree'
 import { EvidenceList } from '@/components/EvidenceList'
@@ -13,9 +13,10 @@ import { SourceExcerptButton } from '@/components/SourceExcerptButton'
 import { cn } from '@/lib/utils'
 import { EVIDENCE_VERDICT_FILTERS, filterEvidenceByVerdict } from '@/lib/evidenceLedger'
 import type { EvidenceVerdictFilter } from '@/lib/evidenceLedger'
-import { reportKindLabel } from '@/lib/reportArtifacts'
+import { REPORT_KIND_FILTERS, filterReportsByKind, reportKindLabel } from '@/lib/reportArtifacts'
+import type { ReportKindFilter } from '@/lib/reportArtifacts'
 import type { DigestResult, EvidenceRecord, ReportRecord, WorkspaceSearchResult } from '@/api/types'
-import { generateSynthesis, listRecentEvidence, listRecentReports, searchEvidence, searchReports, searchWorkspace } from '@/api'
+import { deleteReport, generateSynthesis, listRecentEvidence, listRecentReports, searchEvidence, searchReports, searchWorkspace } from '@/api'
 
 const LS_VIEW = 'lib-view-mode'
 const LS_LIBRARY_MODE = 'lib-content-mode'
@@ -67,6 +68,8 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
   const [recentReports, setRecentReports] = useState<ReportRecord[]>([])
   const [reportsLoading, setReportsLoading] = useState(false)
   const [reportsError, setReportsError] = useState<string | null>(null)
+  const [reportKindFilter, setReportKindFilter] = useState<ReportKindFilter>('all')
+  const [deletingReportId, setDeletingReportId] = useState<string | null>(null)
   const [selectedReport, setSelectedReport] = useState<ReportRecord | null>(null)
   const [includeStarred, setIncludeStarred] = useState(false)
   const [synthesisGenerating, setSynthesisGenerating] = useState(false)
@@ -123,6 +126,7 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
     setSearchResults(null)
     setEvidenceResults(null)
     setReportResults(null)
+    setReportsError(null)
     setSearching(true)
     let alive = true
     timerRef.current = setTimeout(() => {
@@ -190,6 +194,25 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
   const handleArchive = async (id: string) => { await archivePoint(id) }
   const handleUnarchive = async (id: string) => { await unarchivePoint(id); fetchArchived() }
 
+  const handleDeleteReport = async (report: ReportRecord) => {
+    if (deletingReportId) return
+    const confirmed = window.confirm(`删除 Report「${report.title}」？此操作不会删除来源、观点或 Evidence。`)
+    if (!confirmed) return
+
+    setDeletingReportId(report.id)
+    setReportsError(null)
+    try {
+      await deleteReport(report.id)
+      setRecentReports((records) => records.filter((item) => item.id !== report.id))
+      setReportResults((records) => records?.filter((item) => item.id !== report.id) ?? null)
+      setSelectedReport((current) => current?.id === report.id ? null : current)
+    } catch (error) {
+      setReportsError(error instanceof Error ? error.message : '删除 Report 失败，请稍后重试。')
+    } finally {
+      setDeletingReportId(null)
+    }
+  }
+
   const activePoints = showArchived ? archivedPoints : points
   const sourceResults = searchResults?.filter((result) => result.kind === 'source') ?? []
   const pointResults = searchResults?.filter((result) => result.kind === 'point') ?? []
@@ -197,7 +220,8 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
   const totalSearchResults = (searchResults?.length ?? 0) + (evidenceResults?.length ?? 0)
   const ledgerEvidenceRecords = searchActive ? (evidenceResults ?? []) : recentEvidence
   const filteredLedgerEvidence = filterEvidenceByVerdict(ledgerEvidenceRecords, evidenceVerdictFilter)
-  const visibleReports = searchActive ? (reportResults ?? []) : recentReports
+  const reportRecords = searchActive ? (reportResults ?? []) : recentReports
+  const visibleReports = filterReportsByKind(reportRecords, reportKindFilter)
   const showSynthesisPanel = libraryMode === 'points' && (synthesisSources.length > 0 || starredCount > 0)
   const canGenerateSynthesis = synthesisSources.length > 0 || (includeStarred && starredCount > 0)
   const libraryDescription =
@@ -410,10 +434,33 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
           <div className="space-y-4 pb-6">
             <div className="flex items-center justify-between text-xs text-fg-faint">
               <span>{searchActive ? 'Reports 搜索结果' : '最近 Reports'}</span>
-              <span>{visibleReports.length}</span>
+              <span>{visibleReports.length} / {reportRecords.length}</span>
             </div>
 
-            {reportsError && !searchActive ? (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex overflow-hidden rounded-lg border border-border bg-bg-elevated">
+                {REPORT_KIND_FILTERS.map((filter) => (
+                  <button
+                    key={filter.id}
+                    type="button"
+                    onClick={() => setReportKindFilter(filter.id)}
+                    className={cn(
+                      'px-3 py-2 text-xs transition-colors',
+                      reportKindFilter === filter.id ? 'bg-accent/10 text-accent' : 'text-fg-muted hover:text-fg'
+                    )}
+                  >
+                    {filter.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-fg-faint">
+                {searchActive
+                  ? `匹配 ${visibleReports.length} / ${reportRecords.length}`
+                  : `显示 ${visibleReports.length} / ${recentReports.length}`}
+              </p>
+            </div>
+
+            {reportsError ? (
               <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
                 <AlertCircle size={16} className="mt-0.5 shrink-0" />
                 <span className="break-words">{reportsError}</span>
@@ -425,24 +472,37 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
             ) : visibleReports.length > 0 ? (
               <div className="space-y-2">
                 {visibleReports.map((report) => (
-                  <button
+                  <article
                     key={report.id}
-                    type="button"
-                    onClick={() => setSelectedReport(report)}
                     className="flex w-full items-start gap-3 rounded-lg border border-border bg-bg-elevated px-4 py-3 text-left transition-colors hover:bg-bg-hover"
                   >
-                    <ScrollText size={15} className="mt-0.5 shrink-0 text-accent" />
-                    <span className="min-w-0 flex-1">
-                      <span className="flex min-w-0 items-center gap-2">
-                        <span className="truncate text-sm font-medium text-fg">{report.title}</span>
-                        <span className="shrink-0 rounded-md border border-border px-2 py-0.5 text-[11px] text-fg-faint">
-                          {reportKindLabel(report.kind)}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedReport(report)}
+                      className="flex min-w-0 flex-1 items-start gap-3 text-left"
+                    >
+                      <ScrollText size={15} className="mt-0.5 shrink-0 text-accent" />
+                      <span className="min-w-0 flex-1">
+                        <span className="flex min-w-0 items-center gap-2">
+                          <span className="truncate text-sm font-medium text-fg">{report.title}</span>
+                          <span className="shrink-0 rounded-md border border-border px-2 py-0.5 text-[11px] text-fg-faint">
+                            {reportKindLabel(report.kind)}
+                          </span>
                         </span>
+                        <span className="mt-1 line-clamp-2 text-xs leading-relaxed text-fg-muted">{report.summary}</span>
+                        <span className="mt-2 block text-[11px] text-fg-faint">{formatReportDate(report.createdAt)}</span>
                       </span>
-                      <span className="mt-1 line-clamp-2 text-xs leading-relaxed text-fg-muted">{report.summary}</span>
-                      <span className="mt-2 block text-[11px] text-fg-faint">{formatReportDate(report.createdAt)}</span>
-                    </span>
-                  </button>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleDeleteReport(report)}
+                      disabled={deletingReportId !== null}
+                      className="mt-0.5 shrink-0 rounded-md border border-border px-2 py-1.5 text-fg-muted transition-colors hover:bg-red-500/10 hover:text-red-300 disabled:opacity-50"
+                      title="删除 Report"
+                    >
+                      {deletingReportId === report.id ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                    </button>
+                  </article>
                 ))}
               </div>
             ) : (
@@ -450,8 +510,12 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
                 <ScrollText size={24} className="opacity-50" />
                 <p>
                   {searchActive
-                    ? '没有符合当前搜索的 Report。'
-                    : '还没有保存 Report。生成研报或多来源综合后，点击“保存报告”沉淀到这里。'}
+                    ? reportRecords.length > 0
+                      ? '没有符合当前搜索和类型筛选的 Report。'
+                      : '没有符合当前搜索的 Report。'
+                    : recentReports.length > 0
+                      ? '没有符合当前类型筛选的 Report。'
+                      : '还没有保存 Report。生成研报或多来源综合后，点击“保存报告”沉淀到这里。'}
                 </p>
               </div>
             )}

@@ -42,6 +42,7 @@ pub fn run() {
             commands::library::list_recent_reports,
             commands::library::get_report,
             commands::library::search_reports,
+            commands::library::delete_report,
             commands::library::list_points,
             commands::library::search_points,
             commands::library::search_workspace,

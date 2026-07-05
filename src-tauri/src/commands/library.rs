@@ -279,6 +279,18 @@ pub async fn search_reports(
     .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub async fn delete_report(app: tauri::AppHandle<Wry>, report_id: String) -> Result<(), String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+        let conn = db::open_db(&path)?;
+        db::delete_report(&conn, &report_id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
 fn report_command_input_to_db(input: SaveReportCommandInput) -> db::SaveReportInput {
     db::SaveReportInput {
         title: input.title,

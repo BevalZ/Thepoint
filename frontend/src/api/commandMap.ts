@@ -131,6 +131,10 @@ export interface TauriCommandMap {
     args: { query: string }
     result: ReportRecord[]
   }
+  delete_report: {
+    args: { reportId: string }
+    result: void
+  }
   list_points: {
     args: undefined
     result: StoredPoint[]

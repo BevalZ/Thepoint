@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { DigestCitation, DigestResult, ReportRecord } from '@/api/types'
 import {
   digestResultFromReport,
+  filterReportsByKind,
   parseReportCitations,
   reportMarkdownWithCitations,
   reportSaveInput,
@@ -74,5 +75,15 @@ describe('report artifact helpers', () => {
     expect(parseReportCitations('{bad-json')).toEqual([])
     expect(parseReportCitations('{}')).toEqual([])
     expect(parseReportCitations(JSON.stringify([{ label: 'S1' }]))).toEqual([])
+  })
+
+  it('filters reports by kind while preserving order', () => {
+    const digest = report({ id: 'report-digest', kind: 'digest' })
+    const synthesis = report({ id: 'report-synthesis', kind: 'synthesis' })
+    const records = [synthesis, digest]
+
+    expect(filterReportsByKind(records, 'all')).toEqual(records)
+    expect(filterReportsByKind(records, 'digest')).toEqual([digest])
+    expect(filterReportsByKind(records, 'synthesis')).toEqual([synthesis])
   })
 })

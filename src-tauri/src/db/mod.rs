@@ -954,6 +954,16 @@ pub fn search_reports(conn: &Connection, query: &str, limit: usize) -> Result<Ve
     Ok(reports)
 }
 
+pub fn delete_report(conn: &Connection, report_id: &str) -> Result<()> {
+    let trimmed = report_id.trim();
+    if trimmed.is_empty() {
+        return Ok(());
+    }
+
+    conn.execute("DELETE FROM reports WHERE id = ?1", params![trimmed])?;
+    Ok(())
+}
+
 /// Read every non-archived point (newest first) including its parent link.
 pub fn list_points(conn: &Connection) -> Result<Vec<StoredPoint>> {
     let mut stmt = conn.prepare(
@@ -2246,6 +2256,26 @@ mod tests {
         let mut non_array_json = report_input("Non Array JSON", "digest", "non-array");
         non_array_json.citations_json = r#"{"kind":"source"}"#.to_string();
         assert!(save_report(&conn, non_array_json).is_err());
+    }
+
+    #[test]
+    fn delete_report_removes_report_from_reads_lists_and_search() {
+        let conn = memory_db();
+        let saved = save_report(&conn, report_input("Delete Me", "digest", "delete-me")).unwrap();
+        let kept = save_report(&conn, report_input("Keep Me", "synthesis", "keep-me")).unwrap();
+
+        delete_report(&conn, &saved.id).unwrap();
+        delete_report(&conn, "   ").unwrap();
+        delete_report(&conn, "missing-report").unwrap();
+
+        assert!(get_report(&conn, &saved.id).unwrap().is_none());
+
+        let recent = list_recent_reports(&conn, 10).unwrap();
+        assert!(!recent.iter().any(|report| report.id == saved.id));
+        assert!(recent.iter().any(|report| report.id == kept.id));
+
+        let search = search_reports(&conn, "Delete Me", 10).unwrap();
+        assert!(search.is_empty());
     }
 
     #[test]
