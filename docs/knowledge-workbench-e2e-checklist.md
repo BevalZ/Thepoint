@@ -1,6 +1,16 @@
 # Knowledge Workbench E2E Checklist
 
-Use this checklist before releasing changes that touch Source, Point, Evidence, Digest, or Synthesis behavior.
+Use this checklist before releasing changes that touch Source, Point, Evidence, Digest, Synthesis, or saved Report behavior.
+
+## Manual Runtime
+
+Run persistence-heavy flows in the Tauri desktop runtime, not browser-only preview. Browser preview uses API fallbacks and cannot validate SQLite persistence, Tauri commands, file metadata, or source/report reopen behavior.
+
+```powershell
+cargo tauri dev
+```
+
+`cargo tauri dev` starts the frontend dev server through the Tauri `beforeDevCommand`.
 
 ## Preconditions
 
@@ -41,6 +51,8 @@ Use this checklist before releasing changes that touch Source, Point, Evidence, 
    - Confirm `[P*]` and `[E*]` citations have correct labels and source/chunk return where available.
    - Save the Digest as a Report.
    - Open Library -> Reports and confirm the saved Digest appears.
+   - Filter Reports to “知识研报” and confirm the Digest remains visible.
+   - Filter Reports to “多来源综合” and confirm the Digest is hidden unless a matching synthesis report also exists.
    - Reopen the saved Report and confirm copy/download output includes the citation appendix.
 
 7. Generate multi-source synthesis.
@@ -51,11 +63,22 @@ Use this checklist before releasing changes that touch Source, Point, Evidence, 
    - Confirm the report includes common themes, aligned claims, conflicting claims, evidence strength, unresolved questions, next steps, and citations.
    - Confirm `[S*]`, `[P*]`, and `[E*]` citation entries can open Source/Chunk when metadata is present.
    - Save the synthesis as a Report and confirm it reopens from Library -> Reports.
+   - Filter Reports to “多来源综合” and confirm the synthesis Report remains visible.
+   - Filter Reports to “知识研报” and confirm the synthesis Report is hidden unless a matching Digest report also exists.
 
-8. Empty and degradation states.
+8. Manage saved Reports.
+   - In Library -> Reports, switch the type filter back to “全部”.
+   - Delete one saved Report and confirm the row disappears after confirmation.
+   - Confirm deleting a Report does not remove the original Source, linked Points, saved Evidence, or the other saved Reports.
+   - Search for the deleted Report title and confirm it no longer appears.
+   - Reopen a remaining Report and confirm citation source/chunk controls still work.
+
+9. Empty and degradation states.
    - Evidence without source context shows “无来源定位” and no broken jump button.
    - Synthesis refuses to run with no selected Source and no Star input.
    - Digest refuses to run with no Point and no Evidence input.
+   - Reports with no saved entries show the empty Reports state.
+   - Report type filters with no matches show a no-match state instead of stale rows.
 
 ## Automated Regression Commands
 
