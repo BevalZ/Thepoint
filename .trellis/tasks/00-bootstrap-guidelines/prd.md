@@ -21,11 +21,11 @@ the rest conversationally.
 
 ## Status (update the checkboxes as you complete each item)
 
-- [ ] Fill backend guidelines
+- [x] Fill backend guidelines
   - [x] Fill backend directory structure and error handling guidelines
-  - [ ] Fill backend logging and quality guidelines
+  - [x] Fill backend logging and quality guidelines
 - [x] Fill frontend guidelines
-- [ ] Add code examples
+- [x] Add code examples
 
 ---
 

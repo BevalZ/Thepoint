@@ -6,49 +6,77 @@
 
 ## Overview
 
-<!--
-Document your project's database conventions here.
+The backend uses local SQLite through `rusqlite`, not an ORM. The database file is `deep_explorer.db`, resolved from the Tauri app data directory by `db_path(app)` in `src-tauri/src/db/mod.rs`.
 
-Questions to answer:
-- What ORM/query library do you use?
-- How are migrations managed?
-- What are the naming conventions for tables/columns?
-- How do you handle transactions?
--->
+`db/mod.rs` is the database boundary today. It owns:
 
-(To be filled by the team)
+- serialized record/input structs returned through Tauri commands
+- `open_db(path)` and idempotent schema initialization in `init_db(conn)`
+- inline schema creation, lightweight migrations, indexes, FTS triggers, and DB helpers
+- module-local unit tests for persistence contracts
+
+Commands should call DB helpers from `src-tauri/src/commands/<area>.rs`; they should not duplicate SQL in the command layer except for established local cases such as the batch insert in `save_points`.
 
 ---
 
 ## Query Patterns
 
-<!-- How should queries be written? Batch operations? -->
+Use explicit `rusqlite` calls with typed helper functions:
 
-(To be filled by the team)
+- Helpers accept `&Connection` for reads/simple writes and `&mut Connection` when the helper opens a transaction.
+- Helpers return `anyhow::Result<T>`.
+- Use `params!` / `params_from_iter` instead of string-built values.
+- Return hydrated records when callers need nested data, such as `EvidenceRecord { sources }`.
+- Treat blank lookup/search inputs as empty results or no-op behavior when that contract already exists.
+- Keep command-facing records `#[serde(rename_all = "camelCase")]`.
+
+Good examples:
+
+- `save_evidence(conn: &mut Connection, input: SaveEvidenceInput)` validates and saves evidence plus sources in one transaction.
+- `get_evidence`, `list_evidence_for_point`, `list_evidence_for_source`, and `search_evidence` return hydrated Evidence records.
+- `save_report`, `get_report`, `list_recent_reports`, `search_reports`, and `delete_report` keep Report archive behavior separate from Points/Sources/Evidence.
+- `delete_point` detaches Evidence with `UPDATE evidence_records SET point_id = NULL` before deleting Points.
+
+Async Tauri commands must run DB work inside `tokio::task::spawn_blocking` and map both join errors and DB errors to strings at the command boundary.
 
 ---
 
 ## Migrations
 
-<!-- How to create and run migrations -->
+There is no migrations directory or framework yet. Schema setup and incremental migrations live in `init_db(conn)`:
 
-(To be filled by the team)
+- Add new tables and indexes with `CREATE TABLE IF NOT EXISTS` / `CREATE INDEX IF NOT EXISTS`.
+- Add new columns with a `column_exists(conn, table, column)` guard before `ALTER TABLE`.
+- Keep initialization idempotent so every `open_db(path)` can safely call `init_db`.
+- Add backfill logic in `init_db` when existing rows need derived state, as the Points FTS5 backfill does.
+- Preserve existing user data during schema changes; do not drop and recreate durable tables for a migration.
+
+If migration complexity outgrows this inline model, introduce a real migration strategy as a separate architecture change and update this spec before adding migration files.
 
 ---
 
 ## Naming Conventions
 
-<!-- Table names, column names, index names -->
+Current SQL naming conventions:
 
-(To be filled by the team)
+- table names are lowercase snake_case plurals, for example `points`, `source_documents`, `source_chunks`, `evidence_records`, `evidence_sources`, `reports`, and `suggestions`
+- column names are lowercase snake_case, for example `source_id`, `chunk_index`, `created_at`, `citations_json`
+- index names use `idx_<table>_<field_or_purpose>`
+- trigger names use `<table_or_feature>_<action>`, for example `points_fts_insert`
+- Rust/frontend serialized fields use camelCase at the boundary through serde, while DB columns stay snake_case
+
+IDs are stored as `TEXT` and generated in Rust with `uuid::Uuid::new_v4().to_string()` in the helpers that create durable records.
 
 ---
 
 ## Common Mistakes
 
-<!-- Database-related mistakes your team has made -->
-
-(To be filled by the team)
+- Do not put schema changes only inside a command handler; schema belongs in `init_db`.
+- Do not bypass existing DB helpers from UI-facing command code when a helper owns the contract.
+- Do not use raw string interpolation for query values; bind parameters with `rusqlite`.
+- Do not delete audit records accidentally when deleting UI objects. Evidence detaches from deleted Points; Report deletion only deletes the Report row.
+- Do not return partially hydrated records from helpers whose contract says they include nested records, such as Evidence `sources`.
+- Do not change frontend command payload casing by renaming Rust fields without checking `frontend/src/api/commandMap.ts`.
 
 ---
 

@@ -17,10 +17,10 @@ Read the files below before changing backend code. For command/API changes, also
 | Guide | Description | Status |
 |-------|-------------|--------|
 | [Directory Structure](./directory-structure.md) | Runtime entrypoints, command/db/ai/parser placement rules | Project-specific |
-| [Database Guidelines](./database-guidelines.md) | ORM patterns, queries, migrations | Active |
+| [Database Guidelines](./database-guidelines.md) | SQLite/rusqlite helpers, inline migrations, naming, durable data contracts | Project-specific |
 | [Error Handling](./error-handling.md) | `anyhow::Result`, command `Result<T, String>`, validation and degradation patterns | Project-specific |
-| [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | To fill |
-| [Logging Guidelines](./logging-guidelines.md) | Structured logging, log levels | To fill |
+| [Quality Guidelines](./quality-guidelines.md) | Verification commands, command boundary quality rules, tests, review checklist | Project-specific |
+| [Logging Guidelines](./logging-guidelines.md) | Current minimal console diagnostics and sensitive-data limits | Project-specific |
 
 ---
 
@@ -31,8 +31,9 @@ Before backend implementation:
 1. Read [Directory Structure](./directory-structure.md) to place commands, DB helpers, parser code, and AI helpers correctly.
 2. Read [Error Handling](./error-handling.md) before adding commands or fallible helpers.
 3. Read [Database Guidelines](./database-guidelines.md) before changing SQLite schema, query behavior, or durable records.
-4. Read [Quality Guidelines](./quality-guidelines.md) and [Logging Guidelines](./logging-guidelines.md) when those files are populated for the current task.
-5. For cross-layer command changes, read frontend [Type Safety](../frontend/type-safety.md), [Directory Structure](../frontend/directory-structure.md), and [Quality Guidelines](../frontend/quality-guidelines.md).
+4. Read [Quality Guidelines](./quality-guidelines.md) before changing command contracts, async DB/filesystem work, or tests.
+5. Read [Logging Guidelines](./logging-guidelines.md) before adding backend diagnostics or recoverable-degradation logging.
+6. For cross-layer command changes, read frontend [Type Safety](../frontend/type-safety.md), [Directory Structure](../frontend/directory-structure.md), and [Quality Guidelines](../frontend/quality-guidelines.md).
 
 ---
 
