@@ -576,3 +576,54 @@ Implemented the local research workspace: Investigation reports, Journal memory,
 ### Next Steps
 
 - None - task complete
+
+
+## Session 18: High-star OSS reference implementation
+
+**Date**: 2026-07-06
+**Task**: High-star OSS reference implementation
+**Branch**: `main`
+
+### Summary
+
+Analyzed high-star reference projects, implemented indexed folder diagnostics and report citation audit support, and documented the resulting backend contract.
+
+### Main Changes
+
+### Main Changes
+
+- Completed the OSS reference analysis task from cloned projects under `炼化/` and preserved research outputs under the archived Trellis task.
+- Implemented Indexed Folder descriptor/preview diagnostics and citation locator/audit support.
+- Added the backend/database spec contract for Report citation locator and audit semantics.
+
+### Verification
+
+- [OK] `cargo test --manifest-path src-tauri/Cargo.toml commands::library::tests::locate_citation_quote -- --nocapture`
+- [OK] `cargo test --manifest-path src-tauri/Cargo.toml commands::library::tests::report_citation_audit_counts_locator_statuses_for_saved_report -- --nocapture`
+- [OK] `npm run typecheck`
+- [OK] `npm run check:boundaries`
+- [OK] `cargo check --manifest-path src-tauri/Cargo.toml`
+- [OK] `npm run test:run`
+- [OK] `npm run build`
+- [OK] `cargo test --manifest-path src-tauri/Cargo.toml`
+- [OK] `git diff --check`
+
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0f66151` | (see git log) |
+| `dda9b7d` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 17
+- **Total Sessions**: 18
 - **Last Active**: 2026-07-06
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~578 | Active |
+| `journal-1.md` | ~629 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 18 | 2026-07-06 | High-star OSS reference implementation | `0f66151`, `dda9b7d` | `main` |
 | 17 | 2026-07-06 | Foliole Marginalia research workspace | `eb64924`, `e74171c` | `main` |
 | 16 | 2026-07-05 | Desktop E2E startup smoke | `3dc14d1`, `a5a59fc` | `main` |
 | 15 | 2026-07-05 | Workbench readiness assets | `edc5761`, `965d070`, `ba79ad1` | `main` |
