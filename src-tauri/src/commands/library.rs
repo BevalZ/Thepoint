@@ -177,6 +177,21 @@ pub async fn list_evidence_for_source(
 }
 
 #[tauri::command]
+pub async fn get_source_assets(
+    app: tauri::AppHandle<Wry>,
+    source_id: String,
+) -> Result<Option<db::SourceAssetsRecord>, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<Option<db::SourceAssetsRecord>> {
+        let conn = db::open_db(&path)?;
+        db::get_source_assets(&conn, &source_id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn list_recent_evidence(
     app: tauri::AppHandle<Wry>,
 ) -> Result<Vec<db::EvidenceRecord>, String> {

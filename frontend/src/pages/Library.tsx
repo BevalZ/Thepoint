@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Loader2, AlertCircle, BookMarked, Search, X, LayoutList, Table2, Columns3, FolderOpen, Archive, FileText, LocateFixed, BookmarkPlus, Check, Sparkles, ShieldCheck, RefreshCw, ScrollText, Trash2 } from 'lucide-react'
+import { Loader2, AlertCircle, BookMarked, Search, X, LayoutList, Table2, Columns3, FolderOpen, Archive, FileText, LocateFixed, BookmarkPlus, Check, Sparkles, ShieldCheck, RefreshCw, ScrollText, Trash2, Images } from 'lucide-react'
 import { useDeepenStore, useEvidenceDigestStore, useLibraryStore, useStarStore, useSynthesisStore } from '@/store'
 import { PointTree } from '@/components/PointTree'
 import { EvidenceList } from '@/components/EvidenceList'
@@ -15,8 +15,8 @@ import { EVIDENCE_VERDICT_FILTERS, filterEvidenceByVerdict } from '@/lib/evidenc
 import type { EvidenceVerdictFilter } from '@/lib/evidenceLedger'
 import { REPORT_KIND_FILTERS, filterReportsByKind, reportKindLabel } from '@/lib/reportArtifacts'
 import type { ReportKindFilter } from '@/lib/reportArtifacts'
-import type { DigestResult, EvidenceRecord, ReportRecord, WorkspaceSearchResult } from '@/api/types'
-import { deleteReport, generateSynthesis, listRecentEvidence, listRecentReports, searchEvidence, searchReports, searchWorkspace } from '@/api'
+import type { DigestResult, EvidenceRecord, GalleryItem, ReportRecord, WorkspaceSearchResult } from '@/api/types'
+import { deleteReport, generateSynthesis, listRecentEvidence, listRecentReports, searchEvidence, searchGallery, searchReports, searchWorkspace } from '@/api'
 
 const LS_VIEW = 'lib-view-mode'
 const LS_LIBRARY_MODE = 'lib-content-mode'
@@ -39,9 +39,10 @@ const LIBRARY_MODE_OPTS: { id: LibraryMode; icon: React.ReactNode; label: string
 interface LibraryProps {
   onOpenPointSource?: (pointId: string) => void
   onOpenSource?: (sourceId: string, focusChunkIndex?: number | null) => void
+  onOpenGallery?: () => void
 }
 
-export default function Library({ onOpenPointSource, onOpenSource }: LibraryProps) {
+export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery }: LibraryProps) {
   const { points, archivedPoints, loading, error, fetch, fetchArchived, archivePoint, unarchivePoint } = useLibraryStore()
   const { fetchMentalModels } = useDeepenStore()
   const { has: hasEvidenceForDigest, toggle: toggleEvidenceForDigest } = useEvidenceDigestStore()
@@ -57,6 +58,7 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
   const [searchResults, setSearchResults] = useState<WorkspaceSearchResult[] | null>(null)
   const [evidenceResults, setEvidenceResults] = useState<EvidenceRecord[] | null>(null)
   const [reportResults, setReportResults] = useState<ReportRecord[] | null>(null)
+  const [galleryResults, setGalleryResults] = useState<GalleryItem[] | null>(null)
   const [searching, setSearching] = useState(false)
   const [libraryMode, setLibraryMode] = useState<LibraryMode>(() => (localStorage.getItem(LS_LIBRARY_MODE) as LibraryMode) ?? 'points')
   const [viewMode, setViewMode] = useState<ViewMode>(() => (localStorage.getItem(LS_VIEW) as ViewMode) ?? 'grouped')
@@ -120,12 +122,14 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
       setSearchResults(null)
       setEvidenceResults(null)
       setReportResults(null)
+      setGalleryResults(null)
       setSearching(false)
       return
     }
     setSearchResults(null)
     setEvidenceResults(null)
     setReportResults(null)
+    setGalleryResults(null)
     setReportsError(null)
     setSearching(true)
     let alive = true
@@ -151,6 +155,7 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
             setSearchResults(null)
             setEvidenceResults(evidence)
             setReportResults(null)
+            setGalleryResults(null)
           })
           .catch(() => {
             if (!alive) return
@@ -161,18 +166,20 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
         return
       }
 
-      Promise.all([searchWorkspace(query), searchEvidence(query), searchReports(query)])
-        .then(([workspace, evidence, reports]) => {
+      Promise.all([searchWorkspace(query), searchEvidence(query), searchReports(query), searchGallery(query)])
+        .then(([workspace, evidence, reports, gallery]) => {
           if (!alive) return
           setSearchResults(workspace)
           setEvidenceResults(evidence)
           setReportResults(reports)
+          setGalleryResults(gallery)
         })
         .catch(() => {
           if (!alive) return
           setSearchResults([])
           setEvidenceResults([])
           setReportResults([])
+          setGalleryResults([])
         })
         .finally(() => { if (alive) setSearching(false) })
     }, 300)
@@ -219,7 +226,8 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
   const pointResults = searchResults?.filter((result) => result.kind === 'point') ?? []
   const searchActive = query.trim().length > 0
   const unifiedReportResults = libraryMode === 'points' && searchActive ? (reportResults ?? []) : []
-  const totalSearchResults = (searchResults?.length ?? 0) + (evidenceResults?.length ?? 0) + unifiedReportResults.length
+  const unifiedGalleryResults = libraryMode === 'points' && searchActive ? (galleryResults ?? []) : []
+  const totalSearchResults = (searchResults?.length ?? 0) + (evidenceResults?.length ?? 0) + unifiedReportResults.length + unifiedGalleryResults.length
   const ledgerEvidenceRecords = searchActive ? (evidenceResults ?? []) : recentEvidence
   const filteredLedgerEvidence = filterEvidenceByVerdict(ledgerEvidenceRecords, evidenceVerdictFilter)
   const reportRecords = searchActive ? (reportResults ?? []) : recentReports
@@ -579,7 +587,7 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
             )}
           </div>
         ) : searchActive ? (
-          searching && searchResults === null && evidenceResults === null && reportResults === null ? (
+          searching && searchResults === null && evidenceResults === null && reportResults === null && galleryResults === null ? (
             <div className="flex h-full min-h-32 items-center justify-center gap-2 text-sm text-fg-faint">
               <Loader2 size={16} className="animate-spin" />搜索中…
             </div>
@@ -669,6 +677,50 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
                   </div>
                   <div className="space-y-2">
                     {unifiedReportResults.map(renderReportItem)}
+                  </div>
+                </section>
+              )}
+              {unifiedGalleryResults.length > 0 && (
+                <section>
+                  <div className="mb-2 flex items-center justify-between text-xs text-fg-faint">
+                    <span>Gallery</span>
+                    <span>{unifiedGalleryResults.length}</span>
+                  </div>
+                  <div className="space-y-2">
+                    {unifiedGalleryResults.map((item) => (
+                      <article
+                        key={`gallery-${item.id}`}
+                        className="flex w-full items-start gap-3 rounded-lg border border-border bg-bg-elevated px-4 py-3 text-left transition-colors hover:bg-bg-hover"
+                      >
+                        <Images size={15} className="mt-0.5 shrink-0 text-accent" />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex min-w-0 items-center gap-2">
+                            <span className="truncate text-sm font-medium text-fg">{item.prompt}</span>
+                            <span className="shrink-0 rounded-md border border-border px-2 py-0.5 text-[11px] text-fg-faint">
+                              {item.downloadStatus}
+                            </span>
+                          </div>
+                          <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-fg-muted">
+                            {item.sourcePoints.length > 0
+                              ? item.sourcePoints.map((point) => point.content).join(' · ')
+                              : item.filePath}
+                          </p>
+                          <p className="mt-2 text-[11px] text-fg-faint">
+                            {item.pointIds.length} linked Point · {item.generatedAt.slice(0, 10)}
+                          </p>
+                        </div>
+                        {onOpenGallery && (
+                          <button
+                            type="button"
+                            onClick={onOpenGallery}
+                            className="shrink-0 rounded-md border border-border px-2 py-1.5 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-accent"
+                            title="打开画廊"
+                          >
+                            打开
+                          </button>
+                        )}
+                      </article>
+                    ))}
                   </div>
                 </section>
               )}

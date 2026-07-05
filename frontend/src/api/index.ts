@@ -24,6 +24,7 @@ import type {
   RelatedCandidateInput,
   ReportRecord,
   SaveReportInput,
+  SourceAssetsRecord,
   SourceDocumentRecord,
   StoredPoint,
   Suggestion,
@@ -98,6 +99,9 @@ export const listEvidenceForPoint = (pointId: string): Promise<EvidenceRecord[]>
 
 export const listEvidenceForSource = (sourceId: string): Promise<EvidenceRecord[]> =>
   invokeCommand('list_evidence_for_source', { sourceId })
+
+export const getSourceAssets = (sourceId: string): Promise<SourceAssetsRecord | null> =>
+  invokeCommand('get_source_assets', { sourceId })
 
 export const listRecentEvidence = (): Promise<EvidenceRecord[]> =>
   invokeCommand('list_recent_evidence')
@@ -240,6 +244,7 @@ export const generateImageFromPrompt = (
   sourcePoints: GallerySourcePoint[]
 ) => invokeCommand('generate_image_from_prompt', { prompt, pointIds, sourcePoints })
 export const listGallery = () => invokeCommand('list_gallery')
+export const searchGallery = (query: string) => invokeCommand('search_gallery', { query })
 export const deleteGalleryItem = (id: string) => invokeCommand('delete_gallery_item', { id })
 export const retryDownload = (id: string) => invokeCommand('retry_download', { id })
 export const diagnoseGalleryFile = (filePath: string) =>

@@ -11,6 +11,7 @@ import {
   ChevronDown,
   Clipboard,
   Database,
+  Download,
   ExternalLink,
   FileText,
   Globe,
@@ -20,6 +21,8 @@ import {
   Link,
   Loader2,
   RotateCcw,
+  ScrollText,
+  ShieldCheck,
   Star,
   Trash2,
   Upload,
@@ -28,10 +31,11 @@ import {
 import { useConfigStore, useExploreHistoryStore, useExploreStore, useStarStore } from '@/store'
 import { cn } from '@/lib/utils'
 import { useStarFly } from '@/hooks/useStarFly'
-import { analyzeTextBlock, describeImage, factCheckClaim, listEvidenceForSource, listRecentSources, saveEvidence, savePoints } from '@/api'
-import type { AppConfig, ChunkCard, EvidenceRecord, ExploreHistoryItem, ExploreSourceMetadata, FactCheckResult, SourceSummaryRecord } from '@/api/types'
-import { EvidenceList } from '@/components/EvidenceList'
+import { analyzeTextBlock, describeImage, factCheckClaim, getSourceAssets, listRecentSources, saveEvidence, savePoints } from '@/api'
+import type { AppConfig, ChunkCard, EvidenceRecord, ExploreHistoryItem, ExploreSourceMetadata, FactCheckResult, ReportRecord, SourceAssetsRecord, SourceSummaryRecord } from '@/api/types'
 import { ExternalLinkPreview } from '@/components/ExternalLinkPreview'
+import { reportKindLabel, reportMarkdownWithCitations } from '@/lib/reportArtifacts'
+import { evidenceMarkdown, markdownFileName, sourceAssetsMarkdown, sourceDisplayTitle } from '@/lib/workbenchArtifacts'
 
 const URL_RE = /^https?:\/\/[^\s]+$/
 const SUPPORTED_EXTS = ['txt','md','markdown','rst','csv','docx','odt','html','htm']
@@ -1090,6 +1094,205 @@ function SourceHeader({
       </AnimatePresence>
     </div>
   )
+}
+
+interface SourceAssetPanelProps {
+  assets: SourceAssetsRecord | null
+  loading: boolean
+  error: string | null
+  onOpenSource: (sourceId: string, chunkIndex?: number | null) => void
+  onExportSource: () => void
+  onExportEvidence: (record: EvidenceRecord) => void
+  onExportReport: (record: ReportRecord) => void
+}
+
+function SourceAssetPanel({
+  assets,
+  loading,
+  error,
+  onOpenSource,
+  onExportSource,
+  onExportEvidence,
+  onExportReport,
+}: SourceAssetPanelProps) {
+  if (!assets && !loading && !error) return null
+
+  const pointCount = assets?.points.length ?? 0
+  const evidenceCount = assets?.evidence.length ?? 0
+  const reportCount = assets?.reports.length ?? 0
+  const galleryCount = assets?.gallery.length ?? 0
+  const totalCount = pointCount + evidenceCount + reportCount + galleryCount
+
+  return (
+    <section className="mx-6 mt-4 rounded-lg border border-border bg-bg-elevated px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 text-sm font-medium text-fg">
+            <Database size={14} className="text-accent" />
+            <span>来源资产</span>
+            {loading && <Loader2 size={13} className="animate-spin text-fg-faint" />}
+          </div>
+          <p className="mt-1 text-xs text-fg-faint">
+            {assets
+              ? `${pointCount} Point · ${evidenceCount} Evidence · ${reportCount} Report · ${galleryCount} Image`
+              : '正在整理与当前来源关联的资产'}
+          </p>
+        </div>
+        {assets && (
+          <button
+            type="button"
+            onClick={onExportSource}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-accent"
+            title="导出来源资产 Markdown"
+          >
+            <Download size={13} />
+            导出
+          </button>
+        )}
+      </div>
+
+      {error && (
+        <div className="mt-3 rounded-md border border-red-500/25 bg-red-500/10 px-3 py-2 text-xs text-red-300">
+          {error}
+        </div>
+      )}
+
+      {assets && totalCount === 0 && !error && (
+        <div className="mt-3 rounded-md border border-border bg-bg px-3 py-4 text-center text-xs text-fg-faint">
+          当前来源还没有可聚合的 Point、Evidence、Report 或 Gallery 图片。
+        </div>
+      )}
+
+      {assets && totalCount > 0 && (
+        <div className="mt-4 grid gap-3 lg:grid-cols-2">
+          <AssetGroup title="Points" count={pointCount} icon={<FileText size={13} />}>
+            {assets.points.length > 0 ? (
+              assets.points.slice(0, 4).map((point) => (
+                <div key={point.id} className="rounded-md border border-border bg-bg px-3 py-2">
+                  <div className="mb-1 flex items-center gap-1.5 text-[11px] text-fg-faint">
+                    <span>{point.tagType ?? '未分类'}</span>
+                    {point.starred && <span className="text-accent">Star</span>}
+                  </div>
+                  <p className="line-clamp-2 text-xs leading-relaxed text-fg-muted">{point.content}</p>
+                </div>
+              ))
+            ) : (
+              <EmptyAssetGroup text="暂无关联 Point" />
+            )}
+          </AssetGroup>
+
+          <AssetGroup title="Evidence" count={evidenceCount} icon={<ShieldCheck size={13} />}>
+            {assets.evidence.length > 0 ? (
+              assets.evidence.slice(0, 3).map((record) => {
+                const evidenceSourceId = record.sourceId
+                return (
+                  <div key={record.id} className="rounded-md border border-border bg-bg px-3 py-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="line-clamp-1 text-xs font-medium text-fg">{record.claim}</p>
+                        <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-fg-muted">{record.answer}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onExportEvidence(record)}
+                        className="shrink-0 rounded-md border border-border px-1.5 py-1 text-fg-muted transition-colors hover:bg-bg-hover hover:text-accent"
+                        title="导出 Evidence"
+                      >
+                        <Download size={12} />
+                      </button>
+                    </div>
+                    {evidenceSourceId && (
+                      <button
+                        type="button"
+                        onClick={() => onOpenSource(evidenceSourceId, record.chunkIndex)}
+                        className="mt-2 text-[11px] text-accent hover:underline"
+                      >
+                        回到来源块
+                      </button>
+                    )}
+                  </div>
+                )
+              })
+            ) : (
+              <EmptyAssetGroup text="暂无 Evidence" />
+            )}
+          </AssetGroup>
+
+          <AssetGroup title="Reports" count={reportCount} icon={<ScrollText size={13} />}>
+            {assets.reports.length > 0 ? (
+              assets.reports.slice(0, 3).map((report) => (
+                <div key={report.id} className="rounded-md border border-border bg-bg px-3 py-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="line-clamp-1 text-xs font-medium text-fg">{report.title}</p>
+                      <p className="mt-1 text-[11px] text-fg-faint">{reportKindLabel(report.kind)}</p>
+                      <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-fg-muted">{report.summary}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onExportReport(report)}
+                      className="shrink-0 rounded-md border border-border px-1.5 py-1 text-fg-muted transition-colors hover:bg-bg-hover hover:text-accent"
+                      title="导出 Report"
+                    >
+                      <Download size={12} />
+                    </button>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <EmptyAssetGroup text="暂无引用当前来源的 Report" />
+            )}
+          </AssetGroup>
+
+          <AssetGroup title="Gallery" count={galleryCount} icon={<Images size={13} />}>
+            {assets.gallery.length > 0 ? (
+              assets.gallery.slice(0, 3).map((item) => (
+                <div key={item.id} className="rounded-md border border-border bg-bg px-3 py-2">
+                  <div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-fg-faint">
+                    <span>{item.downloadStatus}</span>
+                    <span>{item.pointIds.length} Point</span>
+                  </div>
+                  <p className="line-clamp-2 text-xs leading-relaxed text-fg-muted">{item.prompt}</p>
+                </div>
+              ))
+            ) : (
+              <EmptyAssetGroup text="暂无来源关联图片" />
+            )}
+          </AssetGroup>
+        </div>
+      )}
+    </section>
+  )
+}
+
+function AssetGroup({ title, count, icon, children }: { title: string; count: number; icon: ReactNode; children: ReactNode }) {
+  return (
+    <section>
+      <div className="mb-2 flex items-center justify-between text-xs text-fg-faint">
+        <span className="inline-flex items-center gap-1.5">{icon}{title}</span>
+        <span>{count}</span>
+      </div>
+      <div className="space-y-2">{children}</div>
+    </section>
+  )
+}
+
+function EmptyAssetGroup({ text }: { text: string }) {
+  return (
+    <div className="rounded-md border border-border bg-bg px-3 py-3 text-center text-xs text-fg-faint">
+      {text}
+    </div>
+  )
+}
+
+function downloadMarkdownFile(fileName: string, markdown: string) {
+  const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = fileName
+  anchor.click()
+  URL.revokeObjectURL(url)
 }
 
 // ── Drawer ─────────────────────────────────────────────────────────────────
@@ -2694,8 +2897,9 @@ export default function Explore() {
   const [adHocAnalyzing, setAdHocAnalyzing] = useState<Record<number, boolean>>({})
   const [adHocErrors, setAdHocErrors] = useState<Record<number, string>>({})
   const [factBubble, setFactBubble] = useState<FactBubbleState | null>(null)
-  const [sourceEvidence, setSourceEvidence] = useState<EvidenceRecord[]>([])
-  const [sourceEvidenceLoading, setSourceEvidenceLoading] = useState(false)
+  const [sourceAssets, setSourceAssets] = useState<SourceAssetsRecord | null>(null)
+  const [sourceAssetsLoading, setSourceAssetsLoading] = useState(false)
+  const [sourceAssetsError, setSourceAssetsError] = useState<string | null>(null)
   const [selectionToolbar, setSelectionToolbar] = useState<SelectionToolbarState | null>(null)
   const [commentDialog, setCommentDialog] = useState<CommentDialogState | null>(null)
   const [commentDraft, setCommentDraft] = useState('')
@@ -3005,10 +3209,16 @@ export default function Explore() {
       .then((evidence) => {
         saveFactCheckResult(current.claim, current.context, current.result!)
         if (evidence.sourceId === sourceId) {
-          setSourceEvidence((records) => [
-            evidence,
-            ...records.filter((record) => record.id !== evidence.id),
-          ])
+          setSourceAssets((assets) => assets
+            ? {
+                ...assets,
+                evidence: [
+                  evidence,
+                  ...assets.evidence.filter((record) => record.id !== evidence.id),
+                ],
+              }
+            : assets
+          )
         }
         setFactBubble((existing) => existing?.claim === current.claim
           ? { ...existing, saving: false, saved: true, evidenceId: evidence.id }
@@ -3159,16 +3369,22 @@ export default function Explore() {
 
   useEffect(() => {
     if (!sourceId) {
-      setSourceEvidence([])
-      setSourceEvidenceLoading(false)
+      setSourceAssets(null)
+      setSourceAssetsLoading(false)
+      setSourceAssetsError(null)
       return
     }
     let alive = true
-    setSourceEvidenceLoading(true)
-    listEvidenceForSource(sourceId)
-      .then((records) => { if (alive) setSourceEvidence(records) })
-      .catch(() => { if (alive) setSourceEvidence([]) })
-      .finally(() => { if (alive) setSourceEvidenceLoading(false) })
+    setSourceAssetsLoading(true)
+    setSourceAssetsError(null)
+    getSourceAssets(sourceId)
+      .then((assets) => { if (alive) setSourceAssets(assets) })
+      .catch((error: unknown) => {
+        if (!alive) return
+        setSourceAssets(null)
+        setSourceAssetsError(error instanceof Error ? error.message : '加载来源资产失败，请稍后重试。')
+      })
+      .finally(() => { if (alive) setSourceAssetsLoading(false) })
     return () => { alive = false }
   }, [sourceId, sourceOpenVersion])
 
@@ -3276,6 +3492,29 @@ export default function Explore() {
     const opened = await openSourceById(nextSourceId, null)
     if (opened) setRecentSourcesOpen(false)
   }, [openSourceById])
+
+  const handleExportSourceAssets = useCallback(() => {
+    if (!sourceAssets) return
+    const title = sourceDisplayTitle(sourceAssets.source)
+    downloadMarkdownFile(
+      markdownFileName('source-assets', title, sourceAssets.source.id),
+      sourceAssetsMarkdown(sourceAssets)
+    )
+  }, [sourceAssets])
+
+  const handleExportEvidence = useCallback((record: EvidenceRecord) => {
+    downloadMarkdownFile(
+      markdownFileName('evidence', record.claim, record.id),
+      evidenceMarkdown(record)
+    )
+  }, [])
+
+  const handleExportReport = useCallback((record: ReportRecord) => {
+    downloadMarkdownFile(
+      markdownFileName('report', record.title, record.id),
+      reportMarkdownWithCitations(record)
+    )
+  }, [])
 
   const handleActivateHistory = (id: string) => {
     history.activate(id)
@@ -3427,14 +3666,14 @@ export default function Explore() {
               onClear={reset}
             />
 
-            {sourceEvidenceLoading && (
-              <div className="mx-6 mt-4 text-xs text-fg-faint">加载来源证据…</div>
-            )}
-            <EvidenceList
-              records={sourceEvidence}
-              title="该来源证据"
-              className="mx-6 mt-4"
+            <SourceAssetPanel
+              assets={sourceAssets}
+              loading={sourceAssetsLoading}
+              error={sourceAssetsError}
               onOpenSource={(nextSourceId, chunkIndex) => { void openSourceById(nextSourceId, chunkIndex) }}
+              onExportSource={handleExportSourceAssets}
+              onExportEvidence={handleExportEvidence}
+              onExportReport={handleExportReport}
             />
 
             {error && (

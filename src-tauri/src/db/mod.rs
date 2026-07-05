@@ -81,6 +81,16 @@ pub struct SourceWorkspaceRecord {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
+pub struct SourceAssetsRecord {
+    pub source: SourceSummaryRecord,
+    pub points: Vec<StoredPoint>,
+    pub evidence: Vec<EvidenceRecord>,
+    pub reports: Vec<ReportRecord>,
+    pub gallery: Vec<GalleryItem>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct PointSourceContext {
     pub point_id: String,
     pub source: SourceSummaryRecord,
@@ -564,6 +574,19 @@ pub fn get_source_workspace(conn: &Connection, source_id: &str) -> Result<Option
     Ok(Some(SourceWorkspaceRecord { source, chunks }))
 }
 
+pub fn get_source_assets(conn: &Connection, source_id: &str) -> Result<Option<SourceAssetsRecord>> {
+    let Some(source) = source_summary_by_id(conn, source_id)? else {
+        return Ok(None);
+    };
+    Ok(Some(SourceAssetsRecord {
+        points: list_points_for_source(conn, source_id, 80)?,
+        evidence: list_evidence_for_source(conn, source_id)?,
+        reports: list_reports_for_source(conn, source_id, 80)?,
+        gallery: list_gallery_for_source(conn, source_id, 80)?,
+        source,
+    }))
+}
+
 pub fn get_source_workspace_summary(conn: &Connection, source_id: &str) -> Result<Option<SourceSummaryRecord>> {
     source_summary_by_id(conn, source_id)
 }
@@ -952,6 +975,109 @@ pub fn search_reports(conn: &Connection, query: &str, limit: usize) -> Result<Ve
         reports.push(row?);
     }
     Ok(reports)
+}
+
+pub fn list_points_for_source(conn: &Connection, source_id: &str, limit: usize) -> Result<Vec<StoredPoint>> {
+    let trimmed = source_id.trim();
+    if trimmed.is_empty() || limit == 0 {
+        return Ok(Vec::new());
+    }
+
+    let mut stmt = conn.prepare(
+        "SELECT p.id, p.content, p.tag_type, p.parent_id, p.source_doc_name, p.source_excerpt, p.created_at, p.archived, p.starred
+         FROM points p
+         JOIN point_source_links l ON l.point_id = p.id
+         WHERE l.source_id = ?1
+         ORDER BY p.created_at DESC
+         LIMIT ?2",
+    )?;
+    let rows = stmt.query_map(params![trimmed, limit as i64], map_point_row)?;
+    let mut points = Vec::new();
+    for row in rows { points.push(row?); }
+    Ok(points)
+}
+
+pub fn list_reports_for_source(conn: &Connection, source_id: &str, limit: usize) -> Result<Vec<ReportRecord>> {
+    let trimmed = source_id.trim();
+    if trimmed.is_empty() || limit == 0 {
+        return Ok(Vec::new());
+    }
+
+    let mut stmt = conn.prepare(
+        "SELECT id, title, kind, source_name, body_md, summary, citations_json, created_at
+         FROM reports
+         ORDER BY created_at DESC",
+    )?;
+    let rows = stmt.query_map([], map_report_row)?;
+    let mut reports = Vec::new();
+    for row in rows {
+        let report = row?;
+        if report_references_source(&report, trimmed) {
+            reports.push(report);
+            if reports.len() >= limit {
+                break;
+            }
+        }
+    }
+    Ok(reports)
+}
+
+pub fn list_gallery_for_source(conn: &Connection, source_id: &str, limit: usize) -> Result<Vec<GalleryItem>> {
+    let trimmed = source_id.trim();
+    if trimmed.is_empty() || limit == 0 {
+        return Ok(Vec::new());
+    }
+
+    let point_ids = point_ids_for_source(conn, trimmed)?;
+    if point_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut gallery = Vec::new();
+    for item in list_gallery(conn)? {
+        if item.point_ids.iter().any(|point_id| point_ids.contains(point_id)) {
+            gallery.push(item);
+            if gallery.len() >= limit {
+                break;
+            }
+        }
+    }
+    Ok(gallery)
+}
+
+fn point_ids_for_source(conn: &Connection, source_id: &str) -> Result<HashSet<String>> {
+    let mut stmt = conn.prepare(
+        "SELECT point_id
+         FROM point_source_links
+         WHERE source_id = ?1",
+    )?;
+    let rows = stmt.query_map(params![source_id], |row| row.get::<_, String>(0))?;
+    let mut ids = HashSet::new();
+    for row in rows { ids.insert(row?); }
+    Ok(ids)
+}
+
+fn report_references_source(report: &ReportRecord, source_id: &str) -> bool {
+    let Ok(serde_json::Value::Array(citations)) = serde_json::from_str::<serde_json::Value>(&report.citations_json) else {
+        return false;
+    };
+    citations.iter().any(|citation| citation_references_source(citation, source_id))
+}
+
+fn citation_references_source(citation: &serde_json::Value, source_id: &str) -> bool {
+    let Some(object) = citation.as_object() else {
+        return false;
+    };
+    let direct_source = object
+        .get("sourceId")
+        .or_else(|| object.get("source_id"))
+        .and_then(serde_json::Value::as_str);
+    if direct_source == Some(source_id) {
+        return true;
+    }
+    let kind = object.get("kind").and_then(serde_json::Value::as_str);
+    let id = object.get("id").and_then(serde_json::Value::as_str);
+    kind == Some("source") && id == Some(source_id)
 }
 
 pub fn delete_report(conn: &Connection, report_id: &str) -> Result<()> {
@@ -1548,6 +1674,30 @@ pub fn list_gallery(conn: &Connection) -> Result<Vec<GalleryItem>> {
     Ok(out)
 }
 
+pub fn search_gallery(conn: &Connection, query: &str, limit: usize) -> Result<Vec<GalleryItem>> {
+    let trimmed = query.trim();
+    if trimmed.is_empty() || limit == 0 {
+        return Ok(Vec::new());
+    }
+
+    let pattern = format!("%{}%", escape_like(trimmed));
+    let mut stmt = conn.prepare(
+        "SELECT id, file_path, thumbnail_path, prompt, generated_at, download_status, point_ids, source_points
+         FROM gallery
+         WHERE prompt LIKE ?1 ESCAPE '\\'
+            OR file_path LIKE ?1 ESCAPE '\\'
+            OR thumbnail_path LIKE ?1 ESCAPE '\\'
+            OR point_ids LIKE ?1 ESCAPE '\\'
+            OR source_points LIKE ?1 ESCAPE '\\'
+         ORDER BY generated_at DESC
+         LIMIT ?2",
+    )?;
+    let rows = stmt.query_map(params![pattern, limit as i64], map_gallery_row)?;
+    let mut out = Vec::new();
+    for row in rows { out.push(row?); }
+    Ok(out)
+}
+
 pub fn get_gallery_item(conn: &Connection, id: &str) -> Result<Option<GalleryItem>> {
     let mut stmt = conn.prepare(
         "SELECT id, file_path, thumbnail_path, prompt, generated_at, download_status, point_ids, source_points
@@ -1934,6 +2084,66 @@ mod tests {
     }
 
     #[test]
+    fn get_source_assets_groups_linked_points_evidence_reports_and_gallery() {
+        let mut conn = memory_db();
+        let source = upsert_source_document(
+            &conn,
+            "webpage",
+            "https://example.com/source-assets",
+            Some("Source Assets"),
+            r#"{"kind":"webpage"}"#,
+        )
+        .unwrap();
+        replace_source_chunks(&mut conn, &source.id, &["asset chunk".to_string()]).unwrap();
+        insert_point(&conn, "point-source-asset", "source asset point", None, "2026-07-05T00:00:00Z");
+        insert_point_source_link(&conn, "point-source-asset", &source.id, 0, None).unwrap();
+
+        let evidence = save_evidence(
+            &mut conn,
+            evidence_input("source asset evidence", Some("point-source-asset"), Some(&source.id), "2026-07-05T00:01:00Z"),
+        )
+        .unwrap();
+
+        let mut report = report_input("Source Asset Report", "synthesis", "source-asset");
+        report.citations_json = format!(
+            r#"[{{"kind":"source","label":"S1","id":"{0}","title":"Source Assets","excerpt":"asset chunk","sourceId":"{0}","chunkIndex":0,"url":"https://example.com/source-assets"}}]"#,
+            source.id
+        );
+        let saved_report = save_report(&conn, report).unwrap();
+
+        insert_gallery_item(
+            &conn,
+            &GalleryItem {
+                id: "gallery-source-asset".to_string(),
+                file_path: "D:/gallery/source-asset.webp".to_string(),
+                thumbnail_path: "D:/gallery/source-asset-thumb.webp".to_string(),
+                prompt: "source asset diagram".to_string(),
+                generated_at: "2026-07-05T00:02:00Z".to_string(),
+                download_status: "ok".to_string(),
+                point_ids: vec!["point-source-asset".to_string()],
+                source_points: vec![GallerySourcePoint {
+                    id: "point-source-asset".to_string(),
+                    content: "source asset point".to_string(),
+                    source_doc_name: Some("Source Assets".to_string()),
+                }],
+            },
+        )
+        .unwrap();
+
+        let assets = get_source_assets(&conn, &source.id).unwrap().unwrap();
+
+        assert_eq!(assets.source.id, source.id);
+        assert_eq!(assets.points.len(), 1);
+        assert_eq!(assets.points[0].id, "point-source-asset");
+        assert_eq!(assets.evidence.len(), 1);
+        assert_eq!(assets.evidence[0].id, evidence.id);
+        assert_eq!(assets.reports.len(), 1);
+        assert_eq!(assets.reports[0].id, saved_report.id);
+        assert_eq!(assets.gallery.len(), 1);
+        assert_eq!(assets.gallery[0].id, "gallery-source-asset");
+    }
+
+    #[test]
     fn save_evidence_persists_record_and_sources() {
         let mut conn = memory_db();
         let source = upsert_source_document(
@@ -2276,6 +2486,54 @@ mod tests {
 
         let search = search_reports(&conn, "Delete Me", 10).unwrap();
         assert!(search.is_empty());
+    }
+
+    #[test]
+    fn search_gallery_matches_prompt_paths_and_source_points() {
+        let conn = memory_db();
+        insert_gallery_item(
+            &conn,
+            &GalleryItem {
+                id: "gallery-match".to_string(),
+                file_path: "D:/gallery/market-map.webp".to_string(),
+                thumbnail_path: "D:/gallery/market-map-thumb.webp".to_string(),
+                prompt: "market structure diagram".to_string(),
+                generated_at: "2026-07-05T00:02:00Z".to_string(),
+                download_status: "ok".to_string(),
+                point_ids: vec!["point-market".to_string()],
+                source_points: vec![GallerySourcePoint {
+                    id: "point-market".to_string(),
+                    content: "pricing power and supply chain".to_string(),
+                    source_doc_name: Some("Market Memo".to_string()),
+                }],
+            },
+        )
+        .unwrap();
+        insert_gallery_item(
+            &conn,
+            &GalleryItem {
+                id: "gallery-other".to_string(),
+                file_path: "D:/gallery/other.webp".to_string(),
+                thumbnail_path: "D:/gallery/other-thumb.webp".to_string(),
+                prompt: "unrelated artwork".to_string(),
+                generated_at: "2026-07-05T00:01:00Z".to_string(),
+                download_status: "ok".to_string(),
+                point_ids: Vec::new(),
+                source_points: Vec::new(),
+            },
+        )
+        .unwrap();
+
+        for term in ["market structure", "market-map", "pricing power", "Market Memo"] {
+            let results = search_gallery(&conn, term, 10).unwrap();
+            assert!(
+                results.iter().any(|item| item.id == "gallery-match"),
+                "expected search term {term} to return gallery-match"
+            );
+        }
+
+        assert!(search_gallery(&conn, "missing term", 10).unwrap().is_empty());
+        assert!(search_gallery(&conn, "market", 0).unwrap().is_empty());
     }
 
     #[test]

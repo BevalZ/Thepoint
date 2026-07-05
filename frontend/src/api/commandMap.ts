@@ -23,6 +23,7 @@ import type {
   ReportRecord,
   SaveReportInput,
   SourceDocumentRecord,
+  SourceAssetsRecord,
   SourceSummaryRecord,
   SourceWorkspaceRecord,
   StoredPoint,
@@ -102,6 +103,10 @@ export interface TauriCommandMap {
   list_evidence_for_source: {
     args: { sourceId: string }
     result: EvidenceRecord[]
+  }
+  get_source_assets: {
+    args: { sourceId: string }
+    result: SourceAssetsRecord | null
   }
   list_recent_evidence: {
     args: undefined
@@ -305,6 +310,10 @@ export interface TauriCommandMap {
   }
   list_gallery: {
     args: undefined
+    result: GalleryItem[]
+  }
+  search_gallery: {
+    args: { query: string }
     result: GalleryItem[]
   }
   delete_gallery_item: {

@@ -175,7 +175,15 @@ export default function App() {
 
   const renderPage = () => {
     if (page === 'settings') return <Settings />
-    if (page === 'library') return <Library onOpenPointSource={handleOpenPointSource} onOpenSource={handleOpenSource} />
+    if (page === 'library') {
+      return (
+        <Library
+          onOpenPointSource={handleOpenPointSource}
+          onOpenSource={handleOpenSource}
+          onOpenGallery={() => setPage('gallery')}
+        />
+      )
+    }
     if (page === 'gallery') return <Gallery />
     if (page === 'analytics') return <Analytics />
     return <Explore />

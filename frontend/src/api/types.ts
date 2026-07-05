@@ -313,6 +313,14 @@ export interface SourceWorkspaceRecord {
   chunks: SourceChunkRecord[]
 }
 
+export interface SourceAssetsRecord {
+  source: SourceSummaryRecord
+  points: StoredPoint[]
+  evidence: EvidenceRecord[]
+  reports: ReportRecord[]
+  gallery: GalleryItem[]
+}
+
 export interface PointSourceContext {
   pointId: string
   source: SourceSummaryRecord

@@ -637,6 +637,13 @@ pub async fn list_gallery(app: tauri::AppHandle<Wry>) -> Result<Vec<GalleryItem>
 }
 
 #[tauri::command]
+pub async fn search_gallery(app: tauri::AppHandle<Wry>, query: String) -> Result<Vec<GalleryItem>, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || { let c = db::open_db(&path)?; db::search_gallery(&c, &query, 40) })
+        .await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn delete_gallery_item(app: tauri::AppHandle<Wry>, id: String) -> Result<(), String> {
     let path = db::db_path(&app).map_err(|e| e.to_string())?;
     let (fp, tp) = tokio::task::spawn_blocking(move || {
