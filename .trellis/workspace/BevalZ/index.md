@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 15
+- **Total Sessions**: 16
 - **Last Active**: 2026-07-05
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~510 | Active |
+| `journal-1.md` | ~544 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 16 | 2026-07-05 | Desktop E2E startup smoke | `3dc14d1`, `a5a59fc` | `main` |
 | 15 | 2026-07-05 | Workbench readiness assets | `edc5761`, `965d070`, `ba79ad1` | `main` |
 | 14 | 2026-07-05 | Bootstrap Trellis specs | `c5a7f92`, `3023e5e`, `f054b1d` | `main` |
 | 13 | 2026-07-05 | Unify Library Search Results | `e0b25af`, `3f477d9` | `main` |

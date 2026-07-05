@@ -508,3 +508,37 @@ Added Source asset aggregation, Gallery unified search, Markdown exports, E2E ev
 ### Next Steps
 
 - None - task complete
+
+
+## Session 16: Desktop E2E startup smoke
+
+**Date**: 2026-07-05
+**Task**: Desktop E2E startup smoke
+**Branch**: `main`
+
+### Summary
+
+Ran a Tauri desktop startup smoke pass, verified dev runtime processes and port 5173, cleaned up process tree, and recorded remaining manual E2E limits.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3dc14d1` | (see git log) |
+| `a5a59fc` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
