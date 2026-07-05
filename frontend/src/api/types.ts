@@ -174,11 +174,74 @@ export interface DigestCitation {
   url: string | null
   quote?: string | null
   reason?: string | null
+  sourceTextHash?: string | null
 }
 
 export interface DigestResult {
   content: string
   citations: DigestCitation[]
+}
+
+export type CitationLocatorStatus =
+  | 'located'
+  | 'multiple_matches'
+  | 'not_found'
+  | 'stale'
+  | 'target_missing'
+  | 'not_applicable'
+  | string
+
+export interface CitationLocatorInput {
+  kind: DigestCitation['kind']
+  id: string
+  quote?: string | null
+  excerpt?: string | null
+  sourceId?: string | null
+  chunkIndex?: number | null
+  sourceTextHash?: string | null
+}
+
+export interface CitationLocation {
+  start: number
+  end: number
+  snippet: string
+}
+
+export interface CitationLocatorResult {
+  status: CitationLocatorStatus
+  targetKind: string
+  targetId: string
+  targetTitle: string | null
+  quote: string | null
+  matchCount: number
+  locations: CitationLocation[]
+  sourceTextHash: string | null
+  message: string | null
+}
+
+export interface ReportCitationAuditItem {
+  citationIndex: number
+  kind: DigestCitation['kind']
+  id: string
+  label: string
+  title: string
+  quote: string | null
+  excerpt: string | null
+  sourceId: string | null
+  chunkIndex: number | null
+  locator: CitationLocatorResult
+}
+
+export interface ReportCitationAudit {
+  reportId: string
+  total: number
+  locatedCount: number
+  multipleMatchesCount: number
+  notFoundCount: number
+  staleCount: number
+  targetMissingCount: number
+  notApplicableCount: number
+  citations: ReportCitationAuditItem[]
 }
 
 export interface InvestigationInput {
@@ -333,12 +396,22 @@ export interface IndexedFile {
   id: string
   folderId: string
   path: string
+  canonicalPath: string | null
   name: string
   extension: string | null
   sizeBytes: number | null
   modifiedAt: string | null
   sourceId: string | null
   indexedAt: string
+  descriptorKind: string
+  readStatus: string
+  indexStatus: string
+  metadataJson: string
+  previewText: string | null
+  textHash: string | null
+  extractedChars: number | null
+  totalChars: number | null
+  lastError: string | null
 }
 
 export interface IndexedFolderScanResult {

@@ -59,6 +59,7 @@ function browserPreviewFallback<T extends TauriCommandName>(
     case 'list_due_review_items':
     case 'list_all_review_items':
     case 'list_indexed_folders':
+    case 'list_indexed_files_for_folder':
     case 'search_points':
     case 'search_workspace':
     case 'search_evidence':
@@ -87,6 +88,8 @@ function browserPreviewFallback<T extends TauriCommandName>(
     case 'get_source_assets':
     case 'get_evidence':
     case 'get_report':
+    case 'load_indexed_file_preview':
+    case 'load_report_citation_audit':
       return null as TauriCommandResult<T>
     case 'get_open_data_mirror_config':
       return {

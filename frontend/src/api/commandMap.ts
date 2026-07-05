@@ -5,6 +5,8 @@ import type {
   AssetKind,
   AssetRelationRecord,
   ChunkCard,
+  CitationLocatorInput,
+  CitationLocatorResult,
   CommentatorProfile,
   ConfigProfile,
   DigestResult,
@@ -18,6 +20,7 @@ import type {
   GalleryPromptPreview,
   GallerySourcePoint,
   GenerateSuggestionResult,
+  IndexedFile,
   IndexedFolder,
   IndexedFolderScanResult,
   InvestigationInput,
@@ -29,6 +32,7 @@ import type {
   PointSourceContext,
   RelatedClassification,
   RelatedCandidateInput,
+  ReportCitationAudit,
   ReportRecord,
   ReviewItem,
   ReviewRating,
@@ -148,6 +152,14 @@ export interface TauriCommandMap {
     args: { query: string }
     result: ReportRecord[]
   }
+  locate_citation_quote: {
+    args: { input: CitationLocatorInput }
+    result: CitationLocatorResult
+  }
+  load_report_citation_audit: {
+    args: { reportId: string }
+    result: ReportCitationAudit | null
+  }
   delete_report: {
     args: { reportId: string }
     result: void
@@ -223,6 +235,14 @@ export interface TauriCommandMap {
   scan_indexed_folder: {
     args: { folderId: string }
     result: IndexedFolderScanResult
+  }
+  list_indexed_files_for_folder: {
+    args: { folderId: string }
+    result: IndexedFile[]
+  }
+  load_indexed_file_preview: {
+    args: { fileId: string }
+    result: IndexedFile | null
   }
   remove_indexed_folder: {
     args: { folderId: string }

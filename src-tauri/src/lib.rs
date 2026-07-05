@@ -1,10 +1,10 @@
 // Prevents additional console window on Windows in release
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod ai;
 mod commands;
 mod db;
 mod parsers;
-mod ai;
 mod search;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -43,6 +43,8 @@ pub fn run() {
             commands::library::list_recent_reports,
             commands::library::get_report,
             commands::library::search_reports,
+            commands::library::locate_citation_quote,
+            commands::library::load_report_citation_audit,
             commands::library::delete_report,
             commands::library::save_journal_entry,
             commands::library::list_recent_journal_entries,
@@ -62,6 +64,8 @@ pub fn run() {
             commands::library::add_indexed_folder,
             commands::library::list_indexed_folders,
             commands::library::scan_indexed_folder,
+            commands::library::list_indexed_files_for_folder,
+            commands::library::load_indexed_file_preview,
             commands::library::remove_indexed_folder,
             commands::library::list_points,
             commands::library::search_points,

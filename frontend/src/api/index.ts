@@ -3,6 +3,8 @@ import type {
   AppConfig,
   AddReviewItemInput,
   AssetKind,
+  CitationLocatorInput,
+  CitationLocatorResult,
   ChunkCard,
   CommentatorProfile,
   ConfigProfile,
@@ -20,12 +22,14 @@ import type {
   GalleryPromptPreview,
   GallerySourcePoint,
   GenerateSuggestionResult,
+  IndexedFile,
   InvestigationInput,
   OpenDataMirrorConfig,
   MentalModel,
   PointSourceLinkInput,
   RelatedClassification,
   RelatedCandidateInput,
+  ReportCitationAudit,
   ReportRecord,
   ReviewRating,
   SaveReportInput,
@@ -130,6 +134,12 @@ export const getReport = (reportId: string): Promise<ReportRecord | null> =>
 export const searchReports = (query: string): Promise<ReportRecord[]> =>
   invokeCommand('search_reports', { query })
 
+export const locateCitationQuote = (input: CitationLocatorInput): Promise<CitationLocatorResult> =>
+  invokeCommand('locate_citation_quote', { input })
+
+export const loadReportCitationAudit = (reportId: string): Promise<ReportCitationAudit | null> =>
+  invokeCommand('load_report_citation_audit', { reportId })
+
 export const deleteReport = (reportId: string): Promise<void> =>
   invokeCommand('delete_report', { reportId })
 
@@ -186,6 +196,12 @@ export const listIndexedFolders = () =>
 
 export const scanIndexedFolder = (folderId: string) =>
   invokeCommand('scan_indexed_folder', { folderId })
+
+export const listIndexedFilesForFolder = (folderId: string): Promise<IndexedFile[]> =>
+  invokeCommand('list_indexed_files_for_folder', { folderId })
+
+export const loadIndexedFilePreview = (fileId: string): Promise<IndexedFile | null> =>
+  invokeCommand('load_indexed_file_preview', { fileId })
 
 export const removeIndexedFolder = (folderId: string) =>
   invokeCommand('remove_indexed_folder', { folderId })

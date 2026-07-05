@@ -1,10 +1,37 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Check, Copy, Download, ExternalLink, LocateFixed, X } from 'lucide-react'
+import { loadReportCitationAudit } from '@/api'
 import { Markdown } from '@/components/Markdown'
-import type { ReportRecord } from '@/api/types'
+import type { CitationLocatorStatus, ReportCitationAudit, ReportRecord } from '@/api/types'
 import { citationKindLabel } from '@/lib/digestArtifacts'
 import { digestResultFromReport, reportKindLabel, reportMarkdownWithCitations } from '@/lib/reportArtifacts'
+
+const LOCATOR_STATUS_LABELS: Record<string, string> = {
+  located: '已定位',
+  multiple_matches: '多处匹配',
+  not_found: '未命中',
+  stale: '来源变更',
+  target_missing: '目标缺失',
+  not_applicable: '无摘录',
+}
+
+const LOCATOR_STATUS_CLASSES: Record<string, string> = {
+  located: 'border-green-500/30 bg-green-500/10 text-green-300',
+  multiple_matches: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
+  not_found: 'border-red-500/30 bg-red-500/10 text-red-300',
+  stale: 'border-orange-500/30 bg-orange-500/10 text-orange-300',
+  target_missing: 'border-red-500/30 bg-red-500/10 text-red-300',
+  not_applicable: 'border-border bg-bg-hover text-fg-faint',
+}
+
+function locatorStatusLabel(status: CitationLocatorStatus): string {
+  return LOCATOR_STATUS_LABELS[status] ?? status
+}
+
+function locatorStatusClass(status: CitationLocatorStatus): string {
+  return LOCATOR_STATUS_CLASSES[status] ?? 'border-border bg-bg-hover text-fg-faint'
+}
 
 interface ReportModalProps {
   report: ReportRecord
@@ -14,7 +41,33 @@ interface ReportModalProps {
 
 export function ReportModal({ report, onClose, onOpenSource }: ReportModalProps) {
   const [copied, setCopied] = useState(false)
+  const [audit, setAudit] = useState<ReportCitationAudit | null>(null)
+  const [auditLoading, setAuditLoading] = useState(false)
+  const [auditError, setAuditError] = useState<string | null>(null)
   const result = digestResultFromReport(report)
+
+  useEffect(() => {
+    let alive = true
+    setAudit(null)
+    setAuditError(null)
+    setAuditLoading(true)
+    loadReportCitationAudit(report.id)
+      .then((nextAudit) => {
+        if (!alive) return
+        setAudit(nextAudit)
+      })
+      .catch((error: unknown) => {
+        if (!alive) return
+        setAuditError(error instanceof Error ? error.message : String(error))
+      })
+      .finally(() => {
+        if (alive) setAuditLoading(false)
+      })
+
+    return () => {
+      alive = false
+    }
+  }, [report.id])
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(reportMarkdownWithCitations(report))
@@ -77,13 +130,30 @@ export function ReportModal({ report, onClose, onOpenSource }: ReportModalProps)
           <Markdown>{result.content}</Markdown>
           {result.citations.length > 0 && (
             <section className="mt-5 border-t border-border pt-4">
-              <div className="mb-2 flex items-center justify-between text-xs text-fg-faint">
+              <div className="mb-2 flex items-center justify-between gap-3 text-xs text-fg-faint">
                 <span>引用</span>
-                <span>{result.citations.length}</span>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {auditLoading && <span>审计中...</span>}
+                  {auditError && <span className="text-red-300">审计失败</span>}
+                  {audit && (
+                    <>
+                      <span className="rounded-full border border-green-500/20 bg-green-500/10 px-2 py-0.5 text-green-300">
+                        定位 {audit.locatedCount}/{audit.total}
+                      </span>
+                      {(audit.multipleMatchesCount + audit.staleCount + audit.notFoundCount + audit.targetMissingCount) > 0 && (
+                        <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-amber-300">
+                          待复查 {audit.multipleMatchesCount + audit.staleCount + audit.notFoundCount + audit.targetMissingCount}
+                        </span>
+                      )}
+                    </>
+                  )}
+                  {!audit && !auditLoading && !auditError && <span>{result.citations.length}</span>}
+                </div>
               </div>
               <div className="space-y-2">
-                {result.citations.map((citation) => {
+                {result.citations.map((citation, index) => {
                   const canOpenSource = Boolean(citation.sourceId && onOpenSource)
+                  const auditItem = audit?.citations.find((item) => item.citationIndex === index)
                   return (
                     <article key={`${citation.kind}-${citation.id}-${citation.label}`} className="rounded-lg border border-border bg-bg px-3 py-2">
                       <div className="flex items-start gap-3">
@@ -94,8 +164,18 @@ export function ReportModal({ report, onClose, onOpenSource }: ReportModalProps)
                           <div className="flex items-center gap-2">
                             <span className="text-xs text-fg-faint">{citationKindLabel(citation.kind)}</span>
                             <span className="truncate text-xs font-medium text-fg">{citation.title}</span>
+                            {auditItem && (
+                              <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${locatorStatusClass(auditItem.locator.status)}`}>
+                                {locatorStatusLabel(auditItem.locator.status)}
+                              </span>
+                            )}
                           </div>
                           <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-fg-muted">{citation.excerpt}</p>
+                          {auditItem?.locator.locations[0]?.snippet && (
+                            <p className="mt-1 line-clamp-1 text-[11px] text-fg-faint">
+                              命中片段：{auditItem.locator.locations[0].snippet}
+                            </p>
+                          )}
                         </div>
                         <div className="flex shrink-0 items-center gap-1">
                           {citation.url && (

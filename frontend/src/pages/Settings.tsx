@@ -4,9 +4,9 @@ import { Eye, EyeOff, Check, RefreshCw, X, MessageSquare, Settings2, Pencil, Typ
 import { motion, AnimatePresence } from 'framer-motion'
 import { useConfigStore, useThemeStore, UI_FONTS, CODE_FONTS } from '@/store'
 import type { ThemeMode, UiFontKey, CodeFontKey, FontSize } from '@/store'
-import { addIndexedFolder, exportOpenDataMirror, fetchModels, getOpenDataMirrorConfig, importCommentatorFromSkill, listIndexedFolders, removeIndexedFolder, scanIndexedFolder, setOpenDataMirrorConfig } from '@/api'
+import { addIndexedFolder, exportOpenDataMirror, fetchModels, getOpenDataMirrorConfig, importCommentatorFromSkill, listIndexedFilesForFolder, listIndexedFolders, loadIndexedFilePreview, removeIndexedFolder, scanIndexedFolder, setOpenDataMirrorConfig } from '@/api'
 import { cn } from '@/lib/utils'
-import type { CommentatorProfile, ConfigProfile, IndexedFolder, IndexedFolderScanResult, MentalModel, MirrorExportResult, OpenDataMirrorConfig } from '@/api/types'
+import type { CommentatorProfile, ConfigProfile, IndexedFile, IndexedFolder, IndexedFolderScanResult, MentalModel, MirrorExportResult, OpenDataMirrorConfig } from '@/api/types'
 
 const PROVIDERS = [
   { key: 'openai-compat', label: 'OpenAI compatible', baseUrl: 'https://api.openai.com', suffix: '/v1/chat/completions' },
@@ -401,6 +401,28 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   )
 }
 
+function indexedStatusCounts(files: IndexedFile[]) {
+  return files.reduce<Record<string, number>>((counts, file) => {
+    const key = `${file.readStatus}/${file.indexStatus}`
+    counts[key] = (counts[key] ?? 0) + 1
+    return counts
+  }, {})
+}
+
+function indexedBadgeClass(status: string) {
+  if (status === 'ok' || status === 'indexed') return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+  if (status === 'metadata_only' || status === 'unsupported') return 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+  if (status === 'missing' || status === 'failed' || status === 'stale' || status === 'partial') return 'border-red-500/30 bg-red-500/10 text-red-300'
+  return 'border-border bg-bg text-fg-muted'
+}
+
+function indexedFileSize(sizeBytes: number | null) {
+  if (sizeBytes === null) return 'unknown size'
+  if (sizeBytes < 1024) return `${sizeBytes} B`
+  if (sizeBytes < 1024 * 1024) return `${(sizeBytes / 1024).toFixed(1)} KB`
+  return `${(sizeBytes / 1024 / 1024).toFixed(1)} MB`
+}
+
 function SecretInput({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
   const [show, setShow] = useState(false)
   return (
@@ -502,6 +524,11 @@ export default function Settings() {
   const [indexedMutatingId, setIndexedMutatingId] = useState<string | null>(null)
   const [indexedPathDraft, setIndexedPathDraft] = useState('')
   const [indexedScanResult, setIndexedScanResult] = useState<IndexedFolderScanResult | null>(null)
+  const [indexedExpandedFolderId, setIndexedExpandedFolderId] = useState<string | null>(null)
+  const [indexedFilesByFolder, setIndexedFilesByFolder] = useState<Record<string, IndexedFile[]>>({})
+  const [indexedFilesLoadingId, setIndexedFilesLoadingId] = useState<string | null>(null)
+  const [indexedPreviewFile, setIndexedPreviewFile] = useState<IndexedFile | null>(null)
+  const [indexedPreviewLoadingId, setIndexedPreviewLoadingId] = useState<string | null>(null)
   const [indexedError, setIndexedError] = useState<string | null>(null)
 
   async function loadDataSettings() {
@@ -999,10 +1026,46 @@ export default function Settings() {
       const result = await scanIndexedFolder(folderId)
       setIndexedScanResult(result)
       setIndexedFolders(current => current.map(folder => folder.id === result.folder.id ? result.folder : folder))
+      setIndexedFilesByFolder(current => ({ ...current, [folderId]: result.files }))
+      setIndexedExpandedFolderId(folderId)
+      setIndexedPreviewFile(null)
     } catch (error) {
       setIndexedError(settingsErrorMessage(error, '扫描索引文件夹失败'))
     } finally {
       setIndexedMutatingId(null)
+    }
+  }
+
+  const handleToggleIndexedFolderDetails = async (folderId: string) => {
+    if (indexedExpandedFolderId === folderId) {
+      setIndexedExpandedFolderId(null)
+      setIndexedPreviewFile(null)
+      return
+    }
+    setIndexedExpandedFolderId(folderId)
+    setIndexedPreviewFile(null)
+    if (indexedFilesByFolder[folderId]) return
+    setIndexedFilesLoadingId(folderId)
+    setIndexedError(null)
+    try {
+      const files = await listIndexedFilesForFolder(folderId)
+      setIndexedFilesByFolder(current => ({ ...current, [folderId]: files }))
+    } catch (error) {
+      setIndexedError(settingsErrorMessage(error, '加载索引文件列表失败'))
+    } finally {
+      setIndexedFilesLoadingId(null)
+    }
+  }
+
+  const handleLoadIndexedFilePreview = async (fileId: string) => {
+    setIndexedPreviewLoadingId(fileId)
+    setIndexedError(null)
+    try {
+      setIndexedPreviewFile(await loadIndexedFilePreview(fileId))
+    } catch (error) {
+      setIndexedError(settingsErrorMessage(error, '加载索引文件预览失败'))
+    } finally {
+      setIndexedPreviewLoadingId(null)
     }
   }
 
@@ -1013,6 +1076,13 @@ export default function Settings() {
     try {
       await removeIndexedFolder(folderId)
       setIndexedFolders(current => current.filter(folder => folder.id !== folderId))
+      setIndexedFilesByFolder(current => {
+        const next = { ...current }
+        delete next[folderId]
+        return next
+      })
+      if (indexedExpandedFolderId === folderId) setIndexedExpandedFolderId(null)
+      setIndexedPreviewFile(current => current?.folderId === folderId ? null : current)
     } catch (error) {
       setIndexedError(settingsErrorMessage(error, '移除索引文件夹失败'))
     } finally {
@@ -1882,36 +1952,108 @@ export default function Settings() {
                 </div>
               ) : indexedFolders.length > 0 ? (
                 <div className="divide-y divide-border rounded-xl border border-border bg-bg-elevated">
-                  {indexedFolders.map(folder => (
-                    <div key={folder.id} className="flex items-start gap-3 px-4 py-3">
-                      <FolderOpen size={15} className="mt-0.5 shrink-0 text-accent" />
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-fg">{folder.name}</p>
-                        <p className="mt-1 truncate text-xs text-fg-faint">{folder.path}</p>
-                        <p className="mt-1 text-[11px] text-fg-faint">
-                          {folder.enabled ? 'enabled' : 'disabled'} · last scan {folder.lastScannedAt ? new Date(folder.lastScannedAt).toLocaleString('zh-CN') : 'never'}
-                        </p>
+                  {indexedFolders.map(folder => {
+                    const expanded = indexedExpandedFolderId === folder.id
+                    const files = indexedFilesByFolder[folder.id] ?? []
+                    const counts = indexedStatusCounts(files)
+                    return (
+                      <div key={folder.id} className="px-4 py-3">
+                        <div className="flex items-start gap-3">
+                          <FolderOpen size={15} className="mt-0.5 shrink-0 text-accent" />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium text-fg">{folder.name}</p>
+                            <p className="mt-1 truncate text-xs text-fg-faint">{folder.path}</p>
+                            <p className="mt-1 text-[11px] text-fg-faint">
+                              {folder.enabled ? 'enabled' : 'disabled'} · last scan {folder.lastScannedAt ? new Date(folder.lastScannedAt).toLocaleString('zh-CN') : 'never'}
+                            </p>
+                            {files.length > 0 && (
+                              <div className="mt-2 flex flex-wrap gap-1.5">
+                                {Object.entries(counts).map(([status, count]) => (
+                                  <span key={status} className="rounded-full border border-border bg-bg px-2 py-0.5 text-[11px] text-fg-muted">
+                                    {status}: {count}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => void handleToggleIndexedFolderDetails(folder.id)}
+                              disabled={indexedFilesLoadingId === folder.id}
+                              className="rounded-md border border-border px-2 py-1.5 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-accent disabled:opacity-50"
+                            >
+                              {indexedFilesLoadingId === folder.id ? <RefreshCw size={12} className="animate-spin" /> : expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleScanIndexedFolder(folder.id)}
+                              disabled={indexedMutatingId !== null}
+                              className="rounded-md border border-border px-2 py-1.5 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-accent disabled:opacity-50"
+                            >
+                              {indexedMutatingId === folder.id ? <RefreshCw size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleRemoveIndexedFolder(folder.id)}
+                              disabled={indexedMutatingId !== null}
+                              className="rounded-md border border-border px-2 py-1.5 text-xs text-fg-muted transition-colors hover:bg-red-500/10 hover:text-red-300 disabled:opacity-50"
+                            >
+                              <X size={12} />
+                            </button>
+                          </div>
+                        </div>
+
+                        {expanded && (
+                          <div className="mt-3 space-y-3 rounded-xl border border-border bg-bg p-3">
+                            {files.length === 0 ? (
+                              <p className="text-xs text-fg-faint">还没有文件记录。先扫描该文件夹。</p>
+                            ) : (
+                              <div className="max-h-72 space-y-2 overflow-auto pr-1">
+                                {files.map(file => (
+                                  <button
+                                    key={file.id}
+                                    type="button"
+                                    onClick={() => void handleLoadIndexedFilePreview(file.id)}
+                                    className="w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-left transition-colors hover:bg-bg-hover"
+                                  >
+                                    <div className="flex items-start gap-2">
+                                      <div className="min-w-0 flex-1">
+                                        <p className="truncate text-xs font-medium text-fg">{file.name}</p>
+                                        <p className="mt-1 truncate text-[11px] text-fg-faint">{file.path}</p>
+                                        <p className="mt-1 text-[11px] text-fg-faint">
+                                          {file.descriptorKind} · {indexedFileSize(file.sizeBytes)} · {file.textHash ?? 'no hash'}
+                                        </p>
+                                        {file.lastError && <p className="mt-1 line-clamp-2 text-[11px] text-red-300">{file.lastError}</p>}
+                                      </div>
+                                      <div className="flex shrink-0 flex-col items-end gap-1">
+                                        <span className={cn('rounded-full border px-2 py-0.5 text-[10px]', indexedBadgeClass(file.readStatus))}>{file.readStatus}</span>
+                                        <span className={cn('rounded-full border px-2 py-0.5 text-[10px]', indexedBadgeClass(file.indexStatus))}>{file.indexStatus}</span>
+                                        {indexedPreviewLoadingId === file.id && <RefreshCw size={11} className="animate-spin text-fg-faint" />}
+                                      </div>
+                                    </div>
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                            {indexedPreviewFile?.folderId === folder.id && (
+                              <div className="rounded-lg border border-border bg-bg-elevated p-3">
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="truncate text-xs font-medium text-fg">{indexedPreviewFile.name}</p>
+                                  <span className="shrink-0 text-[11px] text-fg-faint">
+                                    {indexedPreviewFile.extractedChars ?? 0}/{indexedPreviewFile.totalChars ?? 0} chars
+                                  </span>
+                                </div>
+                                <pre className="mt-2 max-h-56 overflow-auto whitespace-pre-wrap rounded-md bg-bg px-3 py-2 text-[11px] leading-relaxed text-fg-muted">
+                                  {indexedPreviewFile.previewText || indexedPreviewFile.lastError || '没有可用预览。'}
+                                </pre>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
-                      <div className="flex shrink-0 items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => void handleScanIndexedFolder(folder.id)}
-                          disabled={indexedMutatingId !== null}
-                          className="rounded-md border border-border px-2 py-1.5 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-accent disabled:opacity-50"
-                        >
-                          {indexedMutatingId === folder.id ? <RefreshCw size={12} className="animate-spin" /> : <RefreshCw size={12} />}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleRemoveIndexedFolder(folder.id)}
-                          disabled={indexedMutatingId !== null}
-                          className="rounded-md border border-border px-2 py-1.5 text-xs text-fg-muted transition-colors hover:bg-red-500/10 hover:text-red-300 disabled:opacity-50"
-                        >
-                          <X size={12} />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               ) : (
                 <p className="rounded-xl border border-dashed border-border px-4 py-5 text-center text-sm text-fg-faint">
