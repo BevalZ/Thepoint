@@ -77,3 +77,62 @@ Required next manual run:
 ## Decision
 
 No product issue was found by automated regression checks or the Tauri desktop startup smoke pass. The next gating item before further feature work is one operator-driven manual desktop pass with configured providers and local download verification.
+
+---
+
+# Research Workspace E2E Run
+
+Date: 2026-07-06
+
+Revision under test: working tree for Foliole / Marginalia research workspace integration.
+
+Checklist: `docs/knowledge-workbench-e2e-checklist.md`
+
+## Summary
+
+Automated regression coverage passed for the new Investigation, Journal, Related Assets, Review Queue, Open Data Mirror, and Indexed Folder contracts covered by unit/type/build checks. A Tauri desktop startup smoke pass also launched the app runtime and cleaned up the process tree.
+
+Full interactive manual desktop E2E remains pending because provider-backed Investigation generation and end-to-end UI workflows require a configured text model and an operator driving the visible desktop window.
+
+## Automated Regression Results
+
+| Command | Result |
+|---|---|
+| `cd frontend; npm run typecheck` | PASS |
+| `cd frontend; npm run check:boundaries` | PASS |
+| `cd frontend; npm run test:run` | PASS: 7 files, 21 tests |
+| `cd frontend; npm run build` | PASS: `tsc && vite build`, 3011 modules transformed |
+| `cargo check --manifest-path src-tauri/Cargo.toml` | PASS |
+| `cargo test --manifest-path src-tauri/Cargo.toml` | PASS: 62 tests |
+
+## Desktop Runtime Smoke Results
+
+| Check | Result |
+|---|---|
+| Command | `cargo tauri dev --no-watch` |
+| Run time | Started on 2026-07-06 at approximately 00:34 Asia/Shanghai; observed for 126 seconds |
+| Startup evidence | PASS: process tree included `cargo-tauri.exe`, Vite `node.exe`, `deep-explorer.exe`, and WebView2 child processes for `deep-explorer.exe` |
+| Dev server evidence | PASS: port `5173` had a Vite listener |
+| Cleanup evidence | PASS: wrapper stopped the spawned process tree; no `deep-explorer.exe` or repo-owned command processes remained; port `5173` only had transient `TimeWait` entries |
+| Interactive coverage | NOT RUN: no desktop UI driver was attached |
+
+## New Coverage Added
+
+- Backend DB tests cover Investigation report kind compatibility, Journal list/search/invalidate, Review scheduling, Mirror config, Indexed Folder/File round-trip, and relation rebuild signals.
+- Frontend helper tests cover Investigation report kind filtering and optional citation fields through existing report artifact parsing.
+- Trellis backend code-spec documents the local research workspace contract and the indexed-folder text/code-file reader split.
+- Manual checklist now covers Investigation -> Journal -> Related -> Review -> Mirror -> Indexed Folder.
+
+## Manual Desktop E2E Status
+
+Status: Startup smoke passed; full interactive manual E2E pending.
+
+Required next manual run:
+
+1. Start the desktop app with `cargo tauri dev`.
+2. Follow `docs/knowledge-workbench-e2e-checklist.md` steps 11 through 17 for the new research workspace loop.
+3. Use configured model/search providers and a temporary local folder containing Markdown, JSON, code, and binary/PDF files.
+
+## Decision
+
+No product issue was found by automated regression checks or the Tauri desktop startup smoke pass. The remaining risk is interactive workflow validation with real configured providers and local files.

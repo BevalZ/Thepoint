@@ -78,6 +78,153 @@ IDs are stored as `TEXT` and generated in Rust with `uuid::Uuid::new_v4().to_str
 - Do not return partially hydrated records from helpers whose contract says they include nested records, such as Evidence `sources`.
 - Do not change frontend command payload casing by renaming Rust fields without checking `frontend/src/api/commandMap.ts`.
 
+## Scenario: Local Research Workspace Assets
+
+### 1. Scope / Trigger
+
+- Trigger: cross-layer durable research workspace assets: Investigation Reports, Journal memory, asset relations, Review Queue, Open Data Mirror, and External Folder Indexing.
+- Applies to: `src-tauri/src/db/mod.rs`, `src-tauri/src/commands/library.rs`, `src-tauri/src/commands/digest.rs`, `src-tauri/src/lib.rs`, `frontend/src/api/*`, `frontend/src/pages/Library.tsx`, `frontend/src/pages/Explore.tsx`, and `frontend/src/pages/Settings.tsx`.
+- This scenario must stay local-first. Do not add a Python sidecar, HTTP API, MCP server, background worker queue, Electron, Capacitor, FSRS dependency, embeddings, OCR, or bidirectional mirror sync for this contract.
+
+### 2. Signatures
+
+Report kind:
+
+```rust
+kind TEXT NOT NULL CHECK (kind IN ('digest', 'synthesis', 'investigation'))
+```
+
+Durable tables:
+
+```sql
+journal_entries(id, query, note, tags_json, source_ids_json, point_ids_json,
+  evidence_ids_json, report_ids_json, created_report_id, source_kind,
+  created_at, invalidated_at, invalidated_reason)
+asset_relations(id, from_kind, from_id, to_kind, to_id, relation, reason,
+  score, source_kind, created_at, vetted_at)
+review_items(id, target_kind, target_id, title, note, status, priority,
+  due_at, last_reviewed_at, review_count, ease, interval_days, created_at, updated_at)
+open_data_mirror_config(id, enabled, root_path, export_sources, export_evidence,
+  export_reports, export_journal, export_gallery_index, updated_at)
+indexed_folders(id, path, name, enabled, last_scanned_at, created_at)
+indexed_files(id, folder_id, path, name, extension, size_bytes, modified_at,
+  source_id, indexed_at)
+```
+
+Backend commands:
+
+```rust
+generate_investigation(app, input: InvestigationInput) -> Result<DigestResult, String>
+save_journal_entry(app, input: SaveJournalEntryInput) -> Result<JournalEntry, String>
+list_recent_journal_entries(app) -> Result<Vec<JournalEntry>, String>
+search_journal_entries(app, query: String) -> Result<Vec<JournalEntry>, String>
+invalidate_journal_entry(app, id: String, reason: String) -> Result<(), String>
+discover_related_assets(app, kind: String, id: String) -> Result<Vec<AssetRelationRecord>, String>
+rebuild_asset_relations(app) -> Result<usize, String>
+add_review_item(app, input: AddReviewItemInput) -> Result<ReviewItem, String>
+list_due_review_items(app) -> Result<Vec<ReviewItem>, String>
+list_all_review_items(app) -> Result<Vec<ReviewItem>, String>
+complete_review_item(app, id: String, rating: String) -> Result<ReviewItem, String>
+snooze_review_item(app, id: String, days: i64) -> Result<ReviewItem, String>
+dismiss_review_item(app, id: String) -> Result<(), String>
+get_open_data_mirror_config(app) -> Result<OpenDataMirrorConfig, String>
+set_open_data_mirror_config(app, config: OpenDataMirrorConfig) -> Result<(), String>
+export_open_data_mirror(app) -> Result<MirrorExportResult, String>
+add_indexed_folder(app, path: String) -> Result<IndexedFolder, String>
+list_indexed_folders(app) -> Result<Vec<IndexedFolder>, String>
+scan_indexed_folder(app, folder_id: String) -> Result<IndexedFolderScanResult, String>
+remove_indexed_folder(app, folder_id: String) -> Result<(), String>
+```
+
+Frontend API:
+
+```ts
+generateInvestigation(input: InvestigationInput): Promise<DigestResult>
+listRecentJournalEntries(): Promise<JournalEntry[]>
+discoverRelatedAssets(kind: AssetKind, id: string): Promise<AssetRelationRecord[]>
+addReviewItem(input: AddReviewItemInput): Promise<ReviewItem>
+exportOpenDataMirror(): Promise<MirrorExportResult>
+scanIndexedFolder(folderId: string): Promise<IndexedFolderScanResult>
+```
+
+### 3. Contracts
+
+- `reports.kind = 'investigation'` uses the existing `reports` table. Do not create a separate investigation table.
+- Saving an Investigation through `save_report` automatically creates one Journal entry with the report summary as the note and citation-derived Source/Point/Evidence IDs.
+- Journal can seed future Investigation context, but final citations must still point to Source, Point, or Evidence assets.
+- `generate_investigation` gathers explicit scope first, then optional Journal, workspace search, Evidence search, Report search, and related assets.
+- `DigestCitation` keeps `kind`, `label`, `id`, `title`, `excerpt`, `source_id`, `chunk_index`, and `url`, and may include `quote` and `reason`.
+- Asset relations are rebuilt from Report co-citations, Evidence Source/Point links, Journal co-occurrence, Gallery Point links, and Review Queue co-presence.
+- Review scheduling is deliberately simple: `again = 1`, `hard = 3`, `good = 7`, `easy = 14` days. `ease` and `interval_days` are persisted for future scheduler upgrades.
+- Open Data Mirror is export-only. It writes stable Markdown plus `manifest.json` under the configured root and never reads changes back into SQLite.
+- Indexed folder scanning never moves, copies, or deletes user source files. Text-like files become `source_documents`/`source_chunks`; PDF, EPUB, DOCX, and unknown/binary formats remain metadata-only for now.
+- For indexed folders, parser-supported prose formats use `parsers::parse_document`; code/config text formats are read as UTF-8 directly so ordinary source files can be indexed without expanding the import parser contract.
+
+### 4. Validation & Error Matrix
+
+| Condition | Behavior |
+|---|---|
+| Existing `reports` table lacks `investigation` check value | Inline migration rebuilds the table and preserves existing report rows |
+| Blank Investigation query | `generate_investigation` returns `Err("调查问题不能为空")` |
+| Investigation context has no Source/Point/Evidence citations | `generate_investigation` returns an error instead of producing uncited output |
+| Invalid Journal invalidation reason | DB helper returns validation error |
+| Invalid asset kind or relation | DB helper returns validation error |
+| Invalid Review target kind, priority, or rating | DB helper returns validation error |
+| Snooze days less than 1 | DB helper returns validation error |
+| Mirror disabled or missing root path | Export command returns an error and writes nothing |
+| Indexed folder path is blank or missing | Add/scan commands return validation errors |
+| Text-like file cannot be decoded or parsed | Indexed file row is recorded metadata-only |
+| Removing an indexed folder | Deletes `indexed_folders`/`indexed_files` rows only; existing knowledge assets remain |
+
+### 5. Good/Base/Bad Cases
+
+- Good: a user generates an Investigation, saves it as a Report, sees an automatic Journal entry, rebuilds relations, adds the Report to Review, exports Mirror Markdown, and can still open citation-backed assets.
+- Good: scanning a Markdown/code folder indexes readable text into Source Workspace while leaving the original files untouched.
+- Base: Journal search returns only non-invalidated entries by default.
+- Base: Mirror export can include zero assets in a category and still writes `index.md` plus `manifest.json`.
+- Bad: treating Journal text as factual evidence in citations, or emitting Investigation conclusions without Source/Point/Evidence citations.
+- Bad: deleting a Report, Review item, or indexed folder cascades into Sources, Points, Evidence, Gallery files, or user-owned folders.
+
+### 6. Tests Required
+
+- Rust DB tests: Investigation report kind saves/searches, Journal list/search/invalidate, Review schedule/snooze/dismiss, Mirror config defaults/round-trip, Indexed Folder/File round-trip, and relation rebuild across report/journal/evidence/gallery/review signals.
+- Rust command/helper tests: command input conversion for Reports remains camelCase-compatible; Investigation context/citation helpers must stay deterministic when changed.
+- Frontend helper tests: report artifact parsing/filtering includes `investigation`; citation JSON with optional `quote`/`reason` remains backward compatible.
+- Frontend checks: `npm run typecheck`, `npm run check:boundaries`, `npm run test:run`, and `npm run build`.
+- Backend checks: `cargo check --manifest-path src-tauri/Cargo.toml` and `cargo test --manifest-path src-tauri/Cargo.toml`.
+- Manual desktop smoke: start the Tauri app after material UI/API changes and confirm the WebView reaches the workbench.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+// Splits Investigation into a separate table and loses Report tooling.
+CREATE TABLE investigations (...);
+```
+
+#### Correct
+
+```rust
+// Investigation remains a first-class Report kind.
+validate_report_kind("investigation")?;
+db::save_report(conn, input)
+```
+
+#### Wrong
+
+```rust
+// parse_document rejects code/config extensions, so scanner records code files as metadata-only.
+let text = crate::parsers::parse_document(&path)?;
+```
+
+#### Correct
+
+```rust
+// Scanner owns the broader indexing contract without changing normal import parsing.
+let text = read_indexable_text_file(&path, extension.as_deref())?;
+```
+
 ## Scenario: Source Asset Aggregation And Gallery Search
 
 ### 1. Scope / Trigger
@@ -762,7 +909,7 @@ Table:
 reports(
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
-  kind TEXT NOT NULL CHECK (kind IN ('digest', 'synthesis')),
+  kind TEXT NOT NULL CHECK (kind IN ('digest', 'synthesis', 'investigation')),
   source_name TEXT,
   body_md TEXT NOT NULL,
   summary TEXT NOT NULL,
@@ -804,7 +951,7 @@ filterReportsByKind(records: ReportRecord[], kind: 'all' | ReportKind): ReportRe
 
 ### 3. Contracts
 
-- `kind` values are exactly `digest` or `synthesis`.
+- `kind` values are exactly `digest`, `synthesis`, or `investigation`.
 - `title`, `body_md`, `summary`, and `citations_json` are required and trimmed before persistence.
 - `citations_json` must be valid JSON and must parse to an array.
 - `body_md` stores the raw report body. Copy/download paths append the citation appendix from `citations_json`; do not store only flattened Markdown.

@@ -88,13 +88,63 @@ cargo tauri dev
    - Search for the deleted Report title and confirm it no longer appears.
    - Reopen a remaining Report and confirm citation source/chunk controls still work.
 
-11. Empty and degradation states.
+11. Generate and save an Investigation.
+   - Open Library -> Investigations or use the Source Workspace Investigation action.
+   - Enter a concrete research question.
+   - Include at least one Source and one Evidence record; enable Library search and Journal recall when available.
+   - Generate the Investigation and confirm the report includes the question, summary, supporting evidence, conflicts, uncertainties, citation list, and follow-up questions.
+   - Save it as an Investigation Report.
+   - Reopen it from Library -> Investigations and confirm structured citations can return to Source/Chunk or Evidence context where available.
+
+12. Verify Journal memory.
+   - Open Library -> Journal after saving the Investigation.
+   - Confirm a Journal entry appears with the original query, summary note, linked Report, and asset IDs.
+   - Use the Journal entry to start a new Investigation and confirm the query/scope is prefilled or carried forward.
+   - Invalidate the Journal entry with a reason.
+   - Search a similar query and confirm the invalidated Journal entry is not included in default Journal search results.
+
+13. Verify Related assets.
+   - Rebuild asset relations from Library -> Related.
+   - Discover related assets for the Investigation Report, one cited Evidence record, and the current Source.
+   - Confirm relation rows show relation type, reason, score, and source signal.
+   - Confirm co-cited Evidence/Source assets and Journal-linked assets appear without deleting or mutating the original assets.
+
+14. Verify Review Queue.
+   - Add one Source, one Evidence record, and one Investigation Report to Review.
+   - Open Library -> Review and confirm due items appear with title, target kind, priority, due date, and note.
+   - Complete one item with each rating path as available: again, hard, good, easy.
+   - Confirm due dates advance by 1, 3, 7, and 14 days respectively.
+   - Snooze one item and dismiss one item.
+   - Open an item from Review and confirm navigation returns to the original asset where supported.
+
+15. Verify Open Data Mirror.
+   - Open Settings -> Data.
+   - Enable Open Data Mirror and choose a local empty test folder.
+   - Export with Sources, Evidence, Reports, Journal, and Gallery index enabled.
+   - Confirm the folder contains `sources/`, `evidence/`, `reports/`, `investigations/`, `journal/`, `gallery/`, `index.md`, and `manifest.json`.
+   - Open exported Markdown files and confirm ids, timestamps, report bodies, citation JSON, and linked asset metadata are readable.
+   - Run export again and confirm stable filenames are overwritten rather than duplicated.
+
+16. Verify Indexed Folders.
+   - Create a temporary folder with a Markdown file, a JSON file, a code file, and a PDF or binary file.
+   - Add the folder in Settings -> Data.
+   - Scan the folder.
+   - Confirm text-like files are indexed into Source Workspace and searchable from Library.
+   - Confirm the PDF or binary file is recorded metadata-only.
+   - Modify a text file, scan again, and confirm its Source updates.
+   - Remove the indexed folder and confirm generated Sources/Evidence/Reports remain available while the folder entry disappears.
+
+17. Empty and degradation states.
    - Evidence without source context shows “无来源定位” and no broken jump button.
    - A Source with no linked assets shows Source asset panel empty states without hiding Source content.
    - Synthesis refuses to run with no selected Source and no Star input.
    - Digest refuses to run with no Point and no Evidence input.
    - Reports with no saved entries show the empty Reports state.
    - Report type filters with no matches show a no-match state instead of stale rows.
+   - Investigation refuses to run when no Source, Point, or Evidence can be collected.
+   - Journal entries marked invalidated do not appear in default Investigation recall.
+   - Mirror export fails clearly when disabled or missing a root path.
+   - Indexed folder scan fails clearly when the configured path no longer exists.
 
 ## Automated Regression Commands
 
