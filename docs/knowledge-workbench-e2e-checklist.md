@@ -23,16 +23,19 @@ cargo tauri dev
 1. Import a Source.
    - Paste text, fetch a webpage, or load a local document.
    - Confirm Source Workspace shows chunks and source metadata.
+   - Confirm the Source asset panel appears with loading, empty, or linked asset states.
 
 2. Generate and save Points.
    - Run analysis/extraction.
    - Save at least two Points.
    - Confirm Library shows the Points and can open their Source/Chunk.
+   - Return to the Source Workspace and confirm linked Points appear in the Source asset panel.
 
 3. Save Evidence from fact check.
    - Select a claim in Explore and run fact check.
    - Save the fact check as Evidence.
-   - Confirm the Source Evidence panel shows verdict, claim, answer, checked time, source links, and source/chunk return.
+   - Confirm the Source asset panel shows Evidence verdict, claim, answer, checked time, source links, and source/chunk return.
+   - Export the Evidence record as Markdown and confirm claim, verdict, answer, sources, and Source/Chunk context are present.
 
 4. Verify Evidence from Point context.
    - Open Library list/grouped/Kanban view.
@@ -44,7 +47,13 @@ cargo tauri dev
    - Confirm Evidence results render separately from Source and Point results.
    - Add one Evidence result to Digest input and confirm the global ring count updates.
 
-6. Generate Digest with citations.
+6. Search unified assets.
+   - Search Library default mode for a known Source title, Point phrase, Evidence claim, Report title, and Gallery prompt/path/source Point.
+   - Confirm Source, Point, Evidence, Report, and Gallery results render in separate grouped sections.
+   - Open a Source or Point result and confirm it navigates to the correct Source/Chunk where available.
+   - Open a Gallery result and confirm it switches to the Gallery page.
+
+7. Generate Digest with citations.
    - Star at least one Point.
    - Generate Digest from the ring.
    - Confirm the Digest modal shows Markdown content and a structured citation list.
@@ -53,9 +62,9 @@ cargo tauri dev
    - Open Library -> Reports and confirm the saved Digest appears.
    - Filter Reports to “知识研报” and confirm the Digest remains visible.
    - Filter Reports to “多来源综合” and confirm the Digest is hidden unless a matching synthesis report also exists.
-   - Reopen the saved Report and confirm copy/download output includes the citation appendix.
+   - Reopen the saved Report and confirm copy/download/export output includes the citation appendix.
 
-7. Generate multi-source synthesis.
+8. Generate multi-source synthesis.
    - Search Library for at least two Sources.
    - Add them to the synthesis input panel.
    - Optionally enable “包含 Star”.
@@ -66,15 +75,22 @@ cargo tauri dev
    - Filter Reports to “多来源综合” and confirm the synthesis Report remains visible.
    - Filter Reports to “知识研报” and confirm the synthesis Report is hidden unless a matching Digest report also exists.
 
-8. Manage saved Reports.
+9. Verify Source asset bundle export.
+   - Open a Source with linked Points, Evidence, and at least one saved Report citation.
+   - If Gallery images were generated from linked Points, confirm they appear in the Gallery group; otherwise confirm the empty state is explicit.
+   - Export the Source asset bundle as Markdown.
+   - Confirm the Markdown includes Source metadata plus grouped Points, Evidence, Reports, and Gallery sections.
+
+10. Manage saved Reports.
    - In Library -> Reports, switch the type filter back to “全部”.
    - Delete one saved Report and confirm the row disappears after confirmation.
    - Confirm deleting a Report does not remove the original Source, linked Points, saved Evidence, or the other saved Reports.
    - Search for the deleted Report title and confirm it no longer appears.
    - Reopen a remaining Report and confirm citation source/chunk controls still work.
 
-9. Empty and degradation states.
+11. Empty and degradation states.
    - Evidence without source context shows “无来源定位” and no broken jump button.
+   - A Source with no linked assets shows Source asset panel empty states without hiding Source content.
    - Synthesis refuses to run with no selected Source and no Star input.
    - Digest refuses to run with no Point and no Evidence input.
    - Reports with no saved entries show the empty Reports state.
@@ -86,13 +102,11 @@ Run these after code changes:
 
 ```powershell
 cd frontend
-npm run test:run
 npm run typecheck
 npm run check:boundaries
+npm run test:run
+npm run build
 cd ..
-cargo test --manifest-path src-tauri\Cargo.toml evidence
-cargo test --manifest-path src-tauri\Cargo.toml report
-cargo test --manifest-path src-tauri\Cargo.toml digest
-cargo test --manifest-path src-tauri\Cargo.toml synthesis
 cargo check --manifest-path src-tauri\Cargo.toml
+cargo test --manifest-path src-tauri\Cargo.toml
 ```

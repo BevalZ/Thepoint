@@ -144,7 +144,7 @@ npm run test:run
 ### 1. Scope / Trigger
 
 - Trigger: changes to `frontend/src/pages/Library.tsx` search behavior in the default Library "points" mode.
-- Applies to: Library search UI that presents Source, Point, Evidence, and Report records together.
+- Applies to: Library search UI that presents Source, Point, Evidence, Report, and Gallery records together.
 - Use this when adding a new saved asset type or changing which assets appear in the default Library search.
 
 ### 2. Signatures
@@ -155,6 +155,7 @@ Frontend API functions:
 searchWorkspace(query: string): Promise<WorkspaceSearchResult[]>
 searchEvidence(query: string): Promise<EvidenceRecord[]>
 searchReports(query: string): Promise<ReportRecord[]>
+searchGallery(query: string): Promise<GalleryItem[]>
 ```
 
 ### 3. Contracts
@@ -163,31 +164,35 @@ searchReports(query: string): Promise<ReportRecord[]>
 - `searchWorkspace` supplies Source and Point matches.
 - `searchEvidence` supplies Evidence matches.
 - `searchReports` supplies Report matches.
+- `searchGallery` supplies Gallery image matches.
 - Evidence-only and Reports-only Library modes keep their scoped search behavior; do not apply the default unified result set to those tabs.
 - The unified result count includes every rendered asset type.
+- Gallery results render in a separate section and may navigate to the Gallery page through an optional `onOpenGallery` callback owned by `App.tsx`.
 
 ### 4. Validation & Error Matrix
 
 | Condition | Behavior |
 |---|---|
 | Empty query | Clear all search result state and show the normal mode view |
-| Default `points` mode query | Request Workspace, Evidence, and Reports before leaving the search loading state |
+| Default `points` mode query | Request Workspace, Evidence, Reports, and Gallery before leaving the search loading state |
 | Evidence mode query | Request only Evidence search results |
 | Reports mode query | Request only Report search results |
 | Search API failure | Show an empty result set for that search path; do not throw from render |
 
 ### 5. Good/Base/Bad Cases
 
-- Good: default Library search shows Source, Point, Evidence, and Reports in separate sections using existing API wrappers.
+- Good: default Library search shows Source, Point, Evidence, Reports, and Gallery in separate sections using existing API wrappers.
 - Base: Reports tab filtering applies only inside Reports mode, not to unified default search results.
+- Base: Gallery results can open the Gallery page but do not need image-detail routing until the Gallery page supports it.
 - Bad: adding Report search only to the Reports tab and leaving default Library search unable to find saved reports.
+- Bad: calling `invoke('search_gallery')` from `Library.tsx` instead of adding `searchGallery()` to `frontend/src/api`.
 
 ### 6. Tests Required
 
 - `npm run typecheck`: verify result state and render helpers stay aligned with API types.
 - `npm run check:boundaries`: verify UI code does not bypass `frontend/src/api`.
 - `npm run test:run`: keep existing frontend regression coverage green.
-- Manual desktop E2E: search for a known Report title from the default Library mode and confirm the Report opens in `ReportModal`.
+- Manual desktop E2E: search for known Source, Point, Evidence, Report, and Gallery text from the default Library mode and confirm each grouped result opens or navigates where supported.
 
 ### 7. Wrong vs Correct
 
@@ -200,5 +205,88 @@ Promise.all([searchWorkspace(query), searchEvidence(query)])
 #### Correct
 
 ```ts
-Promise.all([searchWorkspace(query), searchEvidence(query), searchReports(query)])
+Promise.all([searchWorkspace(query), searchEvidence(query), searchReports(query), searchGallery(query)])
+```
+
+---
+
+## Scenario: Source Asset Markdown Exports
+
+### 1. Scope / Trigger
+
+- Trigger: Source Workspace exports durable workbench assets as portable Markdown without adding a new filesystem command.
+- Applies to: `frontend/src/lib/workbenchArtifacts.ts`, `frontend/src/pages/Explore.tsx`, `frontend/src/api/*`, and browser-compatible download handlers.
+
+### 2. Signatures
+
+Frontend API:
+
+```ts
+getSourceAssets(sourceId: string): Promise<SourceAssetsRecord | null>
+```
+
+Helper functions:
+
+```ts
+sourceDisplayTitle(source: SourceSummaryRecord): string
+markdownFileName(prefix: string, title: string, fallbackId: string): string
+evidenceMarkdown(record: EvidenceRecord): string
+sourceAssetsMarkdown(assets: SourceAssetsRecord): string
+```
+
+Report export reuses:
+
+```ts
+reportMarkdownWithCitations(record: ReportRecord): string
+```
+
+### 3. Contracts
+
+- UI code loads Source assets through `getSourceAssets`, not separate direct command calls from the component.
+- Source bundle Markdown includes Source metadata plus grouped Points, Evidence, Reports, and Gallery sections.
+- Evidence Markdown includes claim, verdict, answer, reasoning/context when present, external sources, and Point/Source/Chunk context.
+- Report Markdown export must use `reportMarkdownWithCitations` so the citation appendix is preserved.
+- Markdown file names must remove Windows-invalid filename characters and fall back to an ID prefix when the title normalizes to empty.
+- Browser preview and desktop WebView both use `Blob` plus temporary object URL download; no Rust filesystem command is required for this MVP.
+
+### 4. Validation & Error Matrix
+
+| Condition | Behavior |
+|---|---|
+| `getSourceAssets` returns `null` | Source asset panel renders no stale asset groups |
+| Asset fetch fails | Show a Source asset error state and keep Source content usable |
+| Source has no linked assets | Render empty state and export a bundle with empty group sections |
+| Evidence has no external sources | Markdown includes an explicit no-sources line |
+| Report has citation JSON | Export through report helper so appendix is included |
+| Title contains `\ / : * ? " < > |` | File name replaces invalid characters |
+
+### 5. Good/Base/Bad Cases
+
+- Good: a Source with linked assets exports one Markdown bundle with each durable asset group under its own heading.
+- Base: Evidence without a Source link still exports with `Source ID: none` and `Chunk: none`.
+- Bad: a component builds Report Markdown itself and forgets the citation appendix.
+
+### 6. Tests Required
+
+- Helper test: `sourceDisplayTitle` falls back from title to URI to ID.
+- Helper test: `markdownFileName` sanitizes invalid filename characters.
+- Helper test: `evidenceMarkdown` includes answer, context/reasoning, sources, and source/chunk metadata.
+- Helper test: `sourceAssetsMarkdown` includes all durable asset group headings and empty states.
+- Frontend typecheck: Explore export handlers compile with `SourceAssetsRecord`, `EvidenceRecord`, and `ReportRecord`.
+- Boundary check: Explore imports `getSourceAssets` from `frontend/src/api`.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```ts
+// Loses report citations.
+downloadMarkdownFile(fileName, report.bodyMd)
+```
+
+#### Correct
+
+```ts
+// Preserves body plus citation appendix.
+downloadMarkdownFile(fileName, reportMarkdownWithCitations(report))
 ```

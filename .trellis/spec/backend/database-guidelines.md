@@ -78,6 +78,108 @@ IDs are stored as `TEXT` and generated in Rust with `uuid::Uuid::new_v4().to_str
 - Do not return partially hydrated records from helpers whose contract says they include nested records, such as Evidence `sources`.
 - Do not change frontend command payload casing by renaming Rust fields without checking `frontend/src/api/commandMap.ts`.
 
+## Scenario: Source Asset Aggregation And Gallery Search
+
+### 1. Scope / Trigger
+
+- Trigger: Source Workspace needs one typed payload containing the durable assets linked to a Source, and Library default search needs Gallery image results alongside Source, Point, Evidence, and Report results.
+- Applies to: `src-tauri/src/db/mod.rs`, `src-tauri/src/commands/library.rs`, `src-tauri/src/commands/gallery.rs`, `src-tauri/src/lib.rs`, `frontend/src/api/*`, `frontend/src/pages/Explore.tsx`, and `frontend/src/pages/Library.tsx`.
+
+### 2. Signatures
+
+DB record:
+
+```rust
+SourceAssetsRecord {
+  source: SourceSummaryRecord,
+  points: Vec<StoredPoint>,
+  evidence: Vec<EvidenceRecord>,
+  reports: Vec<ReportRecord>,
+  gallery: Vec<GalleryItem>,
+}
+```
+
+DB helpers:
+
+```rust
+get_source_assets(conn: &Connection, source_id: &str) -> Result<Option<SourceAssetsRecord>>
+list_points_for_source(conn: &Connection, source_id: &str, limit: usize) -> Result<Vec<StoredPoint>>
+list_reports_for_source(conn: &Connection, source_id: &str, limit: usize) -> Result<Vec<ReportRecord>>
+list_gallery_for_source(conn: &Connection, source_id: &str, limit: usize) -> Result<Vec<GalleryItem>>
+search_gallery(conn: &Connection, query: &str, limit: usize) -> Result<Vec<GalleryItem>>
+```
+
+Backend commands:
+
+```rust
+get_source_assets(app, source_id: String) -> Result<Option<SourceAssetsRecord>, String>
+search_gallery(app, query: String) -> Result<Vec<GalleryItem>, String>
+```
+
+Frontend API:
+
+```ts
+getSourceAssets(sourceId: string): Promise<SourceAssetsRecord | null>
+searchGallery(query: string): Promise<GalleryItem[]>
+```
+
+### 3. Contracts
+
+- `get_source_assets` returns `Ok(None)` when the Source ID is missing from `source_documents`.
+- Linked Points come from `point_source_links.source_id`.
+- Linked Evidence comes from `evidence_records.source_id` and must remain hydrated with `sources`.
+- Linked Reports are Reports whose `citations_json` array references the Source by `sourceId`, `source_id`, or `kind = "source"` plus `id = source_id`.
+- Linked Gallery images are Gallery rows whose `point_ids` include a Point linked to the Source through `point_source_links`.
+- Gallery rows without source-linked `point_ids` do not appear in Source asset aggregation.
+- `search_gallery` is lexical search over `prompt`, `file_path`, `thumbnail_path`, `point_ids`, and `source_points`; semantic/vector search is out of scope.
+- Tauri command registration and frontend `commandMap` entries must be updated together.
+
+### 4. Validation & Error Matrix
+
+| Condition | Behavior |
+|---|---|
+| Blank `source_id` in child list helpers | Return empty vector |
+| Missing Source in `get_source_assets` | Return `Ok(None)` |
+| Existing Source with no linked assets | Return `Some(SourceAssetsRecord)` with empty vectors |
+| Malformed Report `citations_json` | Ignore that Report for source aggregation |
+| Report citation uses snake_case `source_id` | Treat as a Source reference |
+| Gallery row has no linked Point for Source | Exclude from Source Gallery assets |
+| Blank Gallery search query | Return empty vector |
+| Gallery search limit is `0` | Return empty vector |
+| SQLite failure in command | Return `Err(String)` from the command boundary |
+
+### 5. Good/Base/Bad Cases
+
+- Good: a Source with linked Points, Evidence, Report citations, and Gallery images returns all four grouped asset vectors in one command payload.
+- Base: a Source with no linked Gallery images still returns Source metadata plus empty `gallery`.
+- Bad: Source asset aggregation scans Gallery `source_points` display text instead of resolving durable `point_ids` through `point_source_links`.
+
+### 6. Tests Required
+
+- DB test: `get_source_assets` returns Source metadata and grouped linked Points, Evidence, Reports, and Gallery images.
+- DB test: Report source detection accepts `sourceId`, `source_id`, and `kind=source/id=...` citation shapes.
+- DB test: Gallery rows without Source-linked `point_ids` are excluded from Source assets.
+- DB test: `search_gallery` matches prompt, paths, point IDs/source point JSON text, respects limit, and returns empty results for blank queries.
+- Frontend typecheck: `SourceAssetsRecord`, `getSourceAssets`, and `searchGallery` commandMap/API wrappers compile.
+- Boundary check: Explore and Library import only typed wrappers from `frontend/src/api`.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+// Text-only heuristic can attach images to the wrong Source.
+gallery.source_points.iter().any(|point| point.source_doc_name == source.title)
+```
+
+#### Correct
+
+```rust
+// Durable linkage: Gallery -> point_ids -> point_source_links -> Source.
+let point_ids = point_ids_for_source(conn, source_id)?;
+item.point_ids.iter().any(|point_id| point_ids.contains(point_id))
+```
+
 ---
 
 ## Scenario: Evidence Ledger Data Layer
