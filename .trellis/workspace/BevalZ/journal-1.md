@@ -371,3 +371,36 @@ Ran automated Knowledge Workbench regression checks and recorded manual desktop 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 12: Track Trellis project state
+
+**Date**: 2026-07-05
+**Task**: Track Trellis project state
+**Branch**: `main`
+
+### Summary
+
+Changed ignore rules so Trellis project state, specs, tasks, and workspace journals are tracked while runtime/cache/template-hash files remain ignored.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e7778d9` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
