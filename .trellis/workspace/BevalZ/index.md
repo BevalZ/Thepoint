@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 13
+- **Total Sessions**: 14
 - **Last Active**: 2026-07-05
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~440 | Active |
+| `journal-1.md` | ~475 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 14 | 2026-07-05 | Bootstrap Trellis specs | `c5a7f92`, `3023e5e`, `f054b1d` | `main` |
 | 13 | 2026-07-05 | Unify Library Search Results | `e0b25af`, `3f477d9` | `main` |
 | 12 | 2026-07-05 | Track Trellis project state | `e7778d9` | `main` |
 | 11 | 2026-07-05 | Workbench E2E validation run | `615035c` | `main` |

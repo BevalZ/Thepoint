@@ -438,3 +438,38 @@ Added default Library search aggregation for Source, Point, Evidence, and Report
 ### Next Steps
 
 - None - task complete
+
+
+## Session 14: Bootstrap Trellis specs
+
+**Date**: 2026-07-05
+**Task**: Bootstrap Trellis specs
+**Branch**: `main`
+
+### Summary
+
+Filled project-specific Trellis frontend and backend specs, removed remaining backend placeholders, and verified backend cargo check/test.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c5a7f92` | (see git log) |
+| `3023e5e` | (see git log) |
+| `f054b1d` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
