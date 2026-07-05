@@ -20,11 +20,17 @@ Thumbs.db
 # Agent / development-only metadata
 .claude/
 .cursor/
-.trellis/
 AGENTS.md
 CLAUDE.md
 DeepSeek_*.md
 Deepseek*.md
+
+# Trellis local-only runtime/cache state
+.trellis/.runtime/
+.trellis/.cache/
+.trellis/worktrees/
+.trellis/.backup-*
+.trellis/.template-hashes.json
 
 # Secrets / local data
 *.env

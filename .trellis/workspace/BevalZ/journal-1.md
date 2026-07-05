@@ -1,0 +1,373 @@
+# Journal - BevalZ (Part 1)
+
+> AI development session journal
+> Started: 2026-07-03
+
+---
+
+
+
+## Session 1: Implement foliole-inspired source-linked library flow
+
+**Date**: 2026-07-04
+**Task**: Implement foliole-inspired source-linked library flow
+**Branch**: `main`
+
+### Summary
+
+Implemented the foliole-inspired source persistence, source-linked library flow, workspace search, browser-preview fallbacks, bundle splitting, and completed browser/native smoke acceptance checks.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b82d040` | (see git log) |
+| `962b4eb` | (see git log) |
+| `659b4ad` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 2: Evidence display and return
+
+**Date**: 2026-07-05
+**Task**: Evidence display and return
+**Branch**: `main`
+
+### Summary
+
+Implemented Evidence display/list commands for Point and Source views, added Library/Explore UI return paths, updated Evidence list contract, and verified frontend/Rust checks.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `14f1e79` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 3: Evidence search and digest citations
+
+**Date**: 2026-07-05
+**Task**: Evidence search and digest citations
+**Branch**: `main`
+
+### Summary
+
+Added Evidence search/detail commands, Library Evidence search results, frontend Digest Evidence selection, typed Digest citations, and citation-aware Digest modal.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c9586fd` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 4: Multi-source synthesis MVP
+
+**Date**: 2026-07-05
+**Task**: Multi-source synthesis MVP
+**Branch**: `main`
+
+### Summary
+
+Added bounded multi-source synthesis from selected Sources and optional Stars, returning structured Source/Point/Evidence citations through the citation-aware modal.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `432b992` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 5: Knowledge workbench roadmap completion
+
+**Date**: 2026-07-05
+**Task**: Knowledge workbench roadmap completion
+**Branch**: `main`
+
+### Summary
+
+Marked the knowledge workbench roadmap complete, updated final next-step language, and archived completed Trellis route tasks.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `cce8eac` | (see git log) |
+| `2195fbe` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 6: Knowledge workbench regression coverage
+
+**Date**: 2026-07-05
+**Task**: Knowledge workbench regression coverage
+**Branch**: `main`
+
+### Summary
+
+Added a manual E2E checklist, extracted Digest citation artifact helpers, added Vitest regressions for citation artifacts and report input stores, and introduced npm run test:run.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `26d02d5` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 7: Evidence Ledger View MVP
+
+**Date**: 2026-07-05
+**Task**: Evidence Ledger View MVP
+**Branch**: `main`
+
+### Summary
+
+Added Library Evidence ledger view with recent Evidence listing, verdict filtering, typed API plumbing, and focused backend/frontend regressions.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3231784` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 8: Report Archive MVP
+
+**Date**: 2026-07-05
+**Task**: Report Archive MVP
+**Branch**: `main`
+
+### Summary
+
+Persisted Digest and Synthesis reports as first-class Report records, added Library Reports view, saved-report modal, typed API plumbing, and backend/frontend regressions.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0827349` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 9: Report management polish
+
+**Date**: 2026-07-05
+**Task**: Report management polish
+**Branch**: `main`
+
+### Summary
+
+Added persisted Report deletion, Library Reports kind filtering, frontend helper coverage, and backend delete tests.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2622109` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 10: Workbench E2E checklist update
+
+**Date**: 2026-07-05
+**Task**: Workbench E2E checklist update
+**Branch**: `main`
+
+### Summary
+
+Updated the manual Knowledge Workbench E2E checklist with Tauri runtime guidance plus saved Report filter/delete validation.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `bfa5331` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 11: Workbench E2E validation run
+
+**Date**: 2026-07-05
+**Task**: Workbench E2E validation run
+**Branch**: `main`
+
+### Summary
+
+Ran automated Knowledge Workbench regression checks and recorded manual desktop E2E status plus remaining provider-backed validation steps.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `615035c` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
