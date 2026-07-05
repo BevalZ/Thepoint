@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { Loader2, AlertCircle, BookMarked, Search, X, LayoutList, Table2, Columns3, FolderOpen, Archive, FileText, LocateFixed, BookmarkPlus, Check, Sparkles } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Loader2, AlertCircle, BookMarked, Search, X, LayoutList, Table2, Columns3, FolderOpen, Archive, FileText, LocateFixed, BookmarkPlus, Check, Sparkles, ShieldCheck, RefreshCw } from 'lucide-react'
 import { useDeepenStore, useEvidenceDigestStore, useLibraryStore, useStarStore, useSynthesisStore } from '@/store'
 import { PointTree } from '@/components/PointTree'
 import { EvidenceList } from '@/components/EvidenceList'
@@ -10,17 +10,26 @@ import { TableView } from '@/components/library/TableView'
 import { KanbanView } from '@/components/library/KanbanView'
 import { SourceExcerptButton } from '@/components/SourceExcerptButton'
 import { cn } from '@/lib/utils'
+import { EVIDENCE_VERDICT_FILTERS, filterEvidenceByVerdict } from '@/lib/evidenceLedger'
+import type { EvidenceVerdictFilter } from '@/lib/evidenceLedger'
 import type { DigestResult, EvidenceRecord, StoredPoint, WorkspaceSearchResult } from '@/api/types'
-import { generateSynthesis, searchEvidence, searchWorkspace } from '@/api'
+import { generateSynthesis, listRecentEvidence, searchEvidence, searchWorkspace } from '@/api'
 
 const LS_VIEW = 'lib-view-mode'
+const LS_LIBRARY_MODE = 'lib-content-mode'
 type ViewMode = 'grouped' | 'list' | 'table' | 'kanban'
+type LibraryMode = 'points' | 'evidence'
 
 const VIEW_OPTS: { id: ViewMode; icon: React.ReactNode; label: string }[] = [
   { id: 'grouped', icon: <FolderOpen size={14} />, label: '折叠栏' },
   { id: 'list',    icon: <LayoutList size={14} />, label: '列表' },
   { id: 'table',   icon: <Table2 size={14} />,    label: '表格' },
   { id: 'kanban',  icon: <Columns3 size={14} />,  label: '看板' },
+]
+
+const LIBRARY_MODE_OPTS: { id: LibraryMode; icon: React.ReactNode; label: string }[] = [
+  { id: 'points', icon: <BookMarked size={14} />, label: '观点' },
+  { id: 'evidence', icon: <ShieldCheck size={14} />, label: 'Evidence' },
 ]
 
 interface LibraryProps {
@@ -43,8 +52,14 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
   const [query, setQuery] = useState('')
   const [searchResults, setSearchResults] = useState<WorkspaceSearchResult[] | null>(null)
   const [evidenceResults, setEvidenceResults] = useState<EvidenceRecord[] | null>(null)
+  const [searching, setSearching] = useState(false)
+  const [libraryMode, setLibraryMode] = useState<LibraryMode>(() => (localStorage.getItem(LS_LIBRARY_MODE) as LibraryMode) ?? 'points')
   const [viewMode, setViewMode] = useState<ViewMode>(() => (localStorage.getItem(LS_VIEW) as ViewMode) ?? 'grouped')
   const [showArchived, setShowArchived] = useState(false)
+  const [recentEvidence, setRecentEvidence] = useState<EvidenceRecord[]>([])
+  const [evidenceLoading, setEvidenceLoading] = useState(false)
+  const [evidenceError, setEvidenceError] = useState<string | null>(null)
+  const [evidenceVerdictFilter, setEvidenceVerdictFilter] = useState<EvidenceVerdictFilter>('all')
   const [includeStarred, setIncludeStarred] = useState(false)
   const [synthesisGenerating, setSynthesisGenerating] = useState(false)
   const [synthesisError, setSynthesisError] = useState<string | null>(null)
@@ -53,30 +68,83 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
 
   useEffect(() => { fetch(); fetchMentalModels(); void initStars() }, [fetch, fetchMentalModels, initStars])
 
+  const loadRecentEvidence = useCallback(async () => {
+    setEvidenceLoading(true)
+    setEvidenceError(null)
+    try {
+      setRecentEvidence(await listRecentEvidence())
+    } catch (error) {
+      setRecentEvidence([])
+      setEvidenceError(error instanceof Error ? error.message : '加载 Evidence 失败，请稍后重试。')
+    } finally {
+      setEvidenceLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     if (showArchived) fetchArchived()
   }, [showArchived, fetchArchived])
 
   useEffect(() => {
+    if (libraryMode === 'evidence') void loadRecentEvidence()
+  }, [libraryMode, loadRecentEvidence])
+
+  useEffect(() => {
     if (timerRef.current) clearTimeout(timerRef.current)
-    if (!query.trim()) { setSearchResults(null); setEvidenceResults(null); return }
+    if (!query.trim()) {
+      setSearchResults(null)
+      setEvidenceResults(null)
+      setSearching(false)
+      return
+    }
+    setSearchResults(null)
+    setEvidenceResults(null)
+    setSearching(true)
+    let alive = true
     timerRef.current = setTimeout(() => {
+      if (libraryMode === 'evidence') {
+        searchEvidence(query)
+          .then((evidence) => {
+            if (!alive) return
+            setSearchResults(null)
+            setEvidenceResults(evidence)
+          })
+          .catch(() => {
+            if (!alive) return
+            setSearchResults(null)
+            setEvidenceResults([])
+          })
+          .finally(() => { if (alive) setSearching(false) })
+        return
+      }
+
       Promise.all([searchWorkspace(query), searchEvidence(query)])
         .then(([workspace, evidence]) => {
+          if (!alive) return
           setSearchResults(workspace)
           setEvidenceResults(evidence)
         })
         .catch(() => {
+          if (!alive) return
           setSearchResults([])
           setEvidenceResults([])
         })
+        .finally(() => { if (alive) setSearching(false) })
     }, 300)
-    return () => { if (timerRef.current) clearTimeout(timerRef.current) }
-  }, [query])
+    return () => {
+      alive = false
+      if (timerRef.current) clearTimeout(timerRef.current)
+    }
+  }, [query, libraryMode])
 
   const handleSetView = (v: ViewMode) => {
     setViewMode(v)
     localStorage.setItem(LS_VIEW, v)
+  }
+
+  const handleSetLibraryMode = (mode: LibraryMode) => {
+    setLibraryMode(mode)
+    localStorage.setItem(LS_LIBRARY_MODE, mode)
   }
 
   const handleArchive = async (id: string) => { await archivePoint(id) }
@@ -85,10 +153,15 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
   const activePoints = showArchived ? archivedPoints : points
   const sourceResults = searchResults?.filter((result) => result.kind === 'source') ?? []
   const pointResults = searchResults?.filter((result) => result.kind === 'point') ?? []
+  const searchActive = query.trim().length > 0
   const totalSearchResults = (searchResults?.length ?? 0) + (evidenceResults?.length ?? 0)
-  const searchActive = searchResults !== null || evidenceResults !== null
-  const showSynthesisPanel = synthesisSources.length > 0 || starredCount > 0
+  const ledgerEvidenceRecords = searchActive ? (evidenceResults ?? []) : recentEvidence
+  const filteredLedgerEvidence = filterEvidenceByVerdict(ledgerEvidenceRecords, evidenceVerdictFilter)
+  const showSynthesisPanel = libraryMode === 'points' && (synthesisSources.length > 0 || starredCount > 0)
   const canGenerateSynthesis = synthesisSources.length > 0 || (includeStarred && starredCount > 0)
+  const libraryDescription = libraryMode === 'evidence'
+    ? '已保存的事实审查证据，按时间、搜索和 verdict 复查。'
+    : '已保存的全部观点，按来源文档分组。'
 
   const handleOpenSearchResult = (result: WorkspaceSearchResult) => {
     if (result.kind === 'source') {
@@ -117,11 +190,49 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
     }
   }
 
+  const renderEvidenceDigestAction = (record: EvidenceRecord) => {
+    const selected = hasEvidenceForDigest(record.id)
+    return (
+      <button
+        type="button"
+        onClick={() => toggleEvidenceForDigest(record)}
+        className={cn(
+          'inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition-colors',
+          selected
+            ? 'border-accent/40 bg-accent/10 text-accent'
+            : 'border-border text-fg-muted hover:bg-bg-hover hover:text-accent'
+        )}
+        title={selected ? '从研报输入移除' : '加入研报输入'}
+      >
+        {selected ? <Check size={11} /> : <BookmarkPlus size={11} />}
+        {selected ? '已加入' : '加入研报'}
+      </button>
+    )
+  }
+
   return (
     <div className="mx-auto flex h-full max-w-4xl flex-col px-8 py-10">
-      <header>
-        <h1 className="text-lg font-semibold">知识库</h1>
-        <p className="mt-1 text-sm text-fg-muted">已保存的全部观点，按来源文档分组。</p>
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-lg font-semibold">知识库</h1>
+          <p className="mt-1 text-sm text-fg-muted">{libraryDescription}</p>
+        </div>
+        <div className="flex overflow-hidden rounded-lg border border-border bg-bg-elevated">
+          {LIBRARY_MODE_OPTS.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => handleSetLibraryMode(option.id)}
+              className={cn(
+                'inline-flex items-center gap-1.5 px-3 py-2 text-xs transition-colors',
+                libraryMode === option.id ? 'bg-accent/10 text-accent' : 'text-fg-muted hover:text-fg'
+              )}
+            >
+              {option.icon}
+              {option.label}
+            </button>
+          ))}
+        </div>
       </header>
 
       {/* Toolbar */}
@@ -130,27 +241,45 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
         <div className="flex-1 flex items-center gap-2 rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm">
           <Search size={15} className="shrink-0 text-fg-muted" />
           <input className="flex-1 bg-transparent text-fg outline-none placeholder:text-fg-faint"
-            placeholder="搜索观点、来源或证据…" value={query} onChange={e => setQuery(e.target.value)} />
+            placeholder={libraryMode === 'evidence' ? '搜索 claim、答案或证据来源…' : '搜索观点、来源或证据…'}
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+          />
           {query && <button onClick={() => setQuery('')} className="shrink-0 text-fg-muted hover:text-fg"><X size={14} /></button>}
         </div>
 
-        {/* Archive toggle */}
-        <button onClick={() => setShowArchived(s => !s)}
-          className={cn('flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm transition-colors',
-            showArchived ? 'border-accent bg-accent/10 text-accent' : 'border-border bg-bg-elevated text-fg-muted hover:text-fg')}>
-          <Archive size={14} />{showArchived ? '已归档' : '归档'}
-        </button>
+        {libraryMode === 'points' ? (
+          <>
+            {/* Archive toggle */}
+            <button onClick={() => setShowArchived(s => !s)}
+              className={cn('flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm transition-colors',
+                showArchived ? 'border-accent bg-accent/10 text-accent' : 'border-border bg-bg-elevated text-fg-muted hover:text-fg')}>
+              <Archive size={14} />{showArchived ? '已归档' : '归档'}
+            </button>
 
-        {/* View switcher — hidden in archived mode */}
-        {!showArchived && (
-          <div className="flex rounded-lg border border-border bg-bg-elevated overflow-hidden">
-            {VIEW_OPTS.map(v => (
-              <button key={v.id} onClick={() => handleSetView(v.id)} title={v.label}
-                className={cn('px-2.5 py-2 transition-colors', viewMode === v.id ? 'bg-accent/10 text-accent' : 'text-fg-muted hover:text-fg')}>
-                {v.icon}
-              </button>
-            ))}
-          </div>
+            {/* View switcher — hidden in archived mode */}
+            {!showArchived && (
+              <div className="flex rounded-lg border border-border bg-bg-elevated overflow-hidden">
+                {VIEW_OPTS.map(v => (
+                  <button key={v.id} onClick={() => handleSetView(v.id)} title={v.label}
+                    className={cn('px-2.5 py-2 transition-colors', viewMode === v.id ? 'bg-accent/10 text-accent' : 'text-fg-muted hover:text-fg')}>
+                    {v.icon}
+                  </button>
+                ))}
+              </div>
+            )}
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={() => void loadRecentEvidence()}
+            disabled={evidenceLoading}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm text-fg-muted transition-colors hover:text-fg disabled:opacity-50"
+            title="刷新 Evidence"
+          >
+            <RefreshCw size={14} className={cn(evidenceLoading && 'animate-spin')} />
+            刷新
+          </button>
         )}
       </div>
 
@@ -227,9 +356,66 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
       )}
 
       <div className="mt-6 flex-1">
-        {/* Search results */}
-        {searchActive ? (
-          totalSearchResults > 0 ? (
+        {libraryMode === 'evidence' ? (
+          <div className="space-y-4 pb-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex overflow-hidden rounded-lg border border-border bg-bg-elevated">
+                {EVIDENCE_VERDICT_FILTERS.map((filter) => (
+                  <button
+                    key={filter.id}
+                    type="button"
+                    onClick={() => setEvidenceVerdictFilter(filter.id)}
+                    className={cn(
+                      'px-3 py-2 text-xs transition-colors',
+                      evidenceVerdictFilter === filter.id ? 'bg-accent/10 text-accent' : 'text-fg-muted hover:text-fg'
+                    )}
+                  >
+                    {filter.label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs text-fg-faint">
+                {searchActive
+                  ? `匹配 ${filteredLedgerEvidence.length} / ${evidenceResults?.length ?? 0}`
+                  : `显示 ${filteredLedgerEvidence.length} / ${recentEvidence.length}`}
+              </p>
+            </div>
+
+            {evidenceError && !searchActive ? (
+              <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+                <AlertCircle size={16} className="mt-0.5 shrink-0" />
+                <span className="break-words">{evidenceError}</span>
+              </div>
+            ) : (searchActive && evidenceResults === null) || (!searchActive && evidenceLoading) ? (
+              <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-fg-faint">
+                <Loader2 size={16} className="animate-spin" />加载 Evidence…
+              </div>
+            ) : filteredLedgerEvidence.length > 0 ? (
+              <EvidenceList
+                records={filteredLedgerEvidence}
+                title={searchActive ? 'Evidence 搜索结果' : '最近 Evidence'}
+                onOpenSource={(sourceId, chunkIndex) => onOpenSource?.(sourceId, chunkIndex)}
+                renderAction={renderEvidenceDigestAction}
+              />
+            ) : (
+              <div className="flex min-h-40 flex-col items-center justify-center gap-2 text-center text-sm text-fg-faint">
+                <ShieldCheck size={24} className="opacity-50" />
+                <p>
+                  {searchActive
+                    ? '没有符合当前搜索和 verdict 的 Evidence。'
+                    : recentEvidence.length > 0
+                      ? '没有符合当前 verdict 的 Evidence。'
+                      : '还没有保存 Evidence。完成事实审查后，使用“保存为证据”沉淀到这里。'}
+                </p>
+              </div>
+            )}
+          </div>
+        ) : searchActive ? (
+          searching && searchResults === null && evidenceResults === null ? (
+            <div className="flex h-full min-h-32 items-center justify-center gap-2 text-sm text-fg-faint">
+              <Loader2 size={16} className="animate-spin" />搜索中…
+            </div>
+          ) : totalSearchResults > 0 ? (
             <div className="space-y-5 pb-6">
               <p className="text-xs text-fg-faint">共 {totalSearchResults} 条结果</p>
               {sourceResults.length > 0 && (
@@ -304,25 +490,7 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
                   records={evidenceResults}
                   title="Evidence"
                   onOpenSource={(sourceId, chunkIndex) => onOpenSource?.(sourceId, chunkIndex)}
-                  renderAction={(record) => {
-                    const selected = hasEvidenceForDigest(record.id)
-                    return (
-                      <button
-                        type="button"
-                        onClick={() => toggleEvidenceForDigest(record)}
-                        className={cn(
-                          'inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition-colors',
-                          selected
-                            ? 'border-accent/40 bg-accent/10 text-accent'
-                            : 'border-border text-fg-muted hover:bg-bg-hover hover:text-accent'
-                        )}
-                        title={selected ? '从研报输入移除' : '加入研报输入'}
-                      >
-                        {selected ? <Check size={11} /> : <BookmarkPlus size={11} />}
-                        {selected ? '已加入' : '加入研报'}
-                      </button>
-                    )
-                  }}
+                  renderAction={renderEvidenceDigestAction}
                 />
               )}
             </div>

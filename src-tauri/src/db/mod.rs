@@ -753,6 +753,26 @@ pub fn list_evidence_for_source(conn: &Connection, source_id: &str) -> Result<Ve
 }
 
 #[allow(dead_code)]
+pub fn list_recent_evidence(conn: &Connection, limit: usize) -> Result<Vec<EvidenceRecord>> {
+    if limit == 0 {
+        return Ok(Vec::new());
+    }
+
+    let mut stmt = conn.prepare(
+        "SELECT id, claim, verdict, answer, reasoning, context, point_id, source_id, chunk_index, checked_at, created_at
+         FROM evidence_records
+         ORDER BY checked_at DESC, created_at DESC
+         LIMIT ?1",
+    )?;
+    let rows = stmt.query_map(params![limit as i64], map_evidence_row)?;
+    let mut records = Vec::new();
+    for row in rows {
+        records.push(row?);
+    }
+    hydrate_evidence_records(conn, records)
+}
+
+#[allow(dead_code)]
 pub fn search_evidence(conn: &Connection, query: &str, limit: usize) -> Result<Vec<EvidenceRecord>> {
     let trimmed = query.trim();
     if trimmed.is_empty() || limit == 0 {
@@ -1849,6 +1869,36 @@ mod tests {
         assert_eq!(records.len(), 2);
         assert!(records.iter().all(|record| record.source_id.as_deref() == Some(source_a.id.as_str())));
         assert_eq!(records[0].claim, "source a newer");
+    }
+
+    #[test]
+    fn list_recent_evidence_returns_newest_hydrated_records_with_limit() {
+        let mut conn = memory_db();
+
+        save_evidence(
+            &mut conn,
+            evidence_input("oldest evidence", None, None, "2026-07-05T00:01:00Z"),
+        )
+        .unwrap();
+        save_evidence(
+            &mut conn,
+            evidence_input("newest evidence", None, None, "2026-07-05T00:03:00Z"),
+        )
+        .unwrap();
+        save_evidence(
+            &mut conn,
+            evidence_input("middle evidence", None, None, "2026-07-05T00:02:00Z"),
+        )
+        .unwrap();
+
+        let records = list_recent_evidence(&conn, 2).unwrap();
+
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0].claim, "newest evidence");
+        assert_eq!(records[1].claim, "middle evidence");
+        assert_eq!(records[0].sources.len(), 1);
+        assert_eq!(records[0].sources[0].stance, "support");
+        assert!(list_recent_evidence(&conn, 0).unwrap().is_empty());
     }
 
     #[test]

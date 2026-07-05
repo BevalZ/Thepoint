@@ -166,6 +166,20 @@ pub async fn list_evidence_for_source(
 }
 
 #[tauri::command]
+pub async fn list_recent_evidence(
+    app: tauri::AppHandle<Wry>,
+) -> Result<Vec<db::EvidenceRecord>, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<db::EvidenceRecord>> {
+        let conn = db::open_db(&path)?;
+        db::list_recent_evidence(&conn, 120)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn get_evidence(
     app: tauri::AppHandle<Wry>,
     evidence_id: String,

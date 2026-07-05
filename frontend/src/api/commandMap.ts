@@ -101,6 +101,10 @@ export interface TauriCommandMap {
     args: { sourceId: string }
     result: EvidenceRecord[]
   }
+  list_recent_evidence: {
+    args: undefined
+    result: EvidenceRecord[]
+  }
   get_evidence: {
     args: { evidenceId: string }
     result: EvidenceRecord | null

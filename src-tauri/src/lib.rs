@@ -35,6 +35,7 @@ pub fn run() {
             commands::library::save_evidence,
             commands::library::list_evidence_for_point,
             commands::library::list_evidence_for_source,
+            commands::library::list_recent_evidence,
             commands::library::get_evidence,
             commands::library::search_evidence,
             commands::library::list_points,
