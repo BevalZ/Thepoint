@@ -161,17 +161,18 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
         return
       }
 
-      Promise.all([searchWorkspace(query), searchEvidence(query)])
-        .then(([workspace, evidence]) => {
+      Promise.all([searchWorkspace(query), searchEvidence(query), searchReports(query)])
+        .then(([workspace, evidence, reports]) => {
           if (!alive) return
           setSearchResults(workspace)
           setEvidenceResults(evidence)
-          setReportResults(null)
+          setReportResults(reports)
         })
         .catch(() => {
           if (!alive) return
           setSearchResults([])
           setEvidenceResults([])
+          setReportResults([])
         })
         .finally(() => { if (alive) setSearching(false) })
     }, 300)
@@ -217,7 +218,8 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
   const sourceResults = searchResults?.filter((result) => result.kind === 'source') ?? []
   const pointResults = searchResults?.filter((result) => result.kind === 'point') ?? []
   const searchActive = query.trim().length > 0
-  const totalSearchResults = (searchResults?.length ?? 0) + (evidenceResults?.length ?? 0)
+  const unifiedReportResults = libraryMode === 'points' && searchActive ? (reportResults ?? []) : []
+  const totalSearchResults = (searchResults?.length ?? 0) + (evidenceResults?.length ?? 0) + unifiedReportResults.length
   const ledgerEvidenceRecords = searchActive ? (evidenceResults ?? []) : recentEvidence
   const filteredLedgerEvidence = filterEvidenceByVerdict(ledgerEvidenceRecords, evidenceVerdictFilter)
   const reportRecords = searchActive ? (reportResults ?? []) : recentReports
@@ -277,6 +279,40 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
       </button>
     )
   }
+
+  const renderReportItem = (report: ReportRecord) => (
+    <article
+      key={report.id}
+      className="flex w-full items-start gap-3 rounded-lg border border-border bg-bg-elevated px-4 py-3 text-left transition-colors hover:bg-bg-hover"
+    >
+      <button
+        type="button"
+        onClick={() => setSelectedReport(report)}
+        className="flex min-w-0 flex-1 items-start gap-3 text-left"
+      >
+        <ScrollText size={15} className="mt-0.5 shrink-0 text-accent" />
+        <span className="min-w-0 flex-1">
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="truncate text-sm font-medium text-fg">{report.title}</span>
+            <span className="shrink-0 rounded-md border border-border px-2 py-0.5 text-[11px] text-fg-faint">
+              {reportKindLabel(report.kind)}
+            </span>
+          </span>
+          <span className="mt-1 line-clamp-2 text-xs leading-relaxed text-fg-muted">{report.summary}</span>
+          <span className="mt-2 block text-[11px] text-fg-faint">{formatReportDate(report.createdAt)}</span>
+        </span>
+      </button>
+      <button
+        type="button"
+        onClick={() => void handleDeleteReport(report)}
+        disabled={deletingReportId !== null}
+        className="mt-0.5 shrink-0 rounded-md border border-border px-2 py-1.5 text-fg-muted transition-colors hover:bg-red-500/10 hover:text-red-300 disabled:opacity-50"
+        title="删除 Report"
+      >
+        {deletingReportId === report.id ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+      </button>
+    </article>
+  )
 
   return (
     <div className="mx-auto flex h-full max-w-4xl flex-col px-8 py-10">
@@ -471,39 +507,7 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
               </div>
             ) : visibleReports.length > 0 ? (
               <div className="space-y-2">
-                {visibleReports.map((report) => (
-                  <article
-                    key={report.id}
-                    className="flex w-full items-start gap-3 rounded-lg border border-border bg-bg-elevated px-4 py-3 text-left transition-colors hover:bg-bg-hover"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => setSelectedReport(report)}
-                      className="flex min-w-0 flex-1 items-start gap-3 text-left"
-                    >
-                      <ScrollText size={15} className="mt-0.5 shrink-0 text-accent" />
-                      <span className="min-w-0 flex-1">
-                        <span className="flex min-w-0 items-center gap-2">
-                          <span className="truncate text-sm font-medium text-fg">{report.title}</span>
-                          <span className="shrink-0 rounded-md border border-border px-2 py-0.5 text-[11px] text-fg-faint">
-                            {reportKindLabel(report.kind)}
-                          </span>
-                        </span>
-                        <span className="mt-1 line-clamp-2 text-xs leading-relaxed text-fg-muted">{report.summary}</span>
-                        <span className="mt-2 block text-[11px] text-fg-faint">{formatReportDate(report.createdAt)}</span>
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleDeleteReport(report)}
-                      disabled={deletingReportId !== null}
-                      className="mt-0.5 shrink-0 rounded-md border border-border px-2 py-1.5 text-fg-muted transition-colors hover:bg-red-500/10 hover:text-red-300 disabled:opacity-50"
-                      title="删除 Report"
-                    >
-                      {deletingReportId === report.id ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
-                    </button>
-                  </article>
-                ))}
+                {visibleReports.map(renderReportItem)}
               </div>
             ) : (
               <div className="flex min-h-40 flex-col items-center justify-center gap-2 text-center text-sm text-fg-faint">
@@ -575,7 +579,7 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
             )}
           </div>
         ) : searchActive ? (
-          searching && searchResults === null && evidenceResults === null ? (
+          searching && searchResults === null && evidenceResults === null && reportResults === null ? (
             <div className="flex h-full min-h-32 items-center justify-center gap-2 text-sm text-fg-faint">
               <Loader2 size={16} className="animate-spin" />搜索中…
             </div>
@@ -656,6 +660,17 @@ export default function Library({ onOpenPointSource, onOpenSource }: LibraryProp
                   onOpenSource={(sourceId, chunkIndex) => onOpenSource?.(sourceId, chunkIndex)}
                   renderAction={renderEvidenceDigestAction}
                 />
+              )}
+              {unifiedReportResults.length > 0 && (
+                <section>
+                  <div className="mb-2 flex items-center justify-between text-xs text-fg-faint">
+                    <span>Reports</span>
+                    <span>{unifiedReportResults.length}</span>
+                  </div>
+                  <div className="space-y-2">
+                    {unifiedReportResults.map(renderReportItem)}
+                  </div>
+                </section>
               )}
             </div>
           ) : (
