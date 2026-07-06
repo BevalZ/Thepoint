@@ -695,3 +695,37 @@ Added durable report claim/citation audit rows, save-time coverage summary, Repo
 ### Next Steps
 
 - None - task complete
+
+
+## Session 21: Open Data Mirror v2
+
+**Date**: 2026-07-07
+**Task**: Open Data Mirror v2
+**Branch**: `main`
+
+### Summary
+
+Added Open Data Mirror v2 planning, manifest v2 loading/export, explicit prune flow, Settings UI controls, tests, and cross-layer contract docs.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `940d151` | (see git log) |
+| `92b88ca` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
