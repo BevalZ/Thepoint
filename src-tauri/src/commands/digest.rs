@@ -2,7 +2,10 @@ use std::collections::HashSet;
 
 use tauri::Wry;
 
-use crate::db::{EvidenceRecord, PointSourceContext, SourceWorkspaceRecord, StoredPoint};
+use crate::db::{
+    EvidenceRecord, PointSourceContext, SaveInvestigationContextItemInput, SourceWorkspaceRecord,
+    StoredPoint,
+};
 
 const DIGEST_SYSTEM: &str = "你是一位专业的知识分析师。用户会提供一组带稳定标签的 Point 与 Evidence。\
 请根据这些输入生成一份详细的研究简报（digest），要求：\
@@ -43,6 +46,7 @@ const MAX_SYNTHESIS_POINTS: usize = 40;
 const MAX_INVESTIGATION_SEARCH_RESULTS: usize = 12;
 const MAX_INVESTIGATION_JOURNAL: usize = 8;
 const MAX_INVESTIGATION_RELATED: usize = 20;
+const INVESTIGATION_PROMPT_VERSION: &str = "investigation.v1";
 
 #[derive(serde::Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -57,7 +61,7 @@ pub struct GenerateSynthesisInput {
     pub include_starred: bool,
 }
 
-#[derive(serde::Deserialize, Default)]
+#[derive(serde::Deserialize, serde::Serialize, Default, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct InvestigationScope {
     pub source_ids: Vec<String>,
@@ -68,7 +72,7 @@ pub struct InvestigationScope {
     pub include_journal: bool,
 }
 
-#[derive(serde::Deserialize, Default)]
+#[derive(serde::Deserialize, Default, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct InvestigationInput {
     pub query: String,
@@ -96,6 +100,8 @@ pub struct DigestCitation {
 pub struct DigestResult {
     pub content: String,
     pub citations: Vec<DigestCitation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub invocation_id: Option<String>,
 }
 
 #[tauri::command]
@@ -180,7 +186,11 @@ pub async fn generate_digest(
         crate::db::clear_starred_points(&conn)
     }).await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
 
-    Ok(DigestResult { content: digest, citations })
+    Ok(DigestResult {
+        content: digest,
+        citations,
+        invocation_id: None,
+    })
 }
 
 #[tauri::command]
@@ -275,7 +285,11 @@ pub async fn generate_synthesis(
         .map(|c| c.message.content)
         .ok_or_else(|| "模型未返回内容".to_string())?;
 
-    Ok(DigestResult { content, citations })
+    Ok(DigestResult {
+        content,
+        citations,
+        invocation_id: None,
+    })
 }
 
 #[tauri::command]
@@ -295,9 +309,12 @@ pub async fn generate_investigation(
 
     let mode = normalize_investigation_mode(&input.mode);
     let db_path = crate::db::db_path(&app).map_err(|e| e.to_string())?;
+    let scope = input.scope.clone();
     let context = tokio::task::spawn_blocking({
+        let db_path = db_path.clone();
         let query = query.clone();
-        move || collect_investigation_context(&db_path, &query, input.scope)
+        let scope = scope.clone();
+        move || collect_investigation_context(&db_path, &query, scope)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -309,6 +326,7 @@ pub async fn generate_investigation(
 
     let input_text = investigation_input_text(&query, &mode, &context);
     let citations = build_investigation_citations(&context);
+    let model_name = config.openai_model.clone();
     let endpoint = crate::commands::config::completions_endpoint(
         &config.openai_base_url,
         &config.provider_key,
@@ -358,7 +376,33 @@ pub async fn generate_investigation(
         .map(|c| c.message.content)
         .ok_or_else(|| "模型未返回内容".to_string())?;
 
-    Ok(DigestResult { content, citations })
+    let invocation_id = tokio::task::spawn_blocking({
+        let db_path = db_path.clone();
+        let query = query.clone();
+        let mode = mode.clone();
+        let scope = scope.clone();
+        let citations = citations.clone();
+        move || {
+            save_investigation_invocation_audit(
+                &db_path,
+                &query,
+                &mode,
+                &model_name,
+                &scope,
+                &context,
+                &citations,
+            )
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
+
+    Ok(DigestResult {
+        content,
+        citations,
+        invocation_id: Some(invocation_id),
+    })
 }
 
 #[derive(Default)]
@@ -465,6 +509,223 @@ fn context_asset_ids(context: &InvestigationContext) -> Vec<(String, String)> {
     out.extend(context.evidence.iter().map(|record| ("evidence".to_string(), record.id.clone())));
     out.extend(context.reports.iter().map(|report| ("report".to_string(), report.id.clone())));
     out
+}
+
+fn save_investigation_invocation_audit(
+    db_path: &std::path::Path,
+    query: &str,
+    mode: &str,
+    model_name: &str,
+    scope: &InvestigationScope,
+    context: &InvestigationContext,
+    citations: &[DigestCitation],
+) -> anyhow::Result<String> {
+    let conn = crate::db::open_db(db_path)?;
+    let input_refs_json = serde_json::json!({
+        "query": query,
+        "mode": mode,
+        "scope": scope,
+        "citationLabels": citations.iter().map(|citation| citation.label.clone()).collect::<Vec<_>>(),
+    })
+    .to_string();
+    let context_manifest_json = serde_json::json!({
+        "promptVersion": INVESTIGATION_PROMPT_VERSION,
+        "mode": mode,
+        "counts": {
+            "sources": context.sources.len(),
+            "points": context.points.len(),
+            "evidence": context.evidence.len(),
+            "reports": context.reports.len(),
+            "journal": context.journal.len(),
+            "related": context.related.len(),
+            "citations": citations.len(),
+        },
+        "roles": [
+            "source",
+            "point",
+            "evidence",
+            "prior_report",
+            "journal_recall",
+            "related_clue"
+        ],
+    })
+    .to_string();
+    let warnings = investigation_warnings(context);
+    let invocation = crate::db::save_ai_invocation(
+        &conn,
+        crate::db::SaveAiInvocationInput {
+            task_kind: "investigation".to_string(),
+            model_profile_id: None,
+            model_name: Some(model_name.to_string()),
+            prompt_version: INVESTIGATION_PROMPT_VERSION.to_string(),
+            input_query: Some(query.to_string()),
+            input_refs_json,
+            context_manifest_json,
+            token_usage_json: None,
+            warnings_json: serde_json::to_string(&warnings)?,
+        },
+    )?;
+    let items = investigation_context_audit_items(&invocation.id, context);
+    crate::db::save_investigation_context_items(&conn, items)?;
+    Ok(invocation.id)
+}
+
+fn investigation_warnings(context: &InvestigationContext) -> Vec<String> {
+    let mut warnings = Vec::new();
+    if !context.journal.is_empty() {
+        warnings.push("Journal entries were included as recall clues, not final evidence.".to_string());
+    }
+    if !context.reports.is_empty() {
+        warnings.push("Prior reports were included as context only unless their citations are reused.".to_string());
+    }
+    if context.related.len() >= MAX_INVESTIGATION_RELATED {
+        warnings.push("Related assets were capped by the investigation context limit.".to_string());
+    }
+    warnings
+}
+
+fn investigation_context_audit_items(
+    invocation_id: &str,
+    context: &InvestigationContext,
+) -> Vec<SaveInvestigationContextItemInput> {
+    let mut items = Vec::new();
+    for (index, workspace) in context.sources.iter().enumerate() {
+        let text = workspace
+            .chunks
+            .iter()
+            .map(|chunk| chunk.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        items.push(context_item(
+            invocation_id,
+            "source",
+            &workspace.source.id,
+            Some(format!("S{}", index + 1)),
+            "source",
+            &text,
+            workspace.chunks.len() > MAX_SYNTHESIS_SOURCE_CHUNKS
+                || workspace.chunks.iter().any(|chunk| chunk.text.chars().count() > 520),
+            "Source chunks available to Investigation context",
+        ));
+    }
+    for (index, point) in context.points.iter().enumerate() {
+        let text = [Some(point.content.as_str()), point.source_excerpt.as_deref()]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        items.push(context_item(
+            invocation_id,
+            "point",
+            &point.id,
+            Some(format!("P{}", index + 1)),
+            "point",
+            &text,
+            text.chars().count() > 480,
+            "Point available to Investigation context",
+        ));
+    }
+    for (index, record) in context.evidence.iter().enumerate() {
+        let text = evidence_audit_text(record);
+        items.push(context_item(
+            invocation_id,
+            "evidence",
+            &record.id,
+            Some(format!("E{}", index + 1)),
+            "evidence",
+            &text,
+            text.chars().count() > 520,
+            "Evidence available to Investigation context",
+        ));
+    }
+    for (index, report) in context.reports.iter().enumerate() {
+        let text = format!("{}\n\n{}\n\n{}", report.title, report.summary, report.body_md);
+        items.push(context_item(
+            invocation_id,
+            "report",
+            &report.id,
+            Some(format!("R{}", index + 1)),
+            "prior_report",
+            &text,
+            report.body_md.chars().count() > 520,
+            "Prior report included as context only",
+        ));
+    }
+    for (index, entry) in context.journal.iter().enumerate() {
+        let text = format!("{}\n\n{}", entry.query, entry.note);
+        items.push(context_item(
+            invocation_id,
+            "journal",
+            &entry.id,
+            Some(format!("J{}", index + 1)),
+            "journal_recall",
+            &text,
+            entry.note.chars().count() > 420,
+            "Journal memory included as recall clue",
+        ));
+    }
+    for relation in context.related.iter().take(MAX_INVESTIGATION_RELATED) {
+        let text = format!(
+            "{}:{} -> {}:{} {} {}",
+            relation.from_kind,
+            relation.from_id,
+            relation.to_kind,
+            relation.to_id,
+            relation.relation,
+            relation.reason
+        );
+        items.push(context_item(
+            invocation_id,
+            "relation",
+            &relation.id,
+            None,
+            "related_clue",
+            &text,
+            false,
+            "Related asset used as discovery clue",
+        ));
+    }
+    items
+}
+
+fn context_item(
+    invocation_id: &str,
+    target_kind: &str,
+    target_id: &str,
+    label: Option<String>,
+    role: &str,
+    text: &str,
+    truncated: bool,
+    reason: &str,
+) -> SaveInvestigationContextItemInput {
+    SaveInvestigationContextItemInput {
+        invocation_id: invocation_id.to_string(),
+        target_kind: target_kind.to_string(),
+        target_id: target_id.to_string(),
+        label,
+        role: role.to_string(),
+        included: true,
+        truncated,
+        reason: Some(reason.to_string()),
+        char_count: Some(text.chars().count().min(i64::MAX as usize) as i64),
+        source_text_hash: Some(crate::db::stable_text_hash(text)),
+    }
+}
+
+fn evidence_audit_text(record: &EvidenceRecord) -> String {
+    let mut parts = vec![record.claim.clone(), record.answer.clone()];
+    if let Some(reasoning) = record.reasoning.as_deref() {
+        parts.push(reasoning.to_string());
+    }
+    if let Some(context) = record.context.as_deref() {
+        parts.push(context.to_string());
+    }
+    for source in &record.sources {
+        if let Some(snippet) = source.snippet.as_deref() {
+            parts.push(snippet.to_string());
+        }
+    }
+    parts.join("\n\n")
 }
 
 fn normalize_investigation_mode(mode: &str) -> String {

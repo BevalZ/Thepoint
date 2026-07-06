@@ -53,6 +53,7 @@ export function reportSaveInput(
     bodyMd: result.content.trim(),
     summary: reportSummaryFromMarkdown(result.content),
     citationsJson: JSON.stringify(result.citations),
+    invocationId: result.invocationId ?? null,
   }
 }
 
@@ -60,6 +61,7 @@ export function digestResultFromReport(record: ReportRecord): DigestResult {
   return {
     content: record.bodyMd,
     citations: parseReportCitations(record.citationsJson),
+    invocationId: null,
   }
 }
 

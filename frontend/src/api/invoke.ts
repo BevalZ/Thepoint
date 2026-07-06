@@ -90,6 +90,7 @@ function browserPreviewFallback<T extends TauriCommandName>(
     case 'get_report':
     case 'load_indexed_file_preview':
     case 'load_report_citation_audit':
+    case 'load_report_invocation_audit':
       return null as TauriCommandResult<T>
     case 'get_open_data_mirror_config':
       return {

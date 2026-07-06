@@ -30,6 +30,7 @@ import type {
   RelatedClassification,
   RelatedCandidateInput,
   ReportCitationAudit,
+  ReportInvocationAudit,
   ReportRecord,
   ReviewRating,
   SaveReportInput,
@@ -139,6 +140,9 @@ export const locateCitationQuote = (input: CitationLocatorInput): Promise<Citati
 
 export const loadReportCitationAudit = (reportId: string): Promise<ReportCitationAudit | null> =>
   invokeCommand('load_report_citation_audit', { reportId })
+
+export const loadReportInvocationAudit = (reportId: string): Promise<ReportInvocationAudit | null> =>
+  invokeCommand('load_report_invocation_audit', { reportId })
 
 export const deleteReport = (reportId: string): Promise<void> =>
   invokeCommand('delete_report', { reportId })

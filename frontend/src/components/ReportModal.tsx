@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Check, Copy, Download, ExternalLink, LocateFixed, X } from 'lucide-react'
-import { loadReportCitationAudit } from '@/api'
+import { loadReportCitationAudit, loadReportInvocationAudit } from '@/api'
 import { Markdown } from '@/components/Markdown'
-import type { CitationLocatorStatus, ReportCitationAudit, ReportRecord } from '@/api/types'
+import type { CitationLocatorStatus, ReportCitationAudit, ReportInvocationAudit, ReportRecord } from '@/api/types'
 import { citationKindLabel } from '@/lib/digestArtifacts'
 import { digestResultFromReport, reportKindLabel, reportMarkdownWithCitations } from '@/lib/reportArtifacts'
 
@@ -25,12 +25,40 @@ const LOCATOR_STATUS_CLASSES: Record<string, string> = {
   not_applicable: 'border-border bg-bg-hover text-fg-faint',
 }
 
+const CONTEXT_ROLE_LABELS: Record<string, string> = {
+  source: 'Source',
+  point: 'Point',
+  evidence: 'Evidence',
+  prior_report: '历史 Report',
+  journal_recall: 'Journal recall',
+  related_clue: 'Related clue',
+}
+
 function locatorStatusLabel(status: CitationLocatorStatus): string {
   return LOCATOR_STATUS_LABELS[status] ?? status
 }
 
 function locatorStatusClass(status: CitationLocatorStatus): string {
   return LOCATOR_STATUS_CLASSES[status] ?? 'border-border bg-bg-hover text-fg-faint'
+}
+
+function contextRoleLabel(role: string): string {
+  return CONTEXT_ROLE_LABELS[role] ?? role
+}
+
+function parseWarnings(warningsJson: string): string[] {
+  try {
+    const parsed: unknown = JSON.parse(warningsJson)
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((value): value is string => typeof value === 'string')
+  } catch {
+    return []
+  }
+}
+
+function compactId(id: string): string {
+  if (id.length <= 14) return id
+  return `${id.slice(0, 8)}…${id.slice(-4)}`
 }
 
 interface ReportModalProps {
@@ -41,27 +69,44 @@ interface ReportModalProps {
 
 export function ReportModal({ report, onClose, onOpenSource }: ReportModalProps) {
   const [copied, setCopied] = useState(false)
-  const [audit, setAudit] = useState<ReportCitationAudit | null>(null)
-  const [auditLoading, setAuditLoading] = useState(false)
-  const [auditError, setAuditError] = useState<string | null>(null)
+  const [citationAudit, setCitationAudit] = useState<ReportCitationAudit | null>(null)
+  const [citationAuditLoading, setCitationAuditLoading] = useState(false)
+  const [citationAuditError, setCitationAuditError] = useState<string | null>(null)
+  const [invocationAudit, setInvocationAudit] = useState<ReportInvocationAudit | null>(null)
+  const [invocationAuditLoading, setInvocationAuditLoading] = useState(false)
+  const [invocationAuditError, setInvocationAuditError] = useState<string | null>(null)
   const result = digestResultFromReport(report)
 
   useEffect(() => {
     let alive = true
-    setAudit(null)
-    setAuditError(null)
-    setAuditLoading(true)
-    loadReportCitationAudit(report.id)
-      .then((nextAudit) => {
+    setCitationAudit(null)
+    setCitationAuditError(null)
+    setCitationAuditLoading(true)
+    setInvocationAudit(null)
+    setInvocationAuditError(null)
+    setInvocationAuditLoading(true)
+
+    Promise.allSettled([
+      loadReportCitationAudit(report.id),
+      loadReportInvocationAudit(report.id),
+    ])
+      .then(([nextCitationAudit, nextInvocationAudit]) => {
         if (!alive) return
-        setAudit(nextAudit)
-      })
-      .catch((error: unknown) => {
-        if (!alive) return
-        setAuditError(error instanceof Error ? error.message : String(error))
+        if (nextCitationAudit.status === 'fulfilled') {
+          setCitationAudit(nextCitationAudit.value)
+        } else {
+          setCitationAuditError(nextCitationAudit.reason instanceof Error ? nextCitationAudit.reason.message : String(nextCitationAudit.reason))
+        }
+        if (nextInvocationAudit.status === 'fulfilled') {
+          setInvocationAudit(nextInvocationAudit.value)
+        } else {
+          setInvocationAuditError(nextInvocationAudit.reason instanceof Error ? nextInvocationAudit.reason.message : String(nextInvocationAudit.reason))
+        }
       })
       .finally(() => {
-        if (alive) setAuditLoading(false)
+        if (!alive) return
+        setCitationAuditLoading(false)
+        setInvocationAuditLoading(false)
       })
 
     return () => {
@@ -84,6 +129,8 @@ export function ReportModal({ report, onClose, onOpenSource }: ReportModalProps)
     a.click()
     URL.revokeObjectURL(url)
   }
+
+  const invocationWarnings = invocationAudit ? parseWarnings(invocationAudit.invocation.warningsJson) : []
 
   return (
     <motion.div
@@ -128,32 +175,111 @@ export function ReportModal({ report, onClose, onOpenSource }: ReportModalProps)
 
         <div className="flex-1 overflow-y-auto px-6 py-5 [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none' }}>
           <Markdown>{result.content}</Markdown>
+          {(invocationAudit || invocationAuditLoading || invocationAuditError) && (
+            <section className="mt-5 border-t border-border pt-4">
+              <div className="mb-2 flex items-center justify-between gap-3 text-xs text-fg-faint">
+                <span>生成上下文</span>
+                {invocationAuditLoading && <span>审计中...</span>}
+                {invocationAuditError && <span className="text-red-300">审计失败</span>}
+              </div>
+              {invocationAudit && (
+                <div className="rounded-xl border border-border bg-bg px-3 py-3">
+                  <div className="grid gap-2 text-xs text-fg-muted sm:grid-cols-3">
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wide text-fg-faint">Model</div>
+                      <div className="mt-1 truncate text-fg">{invocationAudit.invocation.modelName ?? '未记录'}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wide text-fg-faint">Prompt</div>
+                      <div className="mt-1 truncate text-fg">{invocationAudit.invocation.promptVersion}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wide text-fg-faint">Context</div>
+                      <div className="mt-1 text-fg">
+                        {invocationAudit.includedCount}/{invocationAudit.total} included
+                        {invocationAudit.truncatedCount > 0 ? ` · ${invocationAudit.truncatedCount} truncated` : ''}
+                      </div>
+                    </div>
+                  </div>
+                  {invocationAudit.invocation.inputQuery && (
+                    <p className="mt-3 line-clamp-2 rounded-lg border border-border bg-bg-elevated px-3 py-2 text-xs text-fg-muted">
+                      问题：{invocationAudit.invocation.inputQuery}
+                    </p>
+                  )}
+                  {invocationWarnings.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {invocationWarnings.map((warning) => (
+                        <span key={warning} className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-[11px] text-amber-300">
+                          {warning}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <div className="mt-3 max-h-52 space-y-2 overflow-y-auto pr-1 [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none' }}>
+                    {invocationAudit.contextItems.map((item) => (
+                      <article key={item.id} className="rounded-lg border border-border bg-bg-elevated px-3 py-2">
+                        <div className="flex items-start gap-2">
+                          <span className="shrink-0 rounded-md border border-border bg-bg-hover px-2 py-0.5 text-[10px] text-fg-muted">
+                            {item.label ?? contextRoleLabel(item.role)}
+                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className="text-[11px] text-fg">{contextRoleLabel(item.role)}</span>
+                              <span className="font-mono text-[10px] text-fg-faint">
+                                {item.targetKind}:{compactId(item.targetId)}
+                              </span>
+                              {item.truncated && (
+                                <span className="rounded-full border border-orange-500/20 bg-orange-500/10 px-1.5 py-0.5 text-[10px] text-orange-300">
+                                  truncated
+                                </span>
+                              )}
+                              {!item.included && (
+                                <span className="rounded-full border border-border bg-bg-hover px-1.5 py-0.5 text-[10px] text-fg-faint">
+                                  excluded
+                                </span>
+                              )}
+                            </div>
+                            {item.reason && (
+                              <p className="mt-1 line-clamp-1 text-[11px] text-fg-muted">{item.reason}</p>
+                            )}
+                            <p className="mt-1 font-mono text-[10px] text-fg-faint">
+                              chars={item.charCount ?? 'unknown'} · hash={item.sourceTextHash ?? 'none'}
+                            </p>
+                          </div>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
           {result.citations.length > 0 && (
             <section className="mt-5 border-t border-border pt-4">
               <div className="mb-2 flex items-center justify-between gap-3 text-xs text-fg-faint">
                 <span>引用</span>
                 <div className="flex flex-wrap items-center justify-end gap-2">
-                  {auditLoading && <span>审计中...</span>}
-                  {auditError && <span className="text-red-300">审计失败</span>}
-                  {audit && (
+                  {citationAuditLoading && <span>审计中...</span>}
+                  {citationAuditError && <span className="text-red-300">审计失败</span>}
+                  {citationAudit && (
                     <>
                       <span className="rounded-full border border-green-500/20 bg-green-500/10 px-2 py-0.5 text-green-300">
-                        定位 {audit.locatedCount}/{audit.total}
+                        定位 {citationAudit.locatedCount}/{citationAudit.total}
                       </span>
-                      {(audit.multipleMatchesCount + audit.staleCount + audit.notFoundCount + audit.targetMissingCount) > 0 && (
+                      {(citationAudit.multipleMatchesCount + citationAudit.staleCount + citationAudit.notFoundCount + citationAudit.targetMissingCount) > 0 && (
                         <span className="rounded-full border border-amber-500/20 bg-amber-500/10 px-2 py-0.5 text-amber-300">
-                          待复查 {audit.multipleMatchesCount + audit.staleCount + audit.notFoundCount + audit.targetMissingCount}
+                          待复查 {citationAudit.multipleMatchesCount + citationAudit.staleCount + citationAudit.notFoundCount + citationAudit.targetMissingCount}
                         </span>
                       )}
                     </>
                   )}
-                  {!audit && !auditLoading && !auditError && <span>{result.citations.length}</span>}
+                  {!citationAudit && !citationAuditLoading && !citationAuditError && <span>{result.citations.length}</span>}
                 </div>
               </div>
               <div className="space-y-2">
                 {result.citations.map((citation, index) => {
                   const canOpenSource = Boolean(citation.sourceId && onOpenSource)
-                  const auditItem = audit?.citations.find((item) => item.citationIndex === index)
+                  const auditItem = citationAudit?.citations.find((item) => item.citationIndex === index)
                   return (
                     <article key={`${citation.kind}-${citation.id}-${citation.label}`} className="rounded-lg border border-border bg-bg px-3 py-2">
                       <div className="flex items-start gap-3">

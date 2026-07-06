@@ -180,6 +180,7 @@ export interface DigestCitation {
 export interface DigestResult {
   content: string
   citations: DigestCitation[]
+  invocationId?: string | null
 }
 
 export type CitationLocatorStatus =
@@ -244,6 +245,45 @@ export interface ReportCitationAudit {
   citations: ReportCitationAuditItem[]
 }
 
+export interface AiInvocationRecord {
+  id: string
+  taskKind: string
+  modelProfileId: string | null
+  modelName: string | null
+  promptVersion: string
+  inputQuery: string | null
+  inputRefsJson: string
+  contextManifestJson: string
+  outputRefKind: string | null
+  outputRefId: string | null
+  tokenUsageJson: string | null
+  warningsJson: string
+  createdAt: string
+}
+
+export interface InvestigationContextItemRecord {
+  id: string
+  invocationId: string
+  targetKind: string
+  targetId: string
+  label: string | null
+  role: string
+  included: boolean
+  truncated: boolean
+  reason: string | null
+  charCount: number | null
+  sourceTextHash: string | null
+  createdAt: string
+}
+
+export interface ReportInvocationAudit {
+  invocation: AiInvocationRecord
+  contextItems: InvestigationContextItemRecord[]
+  total: number
+  includedCount: number
+  truncatedCount: number
+}
+
 export interface InvestigationInput {
   query: string
   scope: {
@@ -277,6 +317,7 @@ export interface SaveReportInput {
   bodyMd: string
   summary: string
   citationsJson: string
+  invocationId?: string | null
 }
 
 export interface SaveJournalEntryInput {

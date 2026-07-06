@@ -49,6 +49,7 @@ describe('report artifact helpers', () => {
     const result: DigestResult = {
       content: '# Strategy Digest\n\nThe body references [S1].',
       citations: [citation()],
+      invocationId: 'invocation-1',
     }
 
     const input = reportSaveInput(result, 'synthesis', '多来源综合', '多来源综合')
@@ -57,6 +58,7 @@ describe('report artifact helpers', () => {
     expect(input.kind).toBe('synthesis')
     expect(input.bodyMd).toBe(result.content)
     expect(input.bodyMd).not.toContain('## 引用清单')
+    expect(input.invocationId).toBe('invocation-1')
     expect(JSON.parse(input.citationsJson)).toHaveLength(1)
   })
 
@@ -67,6 +69,7 @@ describe('report artifact helpers', () => {
 
     expect(result.content).toBe(saved.bodyMd)
     expect(result.citations[0].label).toBe('S1')
+    expect(result.invocationId).toBeNull()
     expect(markdown).toContain('## 引用清单')
     expect(markdown).toContain('URL: https://example.com/source')
   })

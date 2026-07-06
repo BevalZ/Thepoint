@@ -36,6 +36,7 @@ pub struct SaveReportCommandInput {
     pub body_md: String,
     pub summary: String,
     pub citations_json: String,
+    pub invocation_id: Option<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -324,7 +325,11 @@ pub async fn save_report(
     let path = db::db_path(&app).map_err(|e| e.to_string())?;
     tokio::task::spawn_blocking(move || -> anyhow::Result<db::ReportRecord> {
         let conn = db::open_db(&path)?;
+        let invocation_id = input.invocation_id.clone();
         let report = db::save_report(&conn, report_command_input_to_db(input))?;
+        if let Some(invocation_id) = invocation_id.as_deref() {
+            db::link_ai_invocation_output(&conn, invocation_id, "report", &report.id)?;
+        }
         if report.kind == "investigation" {
             let (source_ids, point_ids, evidence_ids) =
                 citation_asset_ids_for_journal(&report.citations_json);
@@ -348,6 +353,21 @@ pub async fn save_report(
             )?;
         }
         Ok(report)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn load_report_invocation_audit(
+    app: tauri::AppHandle<Wry>,
+    report_id: String,
+) -> Result<Option<db::ReportInvocationAudit>, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<Option<db::ReportInvocationAudit>> {
+        let conn = db::open_db(&path)?;
+        db::load_report_invocation_audit(&conn, &report_id)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1807,12 +1827,7 @@ fn indexed_file_preview(text: &str) -> String {
 }
 
 fn stable_text_hash(text: &str) -> String {
-    let mut hash = 0xcbf29ce484222325u64;
-    for byte in text.as_bytes() {
-        hash ^= *byte as u64;
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    format!("fnv1a64:{hash:016x}")
+    db::stable_text_hash(text)
 }
 
 fn descriptor_kind_for_extension(extension: Option<&str>) -> &'static str {
@@ -2342,6 +2357,7 @@ mod tests {
             body_md: "# Digest Title".to_string(),
             summary: "Digest summary".to_string(),
             citations_json: "[]".to_string(),
+            invocation_id: Some("invocation-1".to_string()),
         };
 
         let report = report_command_input_to_db(input);

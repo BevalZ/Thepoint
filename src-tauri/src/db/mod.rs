@@ -189,6 +189,78 @@ pub struct SaveReportInput {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
+pub struct AiInvocationRecord {
+    pub id: String,
+    pub task_kind: String,
+    pub model_profile_id: Option<String>,
+    pub model_name: Option<String>,
+    pub prompt_version: String,
+    pub input_query: Option<String>,
+    pub input_refs_json: String,
+    pub context_manifest_json: String,
+    pub output_ref_kind: Option<String>,
+    pub output_ref_id: Option<String>,
+    pub token_usage_json: Option<String>,
+    pub warnings_json: String,
+    pub created_at: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct SaveAiInvocationInput {
+    pub task_kind: String,
+    pub model_profile_id: Option<String>,
+    pub model_name: Option<String>,
+    pub prompt_version: String,
+    pub input_query: Option<String>,
+    pub input_refs_json: String,
+    pub context_manifest_json: String,
+    pub token_usage_json: Option<String>,
+    pub warnings_json: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct InvestigationContextItemRecord {
+    pub id: String,
+    pub invocation_id: String,
+    pub target_kind: String,
+    pub target_id: String,
+    pub label: Option<String>,
+    pub role: String,
+    pub included: bool,
+    pub truncated: bool,
+    pub reason: Option<String>,
+    pub char_count: Option<i64>,
+    pub source_text_hash: Option<String>,
+    pub created_at: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct SaveInvestigationContextItemInput {
+    pub invocation_id: String,
+    pub target_kind: String,
+    pub target_id: String,
+    pub label: Option<String>,
+    pub role: String,
+    pub included: bool,
+    pub truncated: bool,
+    pub reason: Option<String>,
+    pub char_count: Option<i64>,
+    pub source_text_hash: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ReportInvocationAudit {
+    pub invocation: AiInvocationRecord,
+    pub context_items: Vec<InvestigationContextItemRecord>,
+    pub total: i64,
+    pub included_count: i64,
+    pub truncated_count: i64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct JournalEntry {
     pub id: String,
     pub query: String,
@@ -593,6 +665,47 @@ pub fn init_db(conn: &Connection) -> Result<()> {
     )
     .context("failed to create reports table")?;
     migrate_reports_allow_investigation(conn)?;
+
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS ai_invocations (
+            id                      TEXT PRIMARY KEY,
+            task_kind               TEXT NOT NULL,
+            model_profile_id        TEXT,
+            model_name              TEXT,
+            prompt_version          TEXT NOT NULL,
+            input_query             TEXT,
+            input_refs_json         TEXT NOT NULL,
+            context_manifest_json   TEXT NOT NULL,
+            output_ref_kind         TEXT,
+            output_ref_id           TEXT,
+            token_usage_json        TEXT,
+            warnings_json           TEXT NOT NULL,
+            created_at              TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_ai_invocations_task_created
+            ON ai_invocations(task_kind, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_ai_invocations_output
+            ON ai_invocations(output_ref_kind, output_ref_id);
+        CREATE TABLE IF NOT EXISTS investigation_context_items (
+            id                  TEXT PRIMARY KEY,
+            invocation_id       TEXT NOT NULL,
+            target_kind         TEXT NOT NULL,
+            target_id           TEXT NOT NULL,
+            label               TEXT,
+            role                TEXT NOT NULL,
+            included            INTEGER NOT NULL,
+            truncated           INTEGER NOT NULL,
+            reason              TEXT,
+            char_count          INTEGER,
+            source_text_hash    TEXT,
+            created_at          TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_investigation_context_items_invocation
+            ON investigation_context_items(invocation_id);
+        CREATE INDEX IF NOT EXISTS idx_investigation_context_items_target
+            ON investigation_context_items(target_kind, target_id);",
+    )
+    .context("failed to create AI invocation audit tables")?;
 
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS journal_entries (
@@ -1318,6 +1431,212 @@ pub fn save_report(conn: &Connection, input: SaveReportInput) -> Result<ReportRe
     )?;
 
     get_report(conn, &id)?.ok_or_else(|| anyhow::anyhow!("saved report not found: {id}"))
+}
+
+pub fn save_ai_invocation(
+    conn: &Connection,
+    input: SaveAiInvocationInput,
+) -> Result<AiInvocationRecord> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+    let task_kind = required_trimmed("AI invocation task kind", &input.task_kind)?.to_string();
+    let prompt_version =
+        required_trimmed("AI invocation prompt version", &input.prompt_version)?.to_string();
+    let input_refs_json = normalized_json_object("AI invocation input refs", &input.input_refs_json)?;
+    let context_manifest_json = normalized_json_object(
+        "AI invocation context manifest",
+        &input.context_manifest_json,
+    )?;
+    let warnings_json = normalized_json_array("AI invocation warnings", &input.warnings_json)?;
+    let token_usage_json = match input.token_usage_json.as_deref() {
+        Some(value) if !value.trim().is_empty() => Some(normalized_json_object(
+            "AI invocation token usage",
+            value,
+        )?),
+        _ => None,
+    };
+
+    conn.execute(
+        "INSERT INTO ai_invocations
+            (id, task_kind, model_profile_id, model_name, prompt_version, input_query,
+             input_refs_json, context_manifest_json, output_ref_kind, output_ref_id,
+             token_usage_json, warnings_json, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, NULL, ?9, ?10, ?11)",
+        params![
+            id,
+            task_kind,
+            optional_trimmed(input.model_profile_id.as_deref()),
+            optional_trimmed(input.model_name.as_deref()),
+            prompt_version,
+            optional_trimmed(input.input_query.as_deref()),
+            input_refs_json,
+            context_manifest_json,
+            token_usage_json,
+            warnings_json,
+            now
+        ],
+    )?;
+
+    get_ai_invocation(conn, &id)?
+        .ok_or_else(|| anyhow::anyhow!("saved AI invocation not found: {id}"))
+}
+
+pub fn get_ai_invocation(conn: &Connection, invocation_id: &str) -> Result<Option<AiInvocationRecord>> {
+    let trimmed = invocation_id.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    let mut stmt = conn.prepare(
+        "SELECT id, task_kind, model_profile_id, model_name, prompt_version, input_query,
+                input_refs_json, context_manifest_json, output_ref_kind, output_ref_id,
+                token_usage_json, warnings_json, created_at
+         FROM ai_invocations
+         WHERE id = ?1",
+    )?;
+    let mut rows = stmt.query(params![trimmed])?;
+    let Some(row) = rows.next()? else {
+        return Ok(None);
+    };
+    Ok(Some(map_ai_invocation_row(row)?))
+}
+
+pub fn save_investigation_context_items(
+    conn: &Connection,
+    inputs: Vec<SaveInvestigationContextItemInput>,
+) -> Result<Vec<InvestigationContextItemRecord>> {
+    let mut records = Vec::with_capacity(inputs.len());
+    for input in inputs {
+        let id = uuid::Uuid::new_v4().to_string();
+        let now = chrono::Utc::now().to_rfc3339();
+        let invocation_id =
+            required_trimmed("context item invocation id", &input.invocation_id)?.to_string();
+        let target_kind = required_trimmed("context item target kind", &input.target_kind)?.to_string();
+        validate_context_target_kind(&target_kind)?;
+        let target_id = required_trimmed("context item target id", &input.target_id)?.to_string();
+        let role = required_trimmed("context item role", &input.role)?.to_string();
+        validate_context_role(&role)?;
+        conn.execute(
+            "INSERT INTO investigation_context_items
+                (id, invocation_id, target_kind, target_id, label, role, included, truncated,
+                 reason, char_count, source_text_hash, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            params![
+                id,
+                invocation_id,
+                target_kind,
+                target_id,
+                optional_trimmed(input.label.as_deref()),
+                role,
+                input.included as i64,
+                input.truncated as i64,
+                optional_trimmed(input.reason.as_deref()),
+                input.char_count,
+                optional_trimmed(input.source_text_hash.as_deref()),
+                now
+            ],
+        )?;
+        if let Some(record) = get_investigation_context_item(conn, &id)? {
+            records.push(record);
+        }
+    }
+    Ok(records)
+}
+
+pub fn link_ai_invocation_output(
+    conn: &Connection,
+    invocation_id: &str,
+    output_ref_kind: &str,
+    output_ref_id: &str,
+) -> Result<()> {
+    let invocation_id = invocation_id.trim();
+    if invocation_id.is_empty() {
+        return Ok(());
+    }
+    let output_ref_kind = required_trimmed("AI invocation output kind", output_ref_kind)?;
+    validate_asset_kind(output_ref_kind)?;
+    let output_ref_id = required_trimmed("AI invocation output id", output_ref_id)?;
+    conn.execute(
+        "UPDATE ai_invocations
+         SET output_ref_kind = ?1, output_ref_id = ?2
+         WHERE id = ?3",
+        params![output_ref_kind, output_ref_id, invocation_id],
+    )?;
+    Ok(())
+}
+
+pub fn load_report_invocation_audit(
+    conn: &Connection,
+    report_id: &str,
+) -> Result<Option<ReportInvocationAudit>> {
+    let report_id = report_id.trim();
+    if report_id.is_empty() {
+        return Ok(None);
+    }
+    let mut stmt = conn.prepare(
+        "SELECT id, task_kind, model_profile_id, model_name, prompt_version, input_query,
+                input_refs_json, context_manifest_json, output_ref_kind, output_ref_id,
+                token_usage_json, warnings_json, created_at
+         FROM ai_invocations
+         WHERE output_ref_kind = 'report' AND output_ref_id = ?1
+         ORDER BY created_at DESC
+         LIMIT 1",
+    )?;
+    let mut rows = stmt.query(params![report_id])?;
+    let Some(row) = rows.next()? else {
+        return Ok(None);
+    };
+    let invocation = map_ai_invocation_row(row)?;
+    let context_items = list_investigation_context_items(conn, &invocation.id)?;
+    let total = context_items.len().min(i64::MAX as usize) as i64;
+    let included_count = context_items.iter().filter(|item| item.included).count() as i64;
+    let truncated_count = context_items.iter().filter(|item| item.truncated).count() as i64;
+    Ok(Some(ReportInvocationAudit {
+        invocation,
+        context_items,
+        total,
+        included_count,
+        truncated_count,
+    }))
+}
+
+fn get_investigation_context_item(
+    conn: &Connection,
+    id: &str,
+) -> Result<Option<InvestigationContextItemRecord>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, invocation_id, target_kind, target_id, label, role, included, truncated,
+                reason, char_count, source_text_hash, created_at
+         FROM investigation_context_items
+         WHERE id = ?1",
+    )?;
+    let mut rows = stmt.query(params![id])?;
+    let Some(row) = rows.next()? else {
+        return Ok(None);
+    };
+    Ok(Some(map_investigation_context_item_row(row)?))
+}
+
+pub fn list_investigation_context_items(
+    conn: &Connection,
+    invocation_id: &str,
+) -> Result<Vec<InvestigationContextItemRecord>> {
+    let invocation_id = invocation_id.trim();
+    if invocation_id.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut stmt = conn.prepare(
+        "SELECT id, invocation_id, target_kind, target_id, label, role, included, truncated,
+                reason, char_count, source_text_hash, created_at
+         FROM investigation_context_items
+         WHERE invocation_id = ?1
+         ORDER BY created_at ASC, id ASC",
+    )?;
+    let rows = stmt.query_map(params![invocation_id], map_investigation_context_item_row)?;
+    let mut items = Vec::new();
+    for row in rows {
+        items.push(row?);
+    }
+    Ok(items)
 }
 
 pub fn get_report(conn: &Connection, report_id: &str) -> Result<Option<ReportRecord>> {
@@ -2633,6 +2952,43 @@ fn map_report_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ReportRecord> {
     })
 }
 
+fn map_ai_invocation_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AiInvocationRecord> {
+    Ok(AiInvocationRecord {
+        id: row.get(0)?,
+        task_kind: row.get(1)?,
+        model_profile_id: row.get(2)?,
+        model_name: row.get(3)?,
+        prompt_version: row.get(4)?,
+        input_query: row.get(5)?,
+        input_refs_json: row.get(6)?,
+        context_manifest_json: row.get(7)?,
+        output_ref_kind: row.get(8)?,
+        output_ref_id: row.get(9)?,
+        token_usage_json: row.get(10)?,
+        warnings_json: row.get(11)?,
+        created_at: row.get(12)?,
+    })
+}
+
+fn map_investigation_context_item_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<InvestigationContextItemRecord> {
+    Ok(InvestigationContextItemRecord {
+        id: row.get(0)?,
+        invocation_id: row.get(1)?,
+        target_kind: row.get(2)?,
+        target_id: row.get(3)?,
+        label: row.get(4)?,
+        role: row.get(5)?,
+        included: row.get::<_, i64>(6)? != 0,
+        truncated: row.get::<_, i64>(7)? != 0,
+        reason: row.get(8)?,
+        char_count: row.get(9)?,
+        source_text_hash: row.get(10)?,
+        created_at: row.get(11)?,
+    })
+}
+
 fn map_journal_entry_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<JournalEntry> {
     Ok(JournalEntry {
         id: row.get(0)?,
@@ -2764,6 +3120,25 @@ fn validate_asset_kind(kind: &str) -> Result<()> {
     }
 }
 
+fn validate_context_target_kind(kind: &str) -> Result<()> {
+    match kind {
+        "source" | "point" | "evidence" | "report" | "journal" | "relation" => Ok(()),
+        _ => anyhow::bail!("invalid context target kind: {kind}"),
+    }
+}
+
+fn validate_context_role(role: &str) -> Result<()> {
+    match role {
+        "source"
+        | "point"
+        | "evidence"
+        | "prior_report"
+        | "journal_recall"
+        | "related_clue" => Ok(()),
+        _ => anyhow::bail!("invalid context role: {role}"),
+    }
+}
+
 fn validate_review_asset_kind(kind: &str) -> Result<()> {
     match kind {
         "source" | "point" | "evidence" | "report" | "journal" => Ok(()),
@@ -2819,6 +3194,41 @@ fn json_string_array(values: Vec<String>) -> String {
 
 fn json_array_strings(value: &str) -> Vec<String> {
     serde_json::from_str::<Vec<String>>(value).unwrap_or_default()
+}
+
+fn normalized_json_object(field: &str, value: &str) -> Result<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        anyhow::bail!("{field} is required");
+    }
+    let parsed: serde_json::Value =
+        serde_json::from_str(trimmed).with_context(|| format!("{field} must be valid JSON"))?;
+    if !parsed.is_object() {
+        anyhow::bail!("{field} must be a JSON object");
+    }
+    Ok(parsed.to_string())
+}
+
+fn normalized_json_array(field: &str, value: &str) -> Result<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        anyhow::bail!("{field} is required");
+    }
+    let parsed: serde_json::Value =
+        serde_json::from_str(trimmed).with_context(|| format!("{field} must be valid JSON"))?;
+    if !parsed.is_array() {
+        anyhow::bail!("{field} must be a JSON array");
+    }
+    Ok(parsed.to_string())
+}
+
+pub fn stable_text_hash(text: &str) -> String {
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in text.as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("fnv1a64:{hash:016x}")
 }
 
 fn citation_asset(citation: &serde_json::Value) -> Option<(String, String)> {
@@ -4036,6 +4446,84 @@ mod tests {
             fetched.body_md,
             "#   Strategy Digest  \n\nReport body with digest-1"
         );
+    }
+
+    #[test]
+    fn ai_invocation_audit_persists_context_and_links_to_report() {
+        let conn = memory_db();
+        let invocation = save_ai_invocation(
+            &conn,
+            SaveAiInvocationInput {
+                task_kind: "investigation".to_string(),
+                model_profile_id: Some("default".to_string()),
+                model_name: Some("gpt-test".to_string()),
+                prompt_version: "investigation.v1".to_string(),
+                input_query: Some("What changed in the market?".to_string()),
+                input_refs_json: r#"{"scope":{"sourceIds":["source-1"]}}"#.to_string(),
+                context_manifest_json: r#"{"counts":{"sources":1,"journal":1}}"#.to_string(),
+                token_usage_json: Some(r#"{"input":100,"output":40}"#.to_string()),
+                warnings_json: r#"["Journal entries were included as recall clues."]"#.to_string(),
+            },
+        )
+        .unwrap();
+
+        let items = save_investigation_context_items(
+            &conn,
+            vec![
+                SaveInvestigationContextItemInput {
+                    invocation_id: invocation.id.clone(),
+                    target_kind: "source".to_string(),
+                    target_id: "source-1".to_string(),
+                    label: Some("S1".to_string()),
+                    role: "source".to_string(),
+                    included: true,
+                    truncated: false,
+                    reason: Some("Explicit source scope".to_string()),
+                    char_count: Some(120),
+                    source_text_hash: Some(stable_text_hash("source text")),
+                },
+                SaveInvestigationContextItemInput {
+                    invocation_id: invocation.id.clone(),
+                    target_kind: "journal".to_string(),
+                    target_id: "journal-1".to_string(),
+                    label: Some("J1".to_string()),
+                    role: "journal_recall".to_string(),
+                    included: true,
+                    truncated: true,
+                    reason: Some("Recall clue".to_string()),
+                    char_count: Some(420),
+                    source_text_hash: Some(stable_text_hash("journal text")),
+                },
+            ],
+        )
+        .unwrap();
+        assert_eq!(items.len(), 2);
+
+        let report = save_report(
+            &conn,
+            report_input("Investigation Audit", "investigation", "audit"),
+        )
+        .unwrap();
+        link_ai_invocation_output(&conn, &invocation.id, "report", &report.id).unwrap();
+
+        let audit = load_report_invocation_audit(&conn, &report.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(audit.invocation.id, invocation.id);
+        assert_eq!(audit.invocation.model_name.as_deref(), Some("gpt-test"));
+        assert_eq!(audit.invocation.prompt_version, "investigation.v1");
+        assert_eq!(audit.total, 2);
+        assert_eq!(audit.included_count, 2);
+        assert_eq!(audit.truncated_count, 1);
+        assert_eq!(audit.context_items[0].role, "source");
+        assert_eq!(audit.context_items[1].role, "journal_recall");
+        assert_eq!(
+            audit.context_items[1].source_text_hash.as_deref(),
+            Some(stable_text_hash("journal text").as_str())
+        );
+        assert!(load_report_invocation_audit(&conn, "missing-report")
+            .unwrap()
+            .is_none());
     }
 
     #[test]
