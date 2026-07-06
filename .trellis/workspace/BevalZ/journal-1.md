@@ -661,3 +661,37 @@ Implemented durable Investigation invocation/context audit, wired ReportModal di
 ### Next Steps
 
 - None - task complete
+
+
+## Session 20: Persisted Report Claims/Citations
+
+**Date**: 2026-07-06
+**Task**: Persisted Report Claims/Citations
+**Branch**: `main`
+
+### Summary
+
+Added durable report claim/citation audit rows, save-time coverage summary, ReportModal persistent audit display, tests, and backend database spec documentation.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0bb7f4a` | (see git log) |
+| `54119a2` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
