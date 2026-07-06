@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 18
+- **Total Sessions**: 19
 - **Last Active**: 2026-07-06
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~629 | Active |
+| `journal-1.md` | ~663 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 19 | 2026-07-06 | AI invocation audit for investigations | `fa01ab6`, `c4dfb40` | `main` |
 | 18 | 2026-07-06 | High-star OSS reference implementation | `0f66151`, `dda9b7d` | `main` |
 | 17 | 2026-07-06 | Foliole Marginalia research workspace | `eb64924`, `e74171c` | `main` |
 | 16 | 2026-07-05 | Desktop E2E startup smoke | `3dc14d1`, `a5a59fc` | `main` |

@@ -627,3 +627,37 @@ Analyzed high-star reference projects, implemented indexed folder diagnostics an
 ### Next Steps
 
 - None - task complete
+
+
+## Session 19: AI invocation audit for investigations
+
+**Date**: 2026-07-06
+**Task**: AI invocation audit for investigations
+**Branch**: `main`
+
+### Summary
+
+Implemented durable Investigation invocation/context audit, wired ReportModal display, updated specs and verification notes.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `fa01ab6` | (see git log) |
+| `c4dfb40` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
