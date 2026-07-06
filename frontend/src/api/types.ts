@@ -245,6 +245,59 @@ export interface ReportCitationAudit {
   citations: ReportCitationAuditItem[]
 }
 
+export type ReportClaimStatus = 'cited' | 'inferred' | 'unsupported' | string
+
+export interface ReportClaimRecord {
+  id: string
+  reportId: string
+  claimIndex: number
+  claimText: string
+  claimStatus: ReportClaimStatus
+  citationLabels: string[]
+  createdAt: string
+}
+
+export interface ReportCitationRecord {
+  id: string
+  reportId: string
+  citationIndex: number
+  targetKind: DigestCitation['kind']
+  targetId: string
+  label: string | null
+  title: string | null
+  quote: string | null
+  excerpt: string | null
+  reason: string | null
+  sourceId: string | null
+  chunkIndex: number | null
+  sourceTextHash: string | null
+  spanStart: number | null
+  spanEnd: number | null
+  locatorStatus: CitationLocatorStatus
+  matchCount: number
+  createdAt: string
+}
+
+export interface ReportAuditCoverage {
+  totalClaims: number
+  citedClaims: number
+  inferredClaims: number
+  unsupportedClaims: number
+  totalCitations: number
+  locatedCitations: number
+  warningCitations: number
+  missingCitations: number
+  coverageRatio: number
+  warnings: string[]
+}
+
+export interface ReportAuditRecord {
+  reportId: string
+  claims: ReportClaimRecord[]
+  citations: ReportCitationRecord[]
+  coverage: ReportAuditCoverage
+}
+
 export interface AiInvocationRecord {
   id: string
   taskKind: string

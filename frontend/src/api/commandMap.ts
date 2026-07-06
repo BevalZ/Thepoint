@@ -33,6 +33,7 @@ import type {
   RelatedClassification,
   RelatedCandidateInput,
   ReportCitationAudit,
+  ReportAuditRecord,
   ReportInvocationAudit,
   ReportRecord,
   ReviewItem,
@@ -164,6 +165,10 @@ export interface TauriCommandMap {
   load_report_invocation_audit: {
     args: { reportId: string }
     result: ReportInvocationAudit | null
+  }
+  load_report_audit: {
+    args: { reportId: string }
+    result: ReportAuditRecord | null
   }
   delete_report: {
     args: { reportId: string }

@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import { Check, Copy, Download, ExternalLink, LocateFixed, X } from 'lucide-react'
-import { loadReportCitationAudit, loadReportInvocationAudit } from '@/api'
+import { loadReportAudit, loadReportCitationAudit, loadReportInvocationAudit } from '@/api'
 import { Markdown } from '@/components/Markdown'
-import type { CitationLocatorStatus, ReportCitationAudit, ReportInvocationAudit, ReportRecord } from '@/api/types'
+import type { CitationLocatorStatus, ReportAuditRecord, ReportClaimStatus, ReportCitationAudit, ReportInvocationAudit, ReportRecord } from '@/api/types'
 import { citationKindLabel } from '@/lib/digestArtifacts'
 import { digestResultFromReport, reportKindLabel, reportMarkdownWithCitations } from '@/lib/reportArtifacts'
 
@@ -25,6 +25,18 @@ const LOCATOR_STATUS_CLASSES: Record<string, string> = {
   not_applicable: 'border-border bg-bg-hover text-fg-faint',
 }
 
+const CLAIM_STATUS_LABELS: Record<string, string> = {
+  cited: '已引用',
+  inferred: '推断',
+  unsupported: '未支持',
+}
+
+const CLAIM_STATUS_CLASSES: Record<string, string> = {
+  cited: 'border-green-500/30 bg-green-500/10 text-green-300',
+  inferred: 'border-amber-500/30 bg-amber-500/10 text-amber-300',
+  unsupported: 'border-red-500/30 bg-red-500/10 text-red-300',
+}
+
 const CONTEXT_ROLE_LABELS: Record<string, string> = {
   source: 'Source',
   point: 'Point',
@@ -40,6 +52,14 @@ function locatorStatusLabel(status: CitationLocatorStatus): string {
 
 function locatorStatusClass(status: CitationLocatorStatus): string {
   return LOCATOR_STATUS_CLASSES[status] ?? 'border-border bg-bg-hover text-fg-faint'
+}
+
+function claimStatusLabel(status: ReportClaimStatus): string {
+  return CLAIM_STATUS_LABELS[status] ?? status
+}
+
+function claimStatusClass(status: ReportClaimStatus): string {
+  return CLAIM_STATUS_CLASSES[status] ?? 'border-border bg-bg-hover text-fg-faint'
 }
 
 function contextRoleLabel(role: string): string {
@@ -61,6 +81,11 @@ function compactId(id: string): string {
   return `${id.slice(0, 8)}…${id.slice(-4)}`
 }
 
+function coveragePercent(value: number): string {
+  if (!Number.isFinite(value)) return '0%'
+  return `${Math.round(value * 100)}%`
+}
+
 interface ReportModalProps {
   report: ReportRecord
   onClose: () => void
@@ -72,6 +97,9 @@ export function ReportModal({ report, onClose, onOpenSource }: ReportModalProps)
   const [citationAudit, setCitationAudit] = useState<ReportCitationAudit | null>(null)
   const [citationAuditLoading, setCitationAuditLoading] = useState(false)
   const [citationAuditError, setCitationAuditError] = useState<string | null>(null)
+  const [reportAudit, setReportAudit] = useState<ReportAuditRecord | null>(null)
+  const [reportAuditLoading, setReportAuditLoading] = useState(false)
+  const [reportAuditError, setReportAuditError] = useState<string | null>(null)
   const [invocationAudit, setInvocationAudit] = useState<ReportInvocationAudit | null>(null)
   const [invocationAuditLoading, setInvocationAuditLoading] = useState(false)
   const [invocationAuditError, setInvocationAuditError] = useState<string | null>(null)
@@ -82,20 +110,29 @@ export function ReportModal({ report, onClose, onOpenSource }: ReportModalProps)
     setCitationAudit(null)
     setCitationAuditError(null)
     setCitationAuditLoading(true)
+    setReportAudit(null)
+    setReportAuditError(null)
+    setReportAuditLoading(true)
     setInvocationAudit(null)
     setInvocationAuditError(null)
     setInvocationAuditLoading(true)
 
     Promise.allSettled([
       loadReportCitationAudit(report.id),
+      loadReportAudit(report.id),
       loadReportInvocationAudit(report.id),
     ])
-      .then(([nextCitationAudit, nextInvocationAudit]) => {
+      .then(([nextCitationAudit, nextReportAudit, nextInvocationAudit]) => {
         if (!alive) return
         if (nextCitationAudit.status === 'fulfilled') {
           setCitationAudit(nextCitationAudit.value)
         } else {
           setCitationAuditError(nextCitationAudit.reason instanceof Error ? nextCitationAudit.reason.message : String(nextCitationAudit.reason))
+        }
+        if (nextReportAudit.status === 'fulfilled') {
+          setReportAudit(nextReportAudit.value)
+        } else {
+          setReportAuditError(nextReportAudit.reason instanceof Error ? nextReportAudit.reason.message : String(nextReportAudit.reason))
         }
         if (nextInvocationAudit.status === 'fulfilled') {
           setInvocationAudit(nextInvocationAudit.value)
@@ -106,6 +143,7 @@ export function ReportModal({ report, onClose, onOpenSource }: ReportModalProps)
       .finally(() => {
         if (!alive) return
         setCitationAuditLoading(false)
+        setReportAuditLoading(false)
         setInvocationAuditLoading(false)
       })
 
@@ -250,6 +288,86 @@ export function ReportModal({ report, onClose, onOpenSource }: ReportModalProps)
                       </article>
                     ))}
                   </div>
+                </div>
+              )}
+            </section>
+          )}
+          {(reportAudit || reportAuditLoading || reportAuditError) && (
+            <section className="mt-5 border-t border-border pt-4">
+              <div className="mb-2 flex items-center justify-between gap-3 text-xs text-fg-faint">
+                <span>持久审计</span>
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {reportAuditLoading && <span>读取中...</span>}
+                  {reportAuditError && <span className="text-red-300">读取失败</span>}
+                  {reportAudit && (
+                    <>
+                      <span className="rounded-full border border-green-500/20 bg-green-500/10 px-2 py-0.5 text-green-300">
+                        Claims {reportAudit.coverage.citedClaims}/{reportAudit.coverage.totalClaims}
+                      </span>
+                      <span className="rounded-full border border-border bg-bg-hover px-2 py-0.5 text-fg-muted">
+                        Citations {reportAudit.coverage.locatedCitations}/{reportAudit.coverage.totalCitations}
+                      </span>
+                    </>
+                  )}
+                </div>
+              </div>
+              {reportAudit && (
+                <div className="rounded-xl border border-border bg-bg px-3 py-3">
+                  <div className="grid gap-2 text-xs text-fg-muted sm:grid-cols-4">
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wide text-fg-faint">Coverage</div>
+                      <div className="mt-1 text-fg">{coveragePercent(reportAudit.coverage.coverageRatio)}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wide text-fg-faint">Inferred</div>
+                      <div className="mt-1 text-fg">{reportAudit.coverage.inferredClaims}</div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wide text-fg-faint">Review</div>
+                      <div className="mt-1 text-fg">
+                        {reportAudit.coverage.warningCitations + reportAudit.coverage.missingCitations}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wide text-fg-faint">Saved</div>
+                      <div className="mt-1 text-fg">
+                        {reportAudit.claims.length} claims · {reportAudit.citations.length} citations
+                      </div>
+                    </div>
+                  </div>
+                  {reportAudit.coverage.warnings.length > 0 && (
+                    <div className="mt-3 space-y-1">
+                      {reportAudit.coverage.warnings.map((warning) => (
+                        <p key={warning} className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
+                          {warning}
+                        </p>
+                      ))}
+                    </div>
+                  )}
+                  {reportAudit.claims.length > 0 && (
+                    <div className="mt-3 max-h-48 space-y-2 overflow-y-auto pr-1 [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none' }}>
+                      {reportAudit.claims.slice(0, 8).map((claim) => (
+                        <article key={claim.id} className="rounded-lg border border-border bg-bg-elevated px-3 py-2">
+                          <div className="flex items-start gap-2">
+                            <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${claimStatusClass(claim.claimStatus)}`}>
+                              {claimStatusLabel(claim.claimStatus)}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <p className="line-clamp-2 text-xs leading-relaxed text-fg">{claim.claimText}</p>
+                              {claim.citationLabels.length > 0 && (
+                                <p className="mt-1 font-mono text-[10px] text-fg-faint">
+                                  {claim.citationLabels.map((label) => `[${label}]`).join(' ')}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </article>
+                      ))}
+                      {reportAudit.claims.length > 8 && (
+                        <p className="text-[11px] text-fg-faint">另有 {reportAudit.claims.length - 8} 条 claim shells 已持久化。</p>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </section>

@@ -46,6 +46,7 @@ pub fn run() {
             commands::library::locate_citation_quote,
             commands::library::load_report_citation_audit,
             commands::library::load_report_invocation_audit,
+            commands::library::load_report_audit,
             commands::library::delete_report,
             commands::library::save_journal_entry,
             commands::library::list_recent_journal_entries,

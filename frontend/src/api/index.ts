@@ -30,6 +30,7 @@ import type {
   RelatedClassification,
   RelatedCandidateInput,
   ReportCitationAudit,
+  ReportAuditRecord,
   ReportInvocationAudit,
   ReportRecord,
   ReviewRating,
@@ -143,6 +144,9 @@ export const loadReportCitationAudit = (reportId: string): Promise<ReportCitatio
 
 export const loadReportInvocationAudit = (reportId: string): Promise<ReportInvocationAudit | null> =>
   invokeCommand('load_report_invocation_audit', { reportId })
+
+export const loadReportAudit = (reportId: string): Promise<ReportAuditRecord | null> =>
+  invokeCommand('load_report_audit', { reportId })
 
 export const deleteReport = (reportId: string): Promise<void> =>
   invokeCommand('delete_report', { reportId })

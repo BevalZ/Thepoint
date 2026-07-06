@@ -324,11 +324,13 @@ pub async fn save_report(
 ) -> Result<db::ReportRecord, String> {
     let path = db::db_path(&app).map_err(|e| e.to_string())?;
     tokio::task::spawn_blocking(move || -> anyhow::Result<db::ReportRecord> {
-        let conn = db::open_db(&path)?;
+        let mut conn = db::open_db(&path)?;
         let invocation_id = input.invocation_id.clone();
-        let report = db::save_report(&conn, report_command_input_to_db(input))?;
+        let tx = conn.transaction()?;
+        let report = db::save_report(&tx, report_command_input_to_db(input))?;
+        save_persisted_report_audit(&tx, &report)?;
         if let Some(invocation_id) = invocation_id.as_deref() {
-            db::link_ai_invocation_output(&conn, invocation_id, "report", &report.id)?;
+            db::link_ai_invocation_output(&tx, invocation_id, "report", &report.id)?;
         }
         if report.kind == "investigation" {
             let (source_ids, point_ids, evidence_ids) =
@@ -338,7 +340,7 @@ pub async fn save_report(
                 .clone()
                 .unwrap_or_else(|| report.title.clone());
             db::save_journal_entry(
-                &conn,
+                &tx,
                 db::SaveJournalEntryInput {
                     query,
                     note: report.summary.clone(),
@@ -352,6 +354,7 @@ pub async fn save_report(
                 },
             )?;
         }
+        tx.commit()?;
         Ok(report)
     })
     .await
@@ -368,6 +371,21 @@ pub async fn load_report_invocation_audit(
     tokio::task::spawn_blocking(move || -> anyhow::Result<Option<db::ReportInvocationAudit>> {
         let conn = db::open_db(&path)?;
         db::load_report_invocation_audit(&conn, &report_id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn load_report_audit(
+    app: tauri::AppHandle<Wry>,
+    report_id: String,
+) -> Result<Option<db::ReportAuditRecord>, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<Option<db::ReportAuditRecord>> {
+        let conn = db::open_db(&path)?;
+        db::load_report_audit(&conn, &report_id)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1064,11 +1082,48 @@ fn build_report_citation_audit(
     Ok(audit)
 }
 
+fn save_persisted_report_audit(
+    conn: &Connection,
+    report: &db::ReportRecord,
+) -> anyhow::Result<db::ReportAuditRecord> {
+    let claims = db::extract_report_claims_for_report(report);
+    let mut persisted_citations = Vec::new();
+    for (index, citation) in report_citations_for_audit(&report.citations_json)
+        .into_iter()
+        .enumerate()
+    {
+        if !matches!(citation.kind.as_str(), "source" | "point" | "evidence") {
+            continue;
+        }
+        let locator = locate_citation_quote_in_db(conn, &citation.input)?;
+        let first_location = locator.locations.first();
+        persisted_citations.push(db::SaveReportCitationInput {
+            citation_index: index.min(i64::MAX as usize) as i64,
+            target_kind: citation.kind,
+            target_id: citation.id,
+            label: non_empty_string(citation.label),
+            title: non_empty_string(citation.title),
+            quote: citation.input.quote,
+            excerpt: citation.input.excerpt,
+            reason: citation.reason,
+            source_id: citation.input.source_id,
+            chunk_index: citation.input.chunk_index,
+            source_text_hash: locator.source_text_hash,
+            span_start: first_location.map(|location| location.start),
+            span_end: first_location.map(|location| location.end),
+            locator_status: locator.status,
+            match_count: locator.match_count,
+        });
+    }
+    db::replace_report_audit_rows(conn, &report.id, claims, persisted_citations)
+}
+
 struct AuditCitationInput {
     kind: String,
     id: String,
     label: String,
     title: String,
+    reason: Option<String>,
     input: CitationLocatorInput,
 }
 
@@ -1099,6 +1154,7 @@ fn report_citations_for_audit(citations_json: &str) -> Vec<AuditCitationInput> {
                 .to_string();
             let quote = json_string_field(object, "quote", "quote");
             let excerpt = json_string_field(object, "excerpt", "excerpt");
+            let reason = json_string_field(object, "reason", "reason");
             let source_id = json_string_field(object, "sourceId", "source_id");
             let source_text_hash = json_string_field(object, "sourceTextHash", "source_text_hash");
             let chunk_index = object
@@ -1110,6 +1166,7 @@ fn report_citations_for_audit(citations_json: &str) -> Vec<AuditCitationInput> {
                 id: id.clone(),
                 label,
                 title,
+                reason,
                 input: CitationLocatorInput {
                     kind,
                     id,
@@ -1136,6 +1193,15 @@ fn json_string_field(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
+}
+
+fn non_empty_string(value: String) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
 }
 
 fn report_command_input_to_db(input: SaveReportCommandInput) -> db::SaveReportInput {
@@ -2638,6 +2704,83 @@ mod tests {
         assert_eq!(audit.citations[3].locator.status, "stale");
         assert_eq!(audit.citations[4].locator.status, "target_missing");
         assert_eq!(audit.citations[5].locator.status, "not_applicable");
+    }
+
+    #[test]
+    fn persisted_report_audit_saves_locator_rows_and_claim_shells() {
+        let db_dir = TempFixture::new("thepoint-persisted-report-audit");
+        let db_path = db_dir.join("library.db");
+        let mut conn = db::open_db(&db_path).unwrap();
+        let source = source_with_chunks(
+            &mut conn,
+            "Persisted Source",
+            &["alpha persisted quote beta"],
+        );
+        let point = point_with_content(&mut conn, "repeat persisted appears twice: repeat persisted.");
+        let citations_json = serde_json::to_string(&serde_json::json!([
+            {
+                "kind": "source",
+                "label": "S1",
+                "id": source.id,
+                "title": "Persisted Source",
+                "quote": "persisted quote",
+                "reason": "source supports the claim",
+                "sourceId": source.id,
+                "chunkIndex": 0
+            },
+            {
+                "kind": "point",
+                "label": "P1",
+                "id": point.id,
+                "title": "Persisted Point",
+                "quote": "repeat persisted"
+            }
+        ]))
+        .unwrap();
+        let report = db::save_report(
+            &conn,
+            db::SaveReportInput {
+                title: "Persisted Audit Report".to_string(),
+                kind: "digest".to_string(),
+                source_name: Some("Audit".to_string()),
+                body_md: "# Persisted Audit\n\nThe source claim is durable [S1].\n\nThe point repeats [P1].\n\nThis inferred claim has no label.".to_string(),
+                summary: "Audit summary".to_string(),
+                citations_json,
+            },
+        )
+        .unwrap();
+
+        let audit = save_persisted_report_audit(&conn, &report).unwrap();
+
+        assert_eq!(audit.report_id, report.id);
+        assert_eq!(audit.claims.len(), 3);
+        assert_eq!(audit.claims[0].claim_status, "cited");
+        assert_eq!(audit.claims[0].citation_labels, vec!["S1"]);
+        assert_eq!(audit.claims[2].claim_status, "inferred");
+        assert_eq!(audit.citations.len(), 2);
+        assert_eq!(audit.citations[0].locator_status, "located");
+        assert_eq!(audit.citations[0].span_start, Some(6));
+        assert_eq!(audit.citations[0].span_end, Some(21));
+        assert_eq!(
+            audit.citations[0].source_text_hash.as_deref(),
+            Some(stable_text_hash("alpha persisted quote beta").as_str())
+        );
+        assert_eq!(
+            audit.citations[0].reason.as_deref(),
+            Some("source supports the claim")
+        );
+        assert_eq!(audit.citations[1].locator_status, "multiple_matches");
+        assert_eq!(audit.citations[1].match_count, 2);
+        assert_eq!(audit.coverage.total_claims, 3);
+        assert_eq!(audit.coverage.cited_claims, 2);
+        assert_eq!(audit.coverage.inferred_claims, 1);
+        assert_eq!(audit.coverage.total_citations, 2);
+        assert_eq!(audit.coverage.located_citations, 1);
+        assert_eq!(audit.coverage.warning_citations, 1);
+
+        let loaded = db::load_report_audit(&conn, &report.id).unwrap().unwrap();
+        assert_eq!(loaded.citations[0].locator_status, "located");
+        assert_eq!(loaded.claims[1].citation_labels, vec!["P1"]);
     }
 
     #[test]

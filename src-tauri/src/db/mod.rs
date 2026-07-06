@@ -189,6 +189,92 @@ pub struct SaveReportInput {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
+pub struct ReportClaimRecord {
+    pub id: String,
+    pub report_id: String,
+    pub claim_index: i64,
+    pub claim_text: String,
+    pub claim_status: String,
+    pub citation_labels: Vec<String>,
+    pub created_at: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct SaveReportClaimInput {
+    pub claim_index: i64,
+    pub claim_text: String,
+    pub claim_status: String,
+    pub citation_labels: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ReportCitationRecord {
+    pub id: String,
+    pub report_id: String,
+    pub citation_index: i64,
+    pub target_kind: String,
+    pub target_id: String,
+    pub label: Option<String>,
+    pub title: Option<String>,
+    pub quote: Option<String>,
+    pub excerpt: Option<String>,
+    pub reason: Option<String>,
+    pub source_id: Option<String>,
+    pub chunk_index: Option<i64>,
+    pub source_text_hash: Option<String>,
+    pub span_start: Option<i64>,
+    pub span_end: Option<i64>,
+    pub locator_status: String,
+    pub match_count: i64,
+    pub created_at: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct SaveReportCitationInput {
+    pub citation_index: i64,
+    pub target_kind: String,
+    pub target_id: String,
+    pub label: Option<String>,
+    pub title: Option<String>,
+    pub quote: Option<String>,
+    pub excerpt: Option<String>,
+    pub reason: Option<String>,
+    pub source_id: Option<String>,
+    pub chunk_index: Option<i64>,
+    pub source_text_hash: Option<String>,
+    pub span_start: Option<i64>,
+    pub span_end: Option<i64>,
+    pub locator_status: String,
+    pub match_count: i64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ReportAuditCoverage {
+    pub total_claims: i64,
+    pub cited_claims: i64,
+    pub inferred_claims: i64,
+    pub unsupported_claims: i64,
+    pub total_citations: i64,
+    pub located_citations: i64,
+    pub warning_citations: i64,
+    pub missing_citations: i64,
+    pub coverage_ratio: f64,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ReportAuditRecord {
+    pub report_id: String,
+    pub claims: Vec<ReportClaimRecord>,
+    pub citations: Vec<ReportCitationRecord>,
+    pub coverage: ReportAuditCoverage,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct AiInvocationRecord {
     pub id: String,
     pub task_kind: String,
@@ -665,6 +751,51 @@ pub fn init_db(conn: &Connection) -> Result<()> {
     )
     .context("failed to create reports table")?;
     migrate_reports_allow_investigation(conn)?;
+
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS report_citations (
+            id                  TEXT PRIMARY KEY,
+            report_id           TEXT NOT NULL,
+            citation_index      INTEGER NOT NULL,
+            target_kind         TEXT NOT NULL CHECK (target_kind IN ('source', 'point', 'evidence')),
+            target_id           TEXT NOT NULL,
+            label               TEXT,
+            title               TEXT,
+            quote               TEXT,
+            excerpt             TEXT,
+            reason              TEXT,
+            source_id           TEXT,
+            chunk_index         INTEGER,
+            source_text_hash    TEXT,
+            span_start          INTEGER,
+            span_end            INTEGER,
+            locator_status      TEXT NOT NULL CHECK (locator_status IN ('located', 'multiple_matches', 'not_found', 'stale', 'target_missing', 'not_applicable')),
+            match_count         INTEGER NOT NULL DEFAULT 0,
+            created_at          TEXT NOT NULL,
+            FOREIGN KEY(report_id) REFERENCES reports(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_report_citations_report
+            ON report_citations(report_id, citation_index);
+        CREATE INDEX IF NOT EXISTS idx_report_citations_target
+            ON report_citations(target_kind, target_id);
+        CREATE INDEX IF NOT EXISTS idx_report_citations_status
+            ON report_citations(locator_status);
+        CREATE TABLE IF NOT EXISTS report_claims (
+            id                      TEXT PRIMARY KEY,
+            report_id               TEXT NOT NULL,
+            claim_index             INTEGER NOT NULL,
+            claim_text              TEXT NOT NULL,
+            claim_status            TEXT NOT NULL CHECK (claim_status IN ('cited', 'inferred', 'unsupported')),
+            citation_labels_json    TEXT NOT NULL,
+            created_at              TEXT NOT NULL,
+            FOREIGN KEY(report_id) REFERENCES reports(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_report_claims_report
+            ON report_claims(report_id, claim_index);
+        CREATE INDEX IF NOT EXISTS idx_report_claims_status
+            ON report_claims(claim_status);",
+    )
+    .context("failed to create report audit tables")?;
 
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS ai_invocations (
@@ -1433,6 +1564,494 @@ pub fn save_report(conn: &Connection, input: SaveReportInput) -> Result<ReportRe
     get_report(conn, &id)?.ok_or_else(|| anyhow::anyhow!("saved report not found: {id}"))
 }
 
+pub fn replace_report_audit_rows(
+    conn: &Connection,
+    report_id: &str,
+    claims: Vec<SaveReportClaimInput>,
+    citations: Vec<SaveReportCitationInput>,
+) -> Result<ReportAuditRecord> {
+    let report_id = required_trimmed("report id", report_id)?;
+    conn.execute(
+        "DELETE FROM report_claims WHERE report_id = ?1",
+        params![report_id],
+    )?;
+    conn.execute(
+        "DELETE FROM report_citations WHERE report_id = ?1",
+        params![report_id],
+    )?;
+
+    let now = chrono::Utc::now().to_rfc3339();
+    for citation in citations {
+        validate_report_citation_input(&citation)?;
+        conn.execute(
+            "INSERT INTO report_citations
+                (id, report_id, citation_index, target_kind, target_id, label, title, quote,
+                 excerpt, reason, source_id, chunk_index, source_text_hash, span_start, span_end,
+                 locator_status, match_count, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+            params![
+                uuid::Uuid::new_v4().to_string(),
+                report_id,
+                citation.citation_index,
+                citation.target_kind.trim(),
+                citation.target_id.trim(),
+                optional_trimmed(citation.label.as_deref()),
+                optional_trimmed(citation.title.as_deref()),
+                optional_trimmed(citation.quote.as_deref()),
+                optional_trimmed(citation.excerpt.as_deref()),
+                optional_trimmed(citation.reason.as_deref()),
+                optional_trimmed(citation.source_id.as_deref()),
+                citation.chunk_index,
+                optional_trimmed(citation.source_text_hash.as_deref()),
+                citation.span_start,
+                citation.span_end,
+                citation.locator_status.trim(),
+                citation.match_count.max(0),
+                now,
+            ],
+        )?;
+    }
+
+    for claim in claims {
+        validate_report_claim_input(&claim)?;
+        conn.execute(
+            "INSERT INTO report_claims
+                (id, report_id, claim_index, claim_text, claim_status, citation_labels_json, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                uuid::Uuid::new_v4().to_string(),
+                report_id,
+                claim.claim_index,
+                claim.claim_text.trim(),
+                claim.claim_status.trim(),
+                json_string_array(claim.citation_labels),
+                now,
+            ],
+        )?;
+    }
+
+    load_report_audit(conn, report_id)?
+        .ok_or_else(|| anyhow::anyhow!("report audit report not found: {report_id}"))
+}
+
+pub fn load_report_audit(
+    conn: &Connection,
+    report_id: &str,
+) -> Result<Option<ReportAuditRecord>> {
+    let report_id = report_id.trim();
+    if report_id.is_empty() {
+        return Ok(None);
+    }
+    if get_report(conn, report_id)?.is_none() {
+        return Ok(None);
+    }
+    let claims = list_report_claims(conn, report_id)?;
+    let citations = list_report_citations(conn, report_id)?;
+    let coverage = report_audit_coverage(&claims, &citations);
+    Ok(Some(ReportAuditRecord {
+        report_id: report_id.to_string(),
+        claims,
+        citations,
+        coverage,
+    }))
+}
+
+pub fn extract_report_claims_for_report(report: &ReportRecord) -> Vec<SaveReportClaimInput> {
+    let labels = report_citation_labels(&report.citations_json);
+    extract_report_claims(&report.body_md, &labels)
+}
+
+pub fn extract_report_claims(
+    body_md: &str,
+    citation_labels: &[String],
+) -> Vec<SaveReportClaimInput> {
+    let candidates = report_claim_candidates(body_md);
+    candidates
+        .into_iter()
+        .enumerate()
+        .map(|(index, claim_text)| {
+            let labels = citation_labels_in_text(&claim_text, citation_labels);
+            let claim_status = if labels.is_empty() {
+                "inferred"
+            } else {
+                "cited"
+            };
+            SaveReportClaimInput {
+                claim_index: index.min(i64::MAX as usize) as i64,
+                claim_text,
+                claim_status: claim_status.to_string(),
+                citation_labels: labels,
+            }
+        })
+        .collect()
+}
+
+fn list_report_claims(conn: &Connection, report_id: &str) -> Result<Vec<ReportClaimRecord>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, report_id, claim_index, claim_text, claim_status, citation_labels_json, created_at
+         FROM report_claims
+         WHERE report_id = ?1
+         ORDER BY claim_index ASC, created_at ASC, id ASC",
+    )?;
+    let rows = stmt.query_map(params![report_id], map_report_claim_row)?;
+    let mut claims = Vec::new();
+    for row in rows {
+        claims.push(row?);
+    }
+    Ok(claims)
+}
+
+fn list_report_citations(conn: &Connection, report_id: &str) -> Result<Vec<ReportCitationRecord>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, report_id, citation_index, target_kind, target_id, label, title, quote,
+                excerpt, reason, source_id, chunk_index, source_text_hash, span_start, span_end,
+                locator_status, match_count, created_at
+         FROM report_citations
+         WHERE report_id = ?1
+         ORDER BY citation_index ASC, created_at ASC, id ASC",
+    )?;
+    let rows = stmt.query_map(params![report_id], map_report_citation_row)?;
+    let mut citations = Vec::new();
+    for row in rows {
+        citations.push(row?);
+    }
+    Ok(citations)
+}
+
+fn report_audit_coverage(
+    claims: &[ReportClaimRecord],
+    citations: &[ReportCitationRecord],
+) -> ReportAuditCoverage {
+    let total_claims = claims.len().min(i64::MAX as usize) as i64;
+    let cited_claims = claims
+        .iter()
+        .filter(|claim| claim.claim_status == "cited")
+        .count()
+        .min(i64::MAX as usize) as i64;
+    let inferred_claims = claims
+        .iter()
+        .filter(|claim| claim.claim_status == "inferred")
+        .count()
+        .min(i64::MAX as usize) as i64;
+    let unsupported_claims = claims
+        .iter()
+        .filter(|claim| claim.claim_status == "unsupported")
+        .count()
+        .min(i64::MAX as usize) as i64;
+    let total_citations = citations.len().min(i64::MAX as usize) as i64;
+    let located_citations = citations
+        .iter()
+        .filter(|citation| citation.locator_status == "located")
+        .count()
+        .min(i64::MAX as usize) as i64;
+    let warning_citations = citations
+        .iter()
+        .filter(|citation| {
+            matches!(
+                citation.locator_status.as_str(),
+                "multiple_matches" | "stale" | "not_applicable"
+            )
+        })
+        .count()
+        .min(i64::MAX as usize) as i64;
+    let missing_citations = citations
+        .iter()
+        .filter(|citation| matches!(citation.locator_status.as_str(), "not_found" | "target_missing"))
+        .count()
+        .min(i64::MAX as usize) as i64;
+    let coverage_ratio = if total_claims == 0 {
+        0.0
+    } else {
+        cited_claims as f64 / total_claims as f64
+    };
+    let mut warnings = Vec::new();
+    if total_claims == 0 {
+        warnings.push("No durable claim shells were extracted from this report.".to_string());
+    }
+    if inferred_claims > 0 {
+        warnings.push(format!(
+            "{inferred_claims} claim shell(s) have no citation label and are marked inferred."
+        ));
+    }
+    if missing_citations > 0 {
+        warnings.push(format!(
+            "{missing_citations} citation(s) could not be located or target a missing asset."
+        ));
+    }
+    if warning_citations > 0 {
+        warnings.push(format!(
+            "{warning_citations} citation(s) need review because they are stale, ambiguous, or lack quote text."
+        ));
+    }
+    if total_citations == 0 {
+        warnings.push("No persistent citations were saved for this report.".to_string());
+    }
+    ReportAuditCoverage {
+        total_claims,
+        cited_claims,
+        inferred_claims,
+        unsupported_claims,
+        total_citations,
+        located_citations,
+        warning_citations,
+        missing_citations,
+        coverage_ratio,
+        warnings,
+    }
+}
+
+fn validate_report_claim_input(input: &SaveReportClaimInput) -> Result<()> {
+    if input.claim_index < 0 {
+        anyhow::bail!("report claim index must be non-negative");
+    }
+    required_trimmed("report claim text", &input.claim_text)?;
+    validate_report_claim_status(input.claim_status.trim())?;
+    Ok(())
+}
+
+fn validate_report_citation_input(input: &SaveReportCitationInput) -> Result<()> {
+    if input.citation_index < 0 {
+        anyhow::bail!("report citation index must be non-negative");
+    }
+    required_trimmed("report citation target id", &input.target_id)?;
+    validate_report_citation_target_kind(input.target_kind.trim())?;
+    validate_citation_locator_status(input.locator_status.trim())?;
+    if input.match_count < 0 {
+        anyhow::bail!("report citation match count must be non-negative");
+    }
+    if let (Some(start), Some(end)) = (input.span_start, input.span_end) {
+        if start < 0 || end < start {
+            anyhow::bail!("report citation span is invalid");
+        }
+    }
+    Ok(())
+}
+
+fn report_claim_candidates(body_md: &str) -> Vec<String> {
+    let mut candidates = Vec::new();
+    let mut paragraph: Vec<String> = Vec::new();
+    let mut in_fence = false;
+
+    for line in body_md.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("```") || trimmed.starts_with("~~~") {
+            flush_claim_paragraph(&mut paragraph, &mut candidates);
+            in_fence = !in_fence;
+            continue;
+        }
+        if in_fence {
+            continue;
+        }
+        if trimmed.is_empty() || is_markdown_separator(trimmed) {
+            flush_claim_paragraph(&mut paragraph, &mut candidates);
+            continue;
+        }
+        if is_markdown_heading(trimmed) {
+            flush_claim_paragraph(&mut paragraph, &mut candidates);
+            continue;
+        }
+
+        let normalized = normalize_claim_line(trimmed);
+        if normalized.is_empty() {
+            flush_claim_paragraph(&mut paragraph, &mut candidates);
+            continue;
+        }
+        if is_markdown_list_item(trimmed) {
+            flush_claim_paragraph(&mut paragraph, &mut candidates);
+            push_claim_candidate(normalized, &mut candidates);
+        } else {
+            paragraph.push(normalized);
+        }
+    }
+
+    flush_claim_paragraph(&mut paragraph, &mut candidates);
+    dedupe_preserving_order(candidates)
+}
+
+fn flush_claim_paragraph(paragraph: &mut Vec<String>, candidates: &mut Vec<String>) {
+    if paragraph.is_empty() {
+        return;
+    }
+    let candidate = paragraph.join(" ");
+    paragraph.clear();
+    push_claim_candidate(candidate, candidates);
+}
+
+fn push_claim_candidate(candidate: String, candidates: &mut Vec<String>) {
+    let candidate = normalize_whitespace(&candidate);
+    if is_substantive_claim(&candidate) {
+        candidates.push(candidate);
+    }
+}
+
+fn normalize_claim_line(line: &str) -> String {
+    let mut value = strip_blockquote_prefixes(line);
+    value = strip_list_prefix(value);
+    value = strip_checklist_prefix(value);
+    value.trim().to_string()
+}
+
+fn strip_blockquote_prefixes(mut value: &str) -> &str {
+    loop {
+        let trimmed = value.trim_start();
+        let Some(rest) = trimmed.strip_prefix('>') else {
+            return trimmed;
+        };
+        value = rest;
+    }
+}
+
+fn strip_list_prefix(value: &str) -> &str {
+    let trimmed = value.trim_start();
+    if let Some(rest) = trimmed
+        .strip_prefix("- ")
+        .or_else(|| trimmed.strip_prefix("* "))
+        .or_else(|| trimmed.strip_prefix("+ "))
+    {
+        return rest.trim_start();
+    }
+    strip_ordered_list_prefix(trimmed).unwrap_or(trimmed)
+}
+
+fn strip_ordered_list_prefix(value: &str) -> Option<&str> {
+    let mut digit_end = 0;
+    for (index, ch) in value.char_indices() {
+        if ch.is_ascii_digit() {
+            digit_end = index + ch.len_utf8();
+            continue;
+        }
+        break;
+    }
+    if digit_end == 0 {
+        return None;
+    }
+    let rest = &value[digit_end..];
+    let rest = rest.strip_prefix('.').or_else(|| rest.strip_prefix(')'))?;
+    if rest.chars().next().is_some_and(char::is_whitespace) {
+        Some(rest.trim_start())
+    } else {
+        None
+    }
+}
+
+fn strip_checklist_prefix(value: &str) -> &str {
+    let trimmed = value.trim_start();
+    if let Some(rest) = trimmed
+        .strip_prefix("[ ]")
+        .or_else(|| trimmed.strip_prefix("[x]"))
+        .or_else(|| trimmed.strip_prefix("[X]"))
+    {
+        return rest.trim_start();
+    }
+    trimmed
+}
+
+fn is_markdown_heading(value: &str) -> bool {
+    let hashes = value.chars().take_while(|ch| *ch == '#').count();
+    (1..=6).contains(&hashes) && value[hashes..].chars().next().is_some_and(char::is_whitespace)
+}
+
+fn is_markdown_separator(value: &str) -> bool {
+    let chars = value.chars().filter(|ch| !ch.is_whitespace()).collect::<Vec<_>>();
+    chars.len() >= 3
+        && chars
+            .iter()
+            .all(|ch| matches!(*ch, '-' | '*' | '_'))
+}
+
+fn is_markdown_list_item(value: &str) -> bool {
+    let trimmed = value.trim_start();
+    trimmed.starts_with("- ")
+        || trimmed.starts_with("* ")
+        || trimmed.starts_with("+ ")
+        || strip_ordered_list_prefix(trimmed).is_some()
+}
+
+fn is_substantive_claim(candidate: &str) -> bool {
+    let trimmed = candidate.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.starts_with("id:")
+        || lower.starts_with("url:")
+        || lower.starts_with("source:")
+        || lower.starts_with("chunk:")
+        || trimmed.starts_with("标题:")
+        || trimmed.starts_with("摘录:")
+    {
+        return false;
+    }
+    let signal_chars = trimmed
+        .chars()
+        .filter(|ch| ch.is_alphanumeric())
+        .count();
+    signal_chars >= 8
+}
+
+fn normalize_whitespace(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn dedupe_preserving_order(values: Vec<String>) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut unique = Vec::new();
+    for value in values {
+        if seen.insert(value.clone()) {
+            unique.push(value);
+        }
+    }
+    unique
+}
+
+fn report_citation_labels(citations_json: &str) -> Vec<String> {
+    let Ok(serde_json::Value::Array(citations)) =
+        serde_json::from_str::<serde_json::Value>(citations_json)
+    else {
+        return Vec::new();
+    };
+    let mut seen = HashSet::new();
+    let mut labels = Vec::new();
+    for citation in citations {
+        let Some(label) = citation
+            .as_object()
+            .and_then(|object| object.get("label"))
+            .and_then(serde_json::Value::as_str)
+            .and_then(normalize_report_citation_label)
+        else {
+            continue;
+        };
+        if seen.insert(label.clone()) {
+            labels.push(label);
+        }
+    }
+    labels
+}
+
+fn citation_labels_in_text(text: &str, citation_labels: &[String]) -> Vec<String> {
+    citation_labels
+        .iter()
+        .filter_map(|label| {
+            let label = normalize_report_citation_label(label)?;
+            let needle = format!("[{label}]");
+            if text.contains(&needle) {
+                Some(label)
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+fn normalize_report_citation_label(label: &str) -> Option<String> {
+    let trimmed = label.trim().trim_start_matches('[').trim_end_matches(']');
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
 pub fn save_ai_invocation(
     conn: &Connection,
     input: SaveAiInvocationInput,
@@ -1836,6 +2455,14 @@ pub fn delete_report(conn: &Connection, report_id: &str) -> Result<()> {
         return Ok(());
     }
 
+    conn.execute(
+        "DELETE FROM report_claims WHERE report_id = ?1",
+        params![trimmed],
+    )?;
+    conn.execute(
+        "DELETE FROM report_citations WHERE report_id = ?1",
+        params![trimmed],
+    )?;
     conn.execute("DELETE FROM reports WHERE id = ?1", params![trimmed])?;
     Ok(())
 }
@@ -2952,6 +3579,42 @@ fn map_report_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ReportRecord> {
     })
 }
 
+fn map_report_claim_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ReportClaimRecord> {
+    let citation_labels_json: String = row.get(5)?;
+    Ok(ReportClaimRecord {
+        id: row.get(0)?,
+        report_id: row.get(1)?,
+        claim_index: row.get(2)?,
+        claim_text: row.get(3)?,
+        claim_status: row.get(4)?,
+        citation_labels: json_array_strings(&citation_labels_json),
+        created_at: row.get(6)?,
+    })
+}
+
+fn map_report_citation_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ReportCitationRecord> {
+    Ok(ReportCitationRecord {
+        id: row.get(0)?,
+        report_id: row.get(1)?,
+        citation_index: row.get(2)?,
+        target_kind: row.get(3)?,
+        target_id: row.get(4)?,
+        label: row.get(5)?,
+        title: row.get(6)?,
+        quote: row.get(7)?,
+        excerpt: row.get(8)?,
+        reason: row.get(9)?,
+        source_id: row.get(10)?,
+        chunk_index: row.get(11)?,
+        source_text_hash: row.get(12)?,
+        span_start: row.get(13)?,
+        span_end: row.get(14)?,
+        locator_status: row.get(15)?,
+        match_count: row.get(16)?,
+        created_at: row.get(17)?,
+    })
+}
+
 fn map_ai_invocation_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<AiInvocationRecord> {
     Ok(AiInvocationRecord {
         id: row.get(0)?,
@@ -3110,6 +3773,32 @@ fn validate_report_kind(kind: &str) -> Result<()> {
     match kind {
         "digest" | "synthesis" | "investigation" => Ok(()),
         _ => anyhow::bail!("invalid report kind: {kind}"),
+    }
+}
+
+fn validate_report_claim_status(status: &str) -> Result<()> {
+    match status {
+        "cited" | "inferred" | "unsupported" => Ok(()),
+        _ => anyhow::bail!("invalid report claim status: {status}"),
+    }
+}
+
+fn validate_report_citation_target_kind(kind: &str) -> Result<()> {
+    match kind {
+        "source" | "point" | "evidence" => Ok(()),
+        _ => anyhow::bail!("invalid report citation target kind: {kind}"),
+    }
+}
+
+fn validate_citation_locator_status(status: &str) -> Result<()> {
+    match status {
+        "located"
+        | "multiple_matches"
+        | "not_found"
+        | "stale"
+        | "target_missing"
+        | "not_applicable" => Ok(()),
+        _ => anyhow::bail!("invalid citation locator status: {status}"),
     }
 }
 
@@ -4446,6 +5135,166 @@ mod tests {
             fetched.body_md,
             "#   Strategy Digest  \n\nReport body with digest-1"
         );
+    }
+
+    #[test]
+    fn extract_report_claims_marks_cited_and_inferred_shells() {
+        let claims = extract_report_claims(
+            "# Report\n\n关键结论成立 [S1].\n延续说明仍属于同一段落 [E2].\n\n- 无引用的后续判断需要复查。\n\n```text\ncode [S1]\n```\n\n### Details\n\n1. 编号列表结论 [P1].",
+            &["S1".to_string(), "E2".to_string(), "P1".to_string()],
+        );
+
+        assert_eq!(claims.len(), 3);
+        assert_eq!(claims[0].claim_status, "cited");
+        assert_eq!(claims[0].citation_labels, vec!["S1", "E2"]);
+        assert!(claims[0].claim_text.contains("关键结论成立"));
+        assert_eq!(claims[1].claim_status, "inferred");
+        assert!(claims[1].citation_labels.is_empty());
+        assert_eq!(claims[2].claim_status, "cited");
+        assert_eq!(claims[2].citation_labels, vec!["P1"]);
+        assert!(!claims.iter().any(|claim| claim.claim_text.contains("code")));
+    }
+
+    #[test]
+    fn report_audit_rows_round_trip_and_summarize_coverage() {
+        let conn = memory_db();
+        let report = save_report(
+            &conn,
+            SaveReportInput {
+                title: "Audit Round Trip".to_string(),
+                kind: "digest".to_string(),
+                source_name: Some("Audit".to_string()),
+                body_md: "# Audit\n\nCited claim [S1].\n\nInferred claim.".to_string(),
+                summary: "Audit summary".to_string(),
+                citations_json: "[]".to_string(),
+            },
+        )
+        .unwrap();
+
+        let audit = replace_report_audit_rows(
+            &conn,
+            &report.id,
+            vec![
+                SaveReportClaimInput {
+                    claim_index: 0,
+                    claim_text: "Cited claim [S1].".to_string(),
+                    claim_status: "cited".to_string(),
+                    citation_labels: vec!["S1".to_string()],
+                },
+                SaveReportClaimInput {
+                    claim_index: 1,
+                    claim_text: "Inferred claim.".to_string(),
+                    claim_status: "inferred".to_string(),
+                    citation_labels: vec![],
+                },
+            ],
+            vec![
+                SaveReportCitationInput {
+                    citation_index: 0,
+                    target_kind: "source".to_string(),
+                    target_id: "source-1".to_string(),
+                    label: Some("S1".to_string()),
+                    title: Some("Source One".to_string()),
+                    quote: Some("quoted evidence".to_string()),
+                    excerpt: Some("quoted evidence".to_string()),
+                    reason: Some("supporting quote".to_string()),
+                    source_id: Some("source-1".to_string()),
+                    chunk_index: Some(0),
+                    source_text_hash: Some("fnv1a64:1111111111111111".to_string()),
+                    span_start: Some(2),
+                    span_end: Some(17),
+                    locator_status: "located".to_string(),
+                    match_count: 1,
+                },
+                SaveReportCitationInput {
+                    citation_index: 1,
+                    target_kind: "point".to_string(),
+                    target_id: "point-1".to_string(),
+                    label: Some("P1".to_string()),
+                    title: Some("Point One".to_string()),
+                    quote: Some("repeat".to_string()),
+                    excerpt: None,
+                    reason: None,
+                    source_id: None,
+                    chunk_index: None,
+                    source_text_hash: Some("fnv1a64:2222222222222222".to_string()),
+                    span_start: Some(0),
+                    span_end: Some(6),
+                    locator_status: "multiple_matches".to_string(),
+                    match_count: 2,
+                },
+                SaveReportCitationInput {
+                    citation_index: 2,
+                    target_kind: "evidence".to_string(),
+                    target_id: "evidence-1".to_string(),
+                    label: Some("E1".to_string()),
+                    title: Some("Evidence One".to_string()),
+                    quote: Some("missing".to_string()),
+                    excerpt: None,
+                    reason: None,
+                    source_id: None,
+                    chunk_index: None,
+                    source_text_hash: Some("fnv1a64:3333333333333333".to_string()),
+                    span_start: None,
+                    span_end: None,
+                    locator_status: "not_found".to_string(),
+                    match_count: 0,
+                },
+            ],
+        )
+        .unwrap();
+
+        assert_eq!(audit.claims.len(), 2);
+        assert_eq!(audit.citations.len(), 3);
+        assert_eq!(audit.citations[0].label.as_deref(), Some("S1"));
+        assert_eq!(audit.citations[0].span_start, Some(2));
+        assert_eq!(audit.citations[0].reason.as_deref(), Some("supporting quote"));
+        assert_eq!(audit.coverage.total_claims, 2);
+        assert_eq!(audit.coverage.cited_claims, 1);
+        assert_eq!(audit.coverage.inferred_claims, 1);
+        assert_eq!(audit.coverage.total_citations, 3);
+        assert_eq!(audit.coverage.located_citations, 1);
+        assert_eq!(audit.coverage.warning_citations, 1);
+        assert_eq!(audit.coverage.missing_citations, 1);
+        assert!((audit.coverage.coverage_ratio - 0.5).abs() < f64::EPSILON);
+        assert!(audit
+            .coverage
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("inferred")));
+
+        let loaded = load_report_audit(&conn, &report.id).unwrap().unwrap();
+        assert_eq!(loaded.claims[0].citation_labels, vec!["S1"]);
+        assert_eq!(loaded.citations[1].locator_status, "multiple_matches");
+
+        let legacy = save_report(&conn, report_input("Legacy Report", "digest", "legacy")).unwrap();
+        let legacy_audit = load_report_audit(&conn, &legacy.id).unwrap().unwrap();
+        assert!(legacy_audit.claims.is_empty());
+        assert!(legacy_audit.citations.is_empty());
+        assert!(legacy_audit
+            .coverage
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("No durable claim")));
+
+        delete_report(&conn, &report.id).unwrap();
+        assert!(load_report_audit(&conn, &report.id).unwrap().is_none());
+        let claim_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM report_claims WHERE report_id = ?1",
+                params![report.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let citation_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM report_citations WHERE report_id = ?1",
+                params![report.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(claim_count, 0);
+        assert_eq!(citation_count, 0);
     }
 
     #[test]
