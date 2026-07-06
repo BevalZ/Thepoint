@@ -135,7 +135,10 @@ snooze_review_item(app, id: String, days: i64) -> Result<ReviewItem, String>
 dismiss_review_item(app, id: String) -> Result<(), String>
 get_open_data_mirror_config(app) -> Result<OpenDataMirrorConfig, String>
 set_open_data_mirror_config(app, config: OpenDataMirrorConfig) -> Result<(), String>
+build_open_data_mirror_plan(app) -> Result<OpenDataMirrorPlan, String>
 export_open_data_mirror(app) -> Result<MirrorExportResult, String>
+load_open_data_mirror_manifest(app) -> Result<Option<OpenDataMirrorManifest>, String>
+prune_open_data_mirror(app) -> Result<OpenDataMirrorPruneResult, String>
 add_indexed_folder(app, path: String) -> Result<IndexedFolder, String>
 list_indexed_folders(app) -> Result<Vec<IndexedFolder>, String>
 scan_indexed_folder(app, folder_id: String) -> Result<IndexedFolderScanResult, String>
@@ -150,7 +153,10 @@ loadReportInvocationAudit(reportId: string): Promise<ReportInvocationAudit | nul
 listRecentJournalEntries(): Promise<JournalEntry[]>
 discoverRelatedAssets(kind: AssetKind, id: string): Promise<AssetRelationRecord[]>
 addReviewItem(input: AddReviewItemInput): Promise<ReviewItem>
+buildOpenDataMirrorPlan(): Promise<OpenDataMirrorPlan>
 exportOpenDataMirror(): Promise<MirrorExportResult>
+loadOpenDataMirrorManifest(): Promise<OpenDataMirrorManifest | null>
+pruneOpenDataMirror(): Promise<OpenDataMirrorPruneResult>
 scanIndexedFolder(folderId: string): Promise<IndexedFolderScanResult>
 ```
 
@@ -165,6 +171,11 @@ scanIndexedFolder(folderId: string): Promise<IndexedFolderScanResult>
 - Asset relations are rebuilt from Report co-citations, Evidence Source/Point links, Journal co-occurrence, Gallery Point links, and Review Queue co-presence.
 - Review scheduling is deliberately simple: `again = 1`, `hard = 3`, `good = 7`, `easy = 14` days. `ease` and `interval_days` are persisted for future scheduler upgrades.
 - Open Data Mirror is export-only. It writes stable Markdown plus `manifest.json` under the configured root and never reads changes back into SQLite.
+- Open Data Mirror v2 is plan-first: `build_open_data_mirror_plan` returns current assets grouped into `to_write`, `unchanged`, `stale`/overwrite, and `to_prune` without writing or deleting files.
+- `export_open_data_mirror` must reuse the same planner, write only `write`/`overwrite` assets plus `index.md` and `manifest.json`, and return the executed plan plus a manifest v2 payload.
+- Manifest v2 stores per-asset `kind`, `id`, `title`, relative `path`, `content_hash`, `exported_at`, `attachments`, and `warnings`, plus `counts`, `errors`, `stale`, and `pruned`.
+- `load_open_data_mirror_manifest` supports v1 count-only manifests by returning `version = 1`, count summary, and empty asset arrays. It may read when Mirror is disabled as long as `root_path` exists.
+- `prune_open_data_mirror` is the only command allowed to delete mirror files. It deletes only current plan `to_prune` paths or manifest stale paths after root-contained relative-path validation.
 - Indexed folder scanning never moves, copies, or deletes user source files. Text-like files become `source_documents`/`source_chunks`; PDF, EPUB, DOCX, and unknown/binary formats remain metadata-only for now.
 - For indexed folders, parser-supported prose formats use `parsers::parse_document`; code/config text formats are read as UTF-8 directly so ordinary source files can be indexed without expanding the import parser contract.
 
@@ -181,7 +192,13 @@ scanIndexedFolder(folderId: string): Promise<IndexedFolderScanResult>
 | Invalid asset kind or relation | DB helper returns validation error |
 | Invalid Review target kind, priority, or rating | DB helper returns validation error |
 | Snooze days less than 1 | DB helper returns validation error |
-| Mirror disabled or missing root path | Export command returns an error and writes nothing |
+| Mirror disabled or missing root path | Plan/export/prune commands return an error and write/delete nothing |
+| Mirror root path set but no manifest exists | Manifest load returns `Ok(None)` |
+| Existing manifest is v1 count-only | Manifest load returns counts and empty assets/stale/pruned arrays |
+| Mirror plan sees current file hash equals generated hash | Plan item goes to `unchanged` with action `skip` |
+| Mirror plan sees current file exists but hash differs | Plan item goes to `stale` with action `overwrite` |
+| Mirror manifest asset no longer exists in current export scope | Plan item goes to `to_prune`; export leaves the file untouched |
+| Mirror prune path is absolute or contains `..` | Prune records an error for that item and does not delete it |
 | Indexed folder path is blank or missing | Add/scan commands return validation errors |
 | Text-like file cannot be decoded or parsed | Indexed file row is recorded metadata-only |
 | Removing an indexed folder | Deletes `indexed_folders`/`indexed_files` rows only; existing knowledge assets remain |
@@ -191,14 +208,16 @@ scanIndexedFolder(folderId: string): Promise<IndexedFolderScanResult>
 - Good: a user generates an Investigation, saves it as a Report, sees an automatic Journal entry, rebuilds relations, adds the Report to Review, exports Mirror Markdown, and can still open citation-backed assets.
 - Good: scanning a Markdown/code folder indexes readable text into Source Workspace while leaving the original files untouched.
 - Base: Journal search returns only non-invalidated entries by default.
-- Base: Mirror export can include zero assets in a category and still writes `index.md` plus `manifest.json`.
+- Base: Mirror export can include zero assets in a category and still writes `index.md` plus manifest v2.
+- Base: Mirror v1 manifests load as compatibility metadata but cannot produce precise prune candidates.
 - Bad: treating Journal text as factual evidence in citations, or emitting Investigation conclusions without Source/Point/Evidence citations.
 - Bad: deleting a Report, Review item, or indexed folder cascades into Sources, Points, Evidence, Gallery files, or user-owned folders.
+- Bad: export implicitly deletes stale mirror files. Stale cleanup must be a separate explicit prune command.
 
 ### 6. Tests Required
 
 - Rust DB tests: Investigation report kind saves/searches, Journal list/search/invalidate, Review schedule/snooze/dismiss, Mirror config defaults/round-trip, Indexed Folder/File round-trip, and relation rebuild across report/journal/evidence/gallery/review signals.
-- Rust command/helper tests: command input conversion for Reports remains camelCase-compatible; Investigation context/citation helpers must stay deterministic when changed.
+- Rust command/helper tests: command input conversion for Reports remains camelCase-compatible; Investigation context/citation helpers must stay deterministic when changed; Mirror planner covers first export, unchanged repeat plans, overwrite/stale detection, manifest v1 loading, disabled-scope prune candidates, and explicit prune deletion.
 - Frontend helper tests: report artifact parsing/filtering includes `investigation`; citation JSON with optional `quote`/`reason` remains backward compatible.
 - Frontend checks: `npm run typecheck`, `npm run check:boundaries`, `npm run test:run`, and `npm run build`.
 - Backend checks: `cargo check --manifest-path src-tauri/Cargo.toml` and `cargo test --manifest-path src-tauri/Cargo.toml`.
@@ -219,6 +238,21 @@ CREATE TABLE investigations (...);
 // Investigation remains a first-class Report kind.
 validate_report_kind("investigation")?;
 db::save_report(conn, input)
+```
+
+#### Wrong
+
+```rust
+// Export must not silently delete old mirror paths.
+fs::remove_file(root.join(old_manifest_asset.path))?;
+```
+
+#### Correct
+
+```rust
+// Export reports stale paths; only prune_open_data_mirror may delete them.
+let plan = build_open_data_mirror_plan_data(conn, &config, &root)?;
+assert!(!plan.plan.to_prune.is_empty());
 ```
 
 #### Wrong
