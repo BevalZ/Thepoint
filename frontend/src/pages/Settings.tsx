@@ -4,9 +4,9 @@ import { Eye, EyeOff, Check, RefreshCw, X, MessageSquare, Settings2, Pencil, Typ
 import { motion, AnimatePresence } from 'framer-motion'
 import { useConfigStore, useThemeStore, UI_FONTS, CODE_FONTS } from '@/store'
 import type { ThemeMode, UiFontKey, CodeFontKey, FontSize } from '@/store'
-import { addIndexedFolder, exportOpenDataMirror, fetchModels, getOpenDataMirrorConfig, importCommentatorFromSkill, listIndexedFilesForFolder, listIndexedFolders, loadIndexedFilePreview, removeIndexedFolder, scanIndexedFolder, setOpenDataMirrorConfig } from '@/api'
+import { addIndexedFolder, buildOpenDataMirrorPlan, exportOpenDataMirror, fetchModels, getOpenDataMirrorConfig, importCommentatorFromSkill, listIndexedFilesForFolder, listIndexedFolders, loadIndexedFilePreview, loadOpenDataMirrorManifest, pruneOpenDataMirror, removeIndexedFolder, scanIndexedFolder, setOpenDataMirrorConfig } from '@/api'
 import { cn } from '@/lib/utils'
-import type { CommentatorProfile, ConfigProfile, IndexedFile, IndexedFolder, IndexedFolderScanResult, MentalModel, MirrorExportResult, OpenDataMirrorConfig } from '@/api/types'
+import type { CommentatorProfile, ConfigProfile, IndexedFile, IndexedFolder, IndexedFolderScanResult, MentalModel, MirrorExportResult, MirrorManifestCounts, MirrorPlanItem, OpenDataMirrorConfig, OpenDataMirrorManifest, OpenDataMirrorPlan, OpenDataMirrorPruneResult } from '@/api/types'
 
 const PROVIDERS = [
   { key: 'openai-compat', label: 'OpenAI compatible', baseUrl: 'https://api.openai.com', suffix: '/v1/chat/completions' },
@@ -423,6 +423,48 @@ function indexedFileSize(sizeBytes: number | null) {
   return `${(sizeBytes / 1024 / 1024).toFixed(1)} MB`
 }
 
+function mirrorCountSummary(counts: MirrorManifestCounts | null | undefined) {
+  if (!counts) return '无统计'
+  return `Sources ${counts.sources} · Evidence ${counts.evidence} · Reports ${counts.reports} · Investigations ${counts.investigations} · Journal ${counts.journal} · Gallery ${counts.gallery}`
+}
+
+function mirrorItemTitle(item: MirrorPlanItem) {
+  return `${item.kind}/${item.id.slice(0, 8)} · ${item.path}`
+}
+
+function mirrorActionClass(action: string) {
+  if (action === 'write') return 'border-sky-500/30 bg-sky-500/10 text-sky-300'
+  if (action === 'overwrite') return 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+  if (action === 'prune') return 'border-red-500/30 bg-red-500/10 text-red-300'
+  if (action === 'skip') return 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+  return 'border-border bg-bg text-fg-muted'
+}
+
+function MirrorPlanList({ title, items, empty }: { title: string; items: MirrorPlanItem[]; empty: string }) {
+  const shown = items.slice(0, 4)
+  return (
+    <div className="rounded-lg border border-border bg-bg-elevated px-3 py-2">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs font-medium text-fg">{title}</p>
+        <span className="rounded-full border border-border bg-bg px-2 py-0.5 text-[11px] text-fg-muted">{items.length}</span>
+      </div>
+      {items.length === 0 ? (
+        <p className="mt-2 text-[11px] text-fg-faint">{empty}</p>
+      ) : (
+        <div className="mt-2 space-y-1.5">
+          {shown.map(item => (
+            <div key={`${item.action}-${item.path}`} className="flex items-center gap-2 text-[11px]">
+              <span className={cn('shrink-0 rounded-full border px-2 py-0.5', mirrorActionClass(item.action))}>{item.action}</span>
+              <span className="min-w-0 flex-1 truncate text-fg-muted" title={mirrorItemTitle(item)}>{mirrorItemTitle(item)}</span>
+            </div>
+          ))}
+          {items.length > shown.length && <p className="text-[11px] text-fg-faint">另有 {items.length - shown.length} 项未展开。</p>}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function SecretInput({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
   const [show, setShow] = useState(false)
   return (
@@ -516,8 +558,13 @@ export default function Settings() {
   const [mirrorConfig, setMirrorConfig] = useState<OpenDataMirrorConfig | null>(null)
   const [mirrorLoading, setMirrorLoading] = useState(false)
   const [mirrorSaving, setMirrorSaving] = useState(false)
+  const [mirrorPlanning, setMirrorPlanning] = useState(false)
   const [mirrorExporting, setMirrorExporting] = useState(false)
+  const [mirrorPruning, setMirrorPruning] = useState(false)
+  const [mirrorPlan, setMirrorPlan] = useState<OpenDataMirrorPlan | null>(null)
+  const [mirrorManifest, setMirrorManifest] = useState<OpenDataMirrorManifest | null>(null)
   const [mirrorResult, setMirrorResult] = useState<MirrorExportResult | null>(null)
+  const [mirrorPruneResult, setMirrorPruneResult] = useState<OpenDataMirrorPruneResult | null>(null)
   const [mirrorError, setMirrorError] = useState<string | null>(null)
   const [indexedFolders, setIndexedFolders] = useState<IndexedFolder[]>([])
   const [indexedLoading, setIndexedLoading] = useState(false)
@@ -543,6 +590,18 @@ export default function Settings() {
       ])
       setMirrorConfig(mirror)
       setIndexedFolders(folders)
+      setMirrorPlan(null)
+      setMirrorResult(null)
+      setMirrorPruneResult(null)
+      if (mirror.rootPath?.trim()) {
+        try {
+          setMirrorManifest(await loadOpenDataMirrorManifest())
+        } catch {
+          setMirrorManifest(null)
+        }
+      } else {
+        setMirrorManifest(null)
+      }
     } catch (error) {
       const message = settingsErrorMessage(error, '加载数据设置失败')
       setMirrorError(message)
@@ -831,6 +890,7 @@ export default function Settings() {
 
   const noKey = loaded && !config?.openaiApiKey
   const currentProvider = PROVIDERS.find(p => p.key === providerKey)
+  const mirrorPruneCount = mirrorPlan?.toPrune.length ?? mirrorManifest?.stale.length ?? 0
 
   const handleSelectCommentator = (profile: CommentatorProfile) => {
     setCommentatorName(profile.name)
@@ -947,6 +1007,10 @@ export default function Settings() {
 
   const updateMirrorConfig = (patch: Partial<OpenDataMirrorConfig>) => {
     setMirrorConfig(current => current ? { ...current, ...patch } : current)
+    setMirrorPlan(null)
+    setMirrorResult(null)
+    setMirrorPruneResult(null)
+    if ('rootPath' in patch) setMirrorManifest(null)
   }
 
   const handleChooseMirrorRoot = async () => {
@@ -967,6 +1031,18 @@ export default function Settings() {
     setMirrorError(null)
     try {
       await setOpenDataMirrorConfig(mirrorConfig)
+      setMirrorPlan(null)
+      setMirrorResult(null)
+      setMirrorPruneResult(null)
+      if (mirrorConfig.rootPath?.trim()) {
+        try {
+          setMirrorManifest(await loadOpenDataMirrorManifest())
+        } catch {
+          setMirrorManifest(null)
+        }
+      } else {
+        setMirrorManifest(null)
+      }
       flash()
     } catch (error) {
       setMirrorError(settingsErrorMessage(error, '保存 Mirror 设置失败'))
@@ -975,17 +1051,65 @@ export default function Settings() {
     }
   }
 
+  const handleBuildMirrorPlan = async () => {
+    if (mirrorPlanning) return
+    setMirrorPlanning(true)
+    setMirrorError(null)
+    setMirrorResult(null)
+    setMirrorPruneResult(null)
+    try {
+      const plan = await buildOpenDataMirrorPlan()
+      setMirrorPlan(plan)
+      try {
+        setMirrorManifest(await loadOpenDataMirrorManifest())
+      } catch {
+        setMirrorManifest(null)
+      }
+    } catch (error) {
+      setMirrorError(settingsErrorMessage(error, '构建 Mirror 计划失败'))
+    } finally {
+      setMirrorPlanning(false)
+    }
+  }
+
   const handleExportMirror = async () => {
     if (mirrorExporting) return
     setMirrorExporting(true)
     setMirrorError(null)
     setMirrorResult(null)
+    setMirrorPruneResult(null)
     try {
-      setMirrorResult(await exportOpenDataMirror())
+      const result = await exportOpenDataMirror()
+      setMirrorResult(result)
+      setMirrorPlan(result.plan)
+      setMirrorManifest(result.manifest)
     } catch (error) {
       setMirrorError(settingsErrorMessage(error, '导出 Mirror 失败'))
     } finally {
       setMirrorExporting(false)
+    }
+  }
+
+  const handlePruneMirror = async () => {
+    const pruneCount = mirrorPlan?.toPrune.length ?? mirrorManifest?.stale.length ?? 0
+    if (mirrorPruning || pruneCount <= 0) return
+    const confirmed = window.confirm(`清理 ${pruneCount} 个旧 Mirror 文件？只会删除 manifest/plan 中标记为 stale 的镜像文件。`)
+    if (!confirmed) return
+    setMirrorPruning(true)
+    setMirrorError(null)
+    try {
+      const result = await pruneOpenDataMirror()
+      setMirrorPruneResult(result)
+      setMirrorManifest(result.manifest)
+      try {
+        setMirrorPlan(await buildOpenDataMirrorPlan())
+      } catch {
+        setMirrorPlan(null)
+      }
+    } catch (error) {
+      setMirrorError(settingsErrorMessage(error, '清理 Mirror 旧文件失败'))
+    } finally {
+      setMirrorPruning(false)
     }
   }
 
@@ -1872,10 +1996,65 @@ export default function Settings() {
                     ))}
                   </div>
 
+                  {mirrorManifest && (
+                    <div className="rounded-xl border border-border bg-bg-elevated px-4 py-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <p className="text-xs font-medium text-fg">上次 Manifest v{mirrorManifest.version}</p>
+                          <p className="mt-1 text-[11px] text-fg-faint">
+                            {mirrorManifest.generatedAt ? new Date(mirrorManifest.generatedAt).toLocaleString('zh-CN') : '没有生成时间'} · assets {mirrorManifest.assets.length}
+                          </p>
+                        </div>
+                        <span className="rounded-full border border-border bg-bg px-2 py-0.5 text-[11px] text-fg-muted">
+                          stale {mirrorManifest.stale.length}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-xs text-fg-muted">{mirrorCountSummary(mirrorManifest.counts)}</p>
+                    </div>
+                  )}
+
+                  {mirrorPlan && (
+                    <div className="space-y-3 rounded-xl border border-border bg-bg px-4 py-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <p className="text-sm font-medium text-fg">当前导出计划</p>
+                          <p className="mt-0.5 text-xs text-fg-faint">
+                            {new Date(mirrorPlan.generatedAt).toLocaleString('zh-CN')} · {mirrorCountSummary(mirrorPlan.counts)}
+                          </p>
+                        </div>
+                        {mirrorPlan.errors.length > 0 && (
+                          <span className="rounded-full border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-[11px] text-red-300">
+                            errors {mirrorPlan.errors.length}
+                          </span>
+                        )}
+                      </div>
+                      <div className="grid gap-2 md:grid-cols-2">
+                        <MirrorPlanList title="将写入" items={mirrorPlan.toWrite} empty="没有新增文件。" />
+                        <MirrorPlanList title="将覆盖" items={mirrorPlan.stale} empty="没有内容变化。" />
+                        <MirrorPlanList title="未变化" items={mirrorPlan.unchanged} empty="还没有可跳过文件。" />
+                        <MirrorPlanList title="待清理" items={mirrorPlan.toPrune} empty="没有旧镜像文件。" />
+                      </div>
+                      {mirrorPlan.errors.length > 0 && (
+                        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2">
+                          {mirrorPlan.errors.slice(0, 3).map((error, index) => (
+                            <p key={`${error.path ?? 'error'}-${index}`} className="text-[11px] text-red-300">
+                              {error.path ?? error.kind ?? 'mirror'}: {error.message}
+                            </p>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
                   {mirrorError && <p className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">{mirrorError}</p>}
                   {mirrorResult && (
                     <p className="rounded-lg border border-border bg-bg-elevated px-3 py-2 text-xs text-fg-muted">
-                      已写入 {mirrorResult.filesWritten} 个文件：Sources {mirrorResult.sources} · Evidence {mirrorResult.evidence} · Reports {mirrorResult.reports} · Investigations {mirrorResult.investigations} · Journal {mirrorResult.journal} · Gallery {mirrorResult.gallery}
+                      已写入 {mirrorResult.filesWritten} 个文件：{mirrorCountSummary(mirrorResult.manifest.counts)}
+                    </p>
+                  )}
+                  {mirrorPruneResult && (
+                    <p className="rounded-lg border border-border bg-bg-elevated px-3 py-2 text-xs text-fg-muted">
+                      已清理 {mirrorPruneResult.filesDeleted} 个旧文件；错误 {mirrorPruneResult.errors.length} 个。
                     </p>
                   )}
 
@@ -1891,6 +2070,15 @@ export default function Settings() {
                     </button>
                     <button
                       type="button"
+                      onClick={() => void handleBuildMirrorPlan()}
+                      disabled={mirrorPlanning || !mirrorConfig.enabled}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-bg-elevated px-4 py-2 text-sm text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg disabled:opacity-50"
+                    >
+                      {mirrorPlanning ? <RefreshCw size={14} className="animate-spin" /> : <Database size={14} />}
+                      构建计划
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => void handleExportMirror()}
                       disabled={mirrorExporting || !mirrorConfig.enabled}
                       className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-bg-elevated px-4 py-2 text-sm text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg disabled:opacity-50"
@@ -1898,7 +2086,19 @@ export default function Settings() {
                       {mirrorExporting ? <RefreshCw size={14} className="animate-spin" /> : <Upload size={14} />}
                       导出 Mirror
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => void handlePruneMirror()}
+                      disabled={mirrorPruning || !mirrorConfig.enabled || mirrorPruneCount <= 0}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-300 transition-colors hover:bg-red-500/20 disabled:opacity-50"
+                    >
+                      {mirrorPruning ? <RefreshCw size={14} className="animate-spin" /> : <X size={14} />}
+                      清理旧文件{mirrorPruneCount > 0 ? ` (${mirrorPruneCount})` : ''}
+                    </button>
                   </div>
+                  <p className="text-[11px] text-fg-faint">
+                    修改范围或路径后先保存设置，再构建计划或导出。清理不会自动发生，只删除 manifest/plan 标记的旧镜像文件。
+                  </p>
                 </>
               ) : (
                 <p className="text-sm text-fg-faint">Mirror 设置不可用。</p>

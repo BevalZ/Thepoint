@@ -27,6 +27,9 @@ import type {
   JournalEntry,
   MentalModel,
   MirrorExportResult,
+  OpenDataMirrorManifest,
+  OpenDataMirrorPlan,
+  OpenDataMirrorPruneResult,
   OpenDataMirrorConfig,
   PointSourceLinkInput,
   PointSourceContext,
@@ -230,9 +233,21 @@ export interface TauriCommandMap {
     args: { config: OpenDataMirrorConfig }
     result: void
   }
+  build_open_data_mirror_plan: {
+    args: undefined
+    result: OpenDataMirrorPlan
+  }
   export_open_data_mirror: {
     args: undefined
     result: MirrorExportResult
+  }
+  load_open_data_mirror_manifest: {
+    args: undefined
+    result: OpenDataMirrorManifest | null
+  }
+  prune_open_data_mirror: {
+    args: undefined
+    result: OpenDataMirrorPruneResult
   }
   add_indexed_folder: {
     args: { path: string }

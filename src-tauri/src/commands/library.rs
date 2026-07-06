@@ -1,7 +1,7 @@
 use rusqlite::Connection;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use anyhow::Context;
 use tauri::Wry;
@@ -50,6 +50,96 @@ pub struct MirrorExportResult {
     pub investigations: usize,
     pub journal: usize,
     pub gallery: usize,
+    pub plan: OpenDataMirrorPlan,
+    pub manifest: OpenDataMirrorManifest,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MirrorManifestCounts {
+    pub sources: usize,
+    pub evidence: usize,
+    pub reports: usize,
+    pub investigations: usize,
+    pub journal: usize,
+    pub gallery: usize,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct MirrorPlanItem {
+    pub kind: String,
+    pub id: String,
+    pub title: String,
+    pub path: String,
+    pub content_hash: Option<String>,
+    pub previous_hash: Option<String>,
+    pub action: String,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct MirrorPlanError {
+    pub kind: Option<String>,
+    pub id: Option<String>,
+    pub path: Option<String>,
+    pub message: String,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenDataMirrorPlan {
+    pub root_path: String,
+    pub generated_at: String,
+    pub counts: MirrorManifestCounts,
+    pub to_write: Vec<MirrorPlanItem>,
+    pub unchanged: Vec<MirrorPlanItem>,
+    pub stale: Vec<MirrorPlanItem>,
+    pub to_prune: Vec<MirrorPlanItem>,
+    pub errors: Vec<MirrorPlanError>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct MirrorManifestAsset {
+    pub kind: String,
+    pub id: String,
+    pub title: String,
+    pub path: String,
+    pub content_hash: String,
+    pub exported_at: String,
+    #[serde(default)]
+    pub attachments: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub warnings: Vec<String>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenDataMirrorManifest {
+    pub version: i64,
+    #[serde(default)]
+    pub generated_at: Option<String>,
+    #[serde(default)]
+    pub assets: Vec<MirrorManifestAsset>,
+    #[serde(default)]
+    pub errors: Vec<MirrorPlanError>,
+    #[serde(default)]
+    pub pruned: Vec<MirrorPlanItem>,
+    #[serde(default)]
+    pub stale: Vec<MirrorPlanItem>,
+    #[serde(default)]
+    pub counts: Option<MirrorManifestCounts>,
+}
+
+#[derive(serde::Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenDataMirrorPruneResult {
+    pub root_path: String,
+    pub files_deleted: usize,
+    pub pruned: Vec<MirrorPlanItem>,
+    pub errors: Vec<MirrorPlanError>,
+    pub manifest: Option<OpenDataMirrorManifest>,
 }
 
 #[derive(serde::Deserialize, Clone, Debug)]
@@ -686,11 +776,44 @@ pub async fn set_open_data_mirror_config(
 }
 
 #[tauri::command]
+pub async fn build_open_data_mirror_plan(
+    app: tauri::AppHandle<Wry>,
+) -> Result<OpenDataMirrorPlan, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || build_open_data_mirror_plan_blocking(path))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn export_open_data_mirror(
     app: tauri::AppHandle<Wry>,
 ) -> Result<MirrorExportResult, String> {
     let path = db::db_path(&app).map_err(|e| e.to_string())?;
     tokio::task::spawn_blocking(move || export_open_data_mirror_blocking(path))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn load_open_data_mirror_manifest(
+    app: tauri::AppHandle<Wry>,
+) -> Result<Option<OpenDataMirrorManifest>, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || load_open_data_mirror_manifest_blocking(path))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn prune_open_data_mirror(
+    app: tauri::AppHandle<Wry>,
+) -> Result<OpenDataMirrorPruneResult, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || prune_open_data_mirror_blocking(path))
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
@@ -1345,139 +1468,539 @@ fn infer_fact_check_verdict(answer: &str) -> &'static str {
     "uncertain"
 }
 
+fn build_open_data_mirror_plan_blocking(db_path: PathBuf) -> anyhow::Result<OpenDataMirrorPlan> {
+    let conn = db::open_db(&db_path)?;
+    let config = db::get_open_data_mirror_config(&conn)?;
+    let root = mirror_root_from_config(&config)?;
+    Ok(build_open_data_mirror_plan_data(&conn, &config, &root)?.plan)
+}
+
 fn export_open_data_mirror_blocking(db_path: PathBuf) -> anyhow::Result<MirrorExportResult> {
     let conn = db::open_db(&db_path)?;
     let config = db::get_open_data_mirror_config(&conn)?;
+    let root = mirror_root_from_config(&config)?;
+    fs::create_dir_all(&root).context("failed to create mirror root")?;
+
+    let build = build_open_data_mirror_plan_data(&conn, &config, &root)?;
+    let mut action_by_path = HashMap::new();
+    for item in &build.plan.to_write {
+        action_by_path.insert(item.path.clone(), item.action.clone());
+    }
+    for item in &build.plan.stale {
+        action_by_path.insert(item.path.clone(), item.action.clone());
+    }
+
+    let mut files_written = 0;
+    for asset in &build.assets {
+        if action_by_path
+            .get(&asset.relative_path)
+            .is_some_and(|action| action == "write" || action == "overwrite")
+        {
+            write_mirror_relative_file(&root, &asset.relative_path, &asset.content)?;
+            files_written += 1;
+        }
+    }
+
+    let generated_at = chrono::Utc::now().to_rfc3339();
+    let manifest = OpenDataMirrorManifest {
+        version: 2,
+        generated_at: Some(generated_at.clone()),
+        assets: build
+            .assets
+            .iter()
+            .map(|asset| MirrorManifestAsset {
+                kind: asset.kind.clone(),
+                id: asset.id.clone(),
+                title: asset.title.clone(),
+                path: asset.relative_path.clone(),
+                content_hash: asset.content_hash.clone(),
+                exported_at: generated_at.clone(),
+                attachments: Vec::new(),
+                warnings: Vec::new(),
+            })
+            .collect(),
+        errors: build.plan.errors.clone(),
+        pruned: Vec::new(),
+        stale: build.plan.to_prune.clone(),
+        counts: Some(build.plan.counts.clone()),
+    };
+
+    write_text_file(
+        &root.join("manifest.json"),
+        &serde_json::to_string_pretty(&manifest)?,
+    )?;
+    write_text_file(&root.join("index.md"), &mirror_index_markdown(&build.plan.counts))?;
+    files_written += 2;
+
+    Ok(MirrorExportResult {
+        root_path: root.to_string_lossy().to_string(),
+        files_written,
+        sources: build.plan.counts.sources,
+        evidence: build.plan.counts.evidence,
+        reports: build.plan.counts.reports,
+        investigations: build.plan.counts.investigations,
+        journal: build.plan.counts.journal,
+        gallery: build.plan.counts.gallery,
+        plan: build.plan,
+        manifest,
+    })
+}
+
+fn load_open_data_mirror_manifest_blocking(
+    db_path: PathBuf,
+) -> anyhow::Result<Option<OpenDataMirrorManifest>> {
+    let conn = db::open_db(&db_path)?;
+    let config = db::get_open_data_mirror_config(&conn)?;
+    let root = mirror_root_path_from_config(&config)?;
+    read_open_data_mirror_manifest(&root)
+}
+
+fn prune_open_data_mirror_blocking(db_path: PathBuf) -> anyhow::Result<OpenDataMirrorPruneResult> {
+    let conn = db::open_db(&db_path)?;
+    let config = db::get_open_data_mirror_config(&conn)?;
+    let root = mirror_root_from_config(&config)?;
+    let build = build_open_data_mirror_plan_data(&conn, &config, &root)?;
+    let mut pruned = Vec::new();
+    let mut errors = Vec::new();
+    let mut files_deleted = 0;
+
+    for item in &build.plan.to_prune {
+        match delete_mirror_relative_file(&root, &item.path) {
+            Ok(deleted) => {
+                if deleted {
+                    files_deleted += 1;
+                }
+                pruned.push(item.clone());
+            }
+            Err(error) => errors.push(MirrorPlanError {
+                kind: Some(item.kind.clone()),
+                id: Some(item.id.clone()),
+                path: Some(item.path.clone()),
+                message: error.to_string(),
+            }),
+        }
+    }
+
+    let mut manifest = read_open_data_mirror_manifest(&root)?;
+    if let Some(current) = manifest.as_mut() {
+        let pruned_paths = pruned
+            .iter()
+            .map(|item| item.path.as_str())
+            .collect::<HashSet<_>>();
+        current
+            .assets
+            .retain(|asset| !pruned_paths.contains(asset.path.as_str()));
+        current
+            .stale
+            .retain(|item| !pruned_paths.contains(item.path.as_str()));
+        current.pruned = pruned.clone();
+        current.errors = errors.clone();
+        write_text_file(
+            &root.join("manifest.json"),
+            &serde_json::to_string_pretty(current)?,
+        )?;
+    }
+
+    Ok(OpenDataMirrorPruneResult {
+        root_path: root.to_string_lossy().to_string(),
+        files_deleted,
+        pruned,
+        errors,
+        manifest,
+    })
+}
+
+struct MirrorExportAsset {
+    kind: String,
+    id: String,
+    title: String,
+    relative_path: String,
+    content: String,
+    content_hash: String,
+}
+
+struct MirrorPlanBuild {
+    plan: OpenDataMirrorPlan,
+    assets: Vec<MirrorExportAsset>,
+}
+
+fn mirror_root_from_config(config: &db::OpenDataMirrorConfig) -> anyhow::Result<PathBuf> {
     if !config.enabled {
         anyhow::bail!("Open Data Mirror is disabled");
     }
+    mirror_root_path_from_config(config)
+}
+
+fn mirror_root_path_from_config(config: &db::OpenDataMirrorConfig) -> anyhow::Result<PathBuf> {
     let root_path = config
         .root_path
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| anyhow::anyhow!("Open Data Mirror root path is required"))?;
-    let root = PathBuf::from(root_path);
-    fs::create_dir_all(&root).context("failed to create mirror root")?;
+    Ok(PathBuf::from(root_path))
+}
 
-    let mut result = MirrorExportResult {
-        root_path: root.to_string_lossy().to_string(),
-        files_written: 0,
-        sources: 0,
-        evidence: 0,
-        reports: 0,
-        investigations: 0,
-        journal: 0,
-        gallery: 0,
-    };
-
+fn build_open_data_mirror_plan_data(
+    conn: &Connection,
+    config: &db::OpenDataMirrorConfig,
+    root: &Path,
+) -> anyhow::Result<MirrorPlanBuild> {
+    let generated_at = chrono::Utc::now().to_rfc3339();
+    let mut counts = MirrorManifestCounts::default();
+    let mut assets = Vec::new();
     let sources = db::list_recent_sources(&conn, usize::MAX)?;
     if config.export_sources {
-        let dir = root.join("sources");
-        fs::create_dir_all(&dir)?;
         for source in &sources {
-            write_text_file(
-                &dir.join(format!(
-                    "{}.md",
-                    safe_file_stem(&source.id, source.title.as_deref())
-                )),
-                &source_markdown(source),
-            )?;
-            result.files_written += 1;
+            assets.push(mirror_export_asset(
+                "source",
+                &source.id,
+                source.title.as_deref().unwrap_or(&source.canonical_uri),
+                "sources",
+                &safe_file_stem(&source.id, source.title.as_deref()),
+                source_markdown(source),
+            ));
         }
-        result.sources = sources.len();
+        counts.sources = sources.len();
     }
 
     let evidence = db::list_recent_evidence(&conn, usize::MAX)?;
     if config.export_evidence {
-        let dir = root.join("evidence");
-        fs::create_dir_all(&dir)?;
         for item in &evidence {
-            write_text_file(
-                &dir.join(format!(
-                    "{}.md",
-                    safe_file_stem(&item.id, Some(&item.claim))
-                )),
-                &evidence_markdown(item),
-            )?;
-            result.files_written += 1;
+            assets.push(mirror_export_asset(
+                "evidence",
+                &item.id,
+                &item.claim,
+                "evidence",
+                &safe_file_stem(&item.id, Some(&item.claim)),
+                evidence_markdown(item),
+            ));
         }
-        result.evidence = evidence.len();
+        counts.evidence = evidence.len();
     }
 
     let reports = db::list_recent_reports(&conn, usize::MAX)?;
     if config.export_reports {
-        let report_dir = root.join("reports");
-        let investigation_dir = root.join("investigations");
-        fs::create_dir_all(&report_dir)?;
-        fs::create_dir_all(&investigation_dir)?;
         for report in &reports {
-            let dir = if report.kind == "investigation" {
-                &investigation_dir
+            let (kind, dir) = if report.kind == "investigation" {
+                counts.investigations += 1;
+                ("investigation", "investigations")
             } else {
-                &report_dir
+                counts.reports += 1;
+                ("report", "reports")
             };
-            write_text_file(
-                &dir.join(format!(
-                    "{}.md",
-                    safe_file_stem(&report.id, Some(&report.title))
-                )),
-                &report_markdown(report),
-            )?;
-            result.files_written += 1;
-            if report.kind == "investigation" {
-                result.investigations += 1;
-            } else {
-                result.reports += 1;
-            }
+            assets.push(mirror_export_asset(
+                kind,
+                &report.id,
+                &report.title,
+                dir,
+                &safe_file_stem(&report.id, Some(&report.title)),
+                report_markdown(report),
+            ));
         }
     }
 
     let journal = db::list_recent_journal_entries(&conn, usize::MAX)?;
     if config.export_journal {
-        let dir = root.join("journal");
-        fs::create_dir_all(&dir)?;
         for entry in &journal {
-            write_text_file(
-                &dir.join(format!(
-                    "{}.md",
-                    safe_file_stem(&entry.id, Some(&entry.query))
-                )),
-                &journal_markdown(entry),
-            )?;
-            result.files_written += 1;
+            assets.push(mirror_export_asset(
+                "journal",
+                &entry.id,
+                &entry.query,
+                "journal",
+                &safe_file_stem(&entry.id, Some(&entry.query)),
+                journal_markdown(entry),
+            ));
         }
-        result.journal = journal.len();
+        counts.journal = journal.len();
     }
 
     let gallery = db::list_gallery(&conn)?;
     if config.export_gallery_index {
-        let dir = root.join("gallery");
-        fs::create_dir_all(&dir)?;
-        write_text_file(&dir.join("index.md"), &gallery_index_markdown(&gallery))?;
-        result.files_written += 1;
-        result.gallery = gallery.len();
+        assets.push(mirror_export_asset(
+            "gallery",
+            "gallery-index",
+            "Gallery Index",
+            "gallery",
+            "index",
+            gallery_index_markdown(&gallery),
+        ));
+        counts.gallery = gallery.len();
     }
 
-    let manifest = serde_json::json!({
-        "version": 1,
-        "exportedAt": chrono::Utc::now().to_rfc3339(),
-        "counts": {
-            "sources": result.sources,
-            "evidence": result.evidence,
-            "reports": result.reports,
-            "investigations": result.investigations,
-            "journal": result.journal,
-            "gallery": result.gallery
+    let manifest = read_open_data_mirror_manifest(root)?;
+    let plan = classify_open_data_mirror_plan(root, generated_at, counts, &assets, manifest)?;
+    Ok(MirrorPlanBuild { plan, assets })
+}
+
+fn mirror_export_asset(
+    kind: &str,
+    id: &str,
+    title: &str,
+    dir: &str,
+    stem: &str,
+    content: String,
+) -> MirrorExportAsset {
+    let relative_path = format!("{dir}/{stem}.md");
+    let content_hash = stable_text_hash(&content);
+    MirrorExportAsset {
+        kind: kind.to_string(),
+        id: id.to_string(),
+        title: title.to_string(),
+        relative_path,
+        content,
+        content_hash,
+    }
+}
+
+fn classify_open_data_mirror_plan(
+    root: &Path,
+    generated_at: String,
+    counts: MirrorManifestCounts,
+    assets: &[MirrorExportAsset],
+    manifest: Option<OpenDataMirrorManifest>,
+) -> anyhow::Result<OpenDataMirrorPlan> {
+    let mut previous_by_key: HashMap<String, MirrorManifestAsset> = HashMap::new();
+    let mut prune_candidates: Vec<MirrorPlanItem> = Vec::new();
+    if let Some(manifest) = manifest {
+        for asset in manifest.assets {
+            previous_by_key.insert(mirror_asset_key(&asset.kind, &asset.id), asset);
         }
-    });
-    write_text_file(
-        &root.join("manifest.json"),
-        &serde_json::to_string_pretty(&manifest)?,
-    )?;
-    write_text_file(&root.join("index.md"), &mirror_index_markdown(&result))?;
-    result.files_written += 2;
-    Ok(result)
+        prune_candidates.extend(manifest.stale);
+    }
+
+    let mut current_keys = HashSet::new();
+    let mut current_paths = HashSet::new();
+    let mut to_write = Vec::new();
+    let mut unchanged = Vec::new();
+    let mut stale = Vec::new();
+    let mut errors = Vec::new();
+
+    for asset in assets {
+        let key = mirror_asset_key(&asset.kind, &asset.id);
+        current_keys.insert(key.clone());
+        current_paths.insert(asset.relative_path.clone());
+        let previous = previous_by_key.get(&key);
+        let previous_hash = previous.map(|item| item.content_hash.clone());
+        let item = MirrorPlanItem {
+            kind: asset.kind.clone(),
+            id: asset.id.clone(),
+            title: asset.title.clone(),
+            path: asset.relative_path.clone(),
+            content_hash: Some(asset.content_hash.clone()),
+            previous_hash,
+            action: String::new(),
+        };
+
+        match read_mirror_file_hash(root, &asset.relative_path) {
+            Ok(Some(file_hash)) if file_hash == asset.content_hash => {
+                let mut item = item;
+                item.action = "skip".to_string();
+                unchanged.push(item);
+            }
+            Ok(Some(_)) => {
+                let mut item = item;
+                item.action = "overwrite".to_string();
+                stale.push(item);
+            }
+            Ok(None) => {
+                let mut item = item;
+                item.action = "write".to_string();
+                to_write.push(item);
+            }
+            Err(error) => {
+                let mut item = item;
+                item.action = "write".to_string();
+                errors.push(MirrorPlanError {
+                    kind: Some(item.kind.clone()),
+                    id: Some(item.id.clone()),
+                    path: Some(item.path.clone()),
+                    message: error.to_string(),
+                });
+                to_write.push(item);
+            }
+        }
+
+        if let Some(previous) = previous {
+            if previous.path != asset.relative_path {
+                prune_candidates.push(MirrorPlanItem {
+                    kind: previous.kind.clone(),
+                    id: previous.id.clone(),
+                    title: previous.title.clone(),
+                    path: previous.path.clone(),
+                    content_hash: Some(previous.content_hash.clone()),
+                    previous_hash: Some(previous.content_hash.clone()),
+                    action: "prune".to_string(),
+                });
+            }
+        }
+    }
+
+    for (key, previous) in previous_by_key {
+        if current_keys.contains(&key) || current_paths.contains(&previous.path) {
+            continue;
+        }
+        prune_candidates.push(MirrorPlanItem {
+            kind: previous.kind.clone(),
+            id: previous.id.clone(),
+            title: previous.title.clone(),
+            path: previous.path.clone(),
+            content_hash: Some(previous.content_hash.clone()),
+            previous_hash: Some(previous.content_hash.clone()),
+            action: "prune".to_string(),
+        });
+    }
+
+    let mut seen_prune_paths = HashSet::new();
+    let to_prune = prune_candidates
+        .into_iter()
+        .filter(|item| !current_paths.contains(&item.path))
+        .filter(|item| seen_prune_paths.insert(item.path.clone()))
+        .map(|mut item| {
+            item.action = "prune".to_string();
+            item
+        })
+        .collect();
+
+    Ok(OpenDataMirrorPlan {
+        root_path: root.to_string_lossy().to_string(),
+        generated_at,
+        counts,
+        to_write,
+        unchanged,
+        stale,
+        to_prune,
+        errors,
+    })
+}
+
+fn mirror_asset_key(kind: &str, id: &str) -> String {
+    format!("{kind}:{id}")
+}
+
+fn read_mirror_file_hash(root: &Path, relative_path: &str) -> anyhow::Result<Option<String>> {
+    let path = mirror_relative_path(root, relative_path)?;
+    if !path.exists() {
+        return Ok(None);
+    }
+    if !path.is_file() {
+        anyhow::bail!("mirror path is not a file: {}", relative_path);
+    }
+    let content =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    Ok(Some(stable_text_hash(&content)))
+}
+
+fn write_mirror_relative_file(root: &Path, relative_path: &str, content: &str) -> anyhow::Result<()> {
+    let path = mirror_relative_path(root, relative_path)?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create mirror directory {}", parent.display()))?;
+    }
+    write_text_file(&path, content)
+}
+
+fn delete_mirror_relative_file(root: &Path, relative_path: &str) -> anyhow::Result<bool> {
+    let path = mirror_relative_path(root, relative_path)?;
+    if !path.exists() {
+        return Ok(false);
+    }
+    if !path.is_file() {
+        anyhow::bail!("mirror prune path is not a file: {}", relative_path);
+    }
+    let root_canonical = root
+        .canonicalize()
+        .with_context(|| format!("failed to resolve mirror root {}", root.display()))?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| anyhow::anyhow!("mirror prune path has no parent: {relative_path}"))?;
+    let parent_canonical = parent
+        .canonicalize()
+        .with_context(|| format!("failed to resolve mirror path parent {}", parent.display()))?;
+    if !parent_canonical.starts_with(&root_canonical) {
+        anyhow::bail!("mirror prune path escapes root: {}", relative_path);
+    }
+    fs::remove_file(&path).with_context(|| format!("failed to delete {}", path.display()))?;
+    Ok(true)
+}
+
+fn mirror_relative_path(root: &Path, relative_path: &str) -> anyhow::Result<PathBuf> {
+    let relative = Path::new(relative_path);
+    if relative.is_absolute()
+        || relative.components().any(|component| {
+            matches!(
+                component,
+                Component::Prefix(_) | Component::RootDir | Component::ParentDir
+            )
+        })
+    {
+        anyhow::bail!("mirror path must stay relative: {}", relative_path);
+    }
+    Ok(root.join(relative))
+}
+
+fn read_open_data_mirror_manifest(root: &Path) -> anyhow::Result<Option<OpenDataMirrorManifest>> {
+    let path = root.join("manifest.json");
+    if !path.exists() {
+        return Ok(None);
+    }
+    let text =
+        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    let value: serde_json::Value = serde_json::from_str(&text)
+        .with_context(|| format!("failed to parse {}", path.display()))?;
+    parse_open_data_mirror_manifest(value).map(Some)
+}
+
+fn parse_open_data_mirror_manifest(
+    value: serde_json::Value,
+) -> anyhow::Result<OpenDataMirrorManifest> {
+    let version = value.get("version").and_then(|item| item.as_i64()).unwrap_or(1);
+    if version >= 2 {
+        let mut manifest: OpenDataMirrorManifest = serde_json::from_value(value)?;
+        manifest.version = version;
+        return Ok(manifest);
+    }
+
+    let counts = value.get("counts").map(parse_mirror_manifest_counts);
+    let generated_at = json_string_field_from_value(&value, "generatedAt")
+        .or_else(|| json_string_field_from_value(&value, "generated_at"))
+        .or_else(|| json_string_field_from_value(&value, "exportedAt"))
+        .or_else(|| json_string_field_from_value(&value, "exported_at"));
+    Ok(OpenDataMirrorManifest {
+        version,
+        generated_at,
+        assets: Vec::new(),
+        errors: Vec::new(),
+        pruned: Vec::new(),
+        stale: Vec::new(),
+        counts,
+    })
+}
+
+fn parse_mirror_manifest_counts(value: &serde_json::Value) -> MirrorManifestCounts {
+    MirrorManifestCounts {
+        sources: json_usize_field(value, "sources"),
+        evidence: json_usize_field(value, "evidence"),
+        reports: json_usize_field(value, "reports"),
+        investigations: json_usize_field(value, "investigations"),
+        journal: json_usize_field(value, "journal"),
+        gallery: json_usize_field(value, "gallery"),
+    }
+}
+
+fn json_usize_field(value: &serde_json::Value, key: &str) -> usize {
+    value
+        .get(key)
+        .and_then(|item| item.as_u64())
+        .map(|item| item as usize)
+        .unwrap_or_default()
+}
+
+fn json_string_field_from_value(value: &serde_json::Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(|item| item.as_str())
+        .map(str::to_string)
 }
 
 fn scan_indexed_folder_blocking(
@@ -2107,15 +2630,15 @@ fn gallery_index_markdown(items: &[db::GalleryItem]) -> String {
     out
 }
 
-fn mirror_index_markdown(result: &MirrorExportResult) -> String {
+fn mirror_index_markdown(counts: &MirrorManifestCounts) -> String {
     format!(
         "# Thepoint Mirror\n\n- Sources: {}\n- Evidence: {}\n- Reports: {}\n- Investigations: {}\n- Journal: {}\n- Gallery: {}\n",
-        result.sources,
-        result.evidence,
-        result.reports,
-        result.investigations,
-        result.journal,
-        result.gallery
+        counts.sources,
+        counts.evidence,
+        counts.reports,
+        counts.investigations,
+        counts.journal,
+        counts.gallery
     )
 }
 
@@ -2781,6 +3304,163 @@ mod tests {
         let loaded = db::load_report_audit(&conn, &report.id).unwrap().unwrap();
         assert_eq!(loaded.citations[0].locator_status, "located");
         assert_eq!(loaded.claims[1].citation_labels, vec!["P1"]);
+    }
+
+    fn source_only_mirror_config(root: &Path) -> db::OpenDataMirrorConfig {
+        db::OpenDataMirrorConfig {
+            enabled: true,
+            root_path: Some(root.to_string_lossy().to_string()),
+            export_sources: true,
+            export_evidence: false,
+            export_reports: false,
+            export_journal: false,
+            export_gallery_index: false,
+        }
+    }
+
+    #[test]
+    fn open_data_mirror_plan_export_and_prune_lifecycle() {
+        let db_dir = TempFixture::new("thepoint-mirror-db");
+        let mirror = TempFixture::new("thepoint-mirror-root");
+        let db_path = db_dir.join("library.db");
+        let conn = db::open_db(&db_path).unwrap();
+        db::set_open_data_mirror_config(&conn, source_only_mirror_config(&mirror.path)).unwrap();
+        let source = db::upsert_source_document(
+            &conn,
+            "test",
+            "test://mirror-source",
+            Some("Mirror Source"),
+            r#"{}"#,
+        )
+        .unwrap();
+
+        let first_plan = build_open_data_mirror_plan_blocking(db_path.clone()).unwrap();
+        assert_eq!(first_plan.counts.sources, 1);
+        assert_eq!(first_plan.to_write.len(), 1);
+        assert_eq!(first_plan.to_write[0].action, "write");
+        assert!(first_plan.unchanged.is_empty());
+        assert!(first_plan.stale.is_empty());
+        assert!(first_plan.to_prune.is_empty());
+
+        let first_path = first_plan.to_write[0].path.clone();
+        let export = export_open_data_mirror_blocking(db_path.clone()).unwrap();
+        assert_eq!(export.files_written, 3);
+        assert_eq!(export.manifest.version, 2);
+        assert_eq!(export.manifest.assets.len(), 1);
+        assert!(mirror.join(&first_path).exists());
+
+        let unchanged = build_open_data_mirror_plan_blocking(db_path.clone()).unwrap();
+        assert_eq!(unchanged.unchanged.len(), 1);
+        assert_eq!(unchanged.unchanged[0].path, first_path);
+        assert!(unchanged.to_write.is_empty());
+        assert!(unchanged.stale.is_empty());
+        assert!(unchanged.to_prune.is_empty());
+
+        let renamed = db::upsert_source_document(
+            &conn,
+            "test",
+            "test://mirror-source",
+            Some("Renamed Source"),
+            r#"{}"#,
+        )
+        .unwrap();
+        assert_eq!(renamed.id, source.id);
+
+        let rename_plan = build_open_data_mirror_plan_blocking(db_path.clone()).unwrap();
+        assert_eq!(rename_plan.to_write.len(), 1);
+        assert_eq!(rename_plan.to_prune.len(), 1);
+        assert_eq!(rename_plan.to_prune[0].path, first_path);
+        assert!(mirror.join(&first_path).exists());
+
+        let renamed_export = export_open_data_mirror_blocking(db_path.clone()).unwrap();
+        assert_eq!(renamed_export.manifest.assets.len(), 1);
+        assert_eq!(renamed_export.manifest.stale.len(), 1);
+        let renamed_path = renamed_export.manifest.assets[0].path.clone();
+        assert_ne!(renamed_path, first_path);
+        assert!(mirror.join(&renamed_path).exists());
+        assert!(mirror.join(&first_path).exists());
+
+        let prune = prune_open_data_mirror_blocking(db_path).unwrap();
+        assert_eq!(prune.files_deleted, 1);
+        assert_eq!(prune.pruned.len(), 1);
+        assert_eq!(prune.pruned[0].path, first_path);
+        assert!(!mirror.join(&first_path).exists());
+        let manifest = prune.manifest.unwrap();
+        assert!(manifest.stale.is_empty());
+        assert_eq!(manifest.assets.len(), 1);
+        assert_eq!(manifest.assets[0].path, renamed_path);
+    }
+
+    #[test]
+    fn open_data_mirror_plan_marks_disabled_manifest_assets_for_prune() {
+        let db_dir = TempFixture::new("thepoint-mirror-disabled-db");
+        let mirror = TempFixture::new("thepoint-mirror-disabled-root");
+        let db_path = db_dir.join("library.db");
+        let conn = db::open_db(&db_path).unwrap();
+        let mut config = source_only_mirror_config(&mirror.path);
+        db::set_open_data_mirror_config(&conn, config.clone()).unwrap();
+        db::upsert_source_document(
+            &conn,
+            "test",
+            "test://disabled-source",
+            Some("Disabled Source"),
+            r#"{}"#,
+        )
+        .unwrap();
+        let export = export_open_data_mirror_blocking(db_path.clone()).unwrap();
+        let exported_path = export.manifest.assets[0].path.clone();
+
+        config.export_sources = false;
+        db::set_open_data_mirror_config(&conn, config).unwrap();
+        let plan = build_open_data_mirror_plan_blocking(db_path).unwrap();
+        assert_eq!(plan.counts.sources, 0);
+        assert!(plan.to_write.is_empty());
+        assert_eq!(plan.to_prune.len(), 1);
+        assert_eq!(plan.to_prune[0].path, exported_path);
+        assert_eq!(plan.to_prune[0].action, "prune");
+    }
+
+    #[test]
+    fn open_data_mirror_manifest_v1_loads_counts_without_assets() {
+        let db_dir = TempFixture::new("thepoint-mirror-v1-db");
+        let mirror = TempFixture::new("thepoint-mirror-v1-root");
+        fs::write(
+            mirror.join("manifest.json"),
+            r#"{
+              "version": 1,
+              "exportedAt": "2026-07-06T00:00:00Z",
+              "counts": {
+                "sources": 2,
+                "evidence": 1,
+                "reports": 3,
+                "investigations": 4,
+                "journal": 5,
+                "gallery": 6
+              }
+            }"#,
+        )
+        .unwrap();
+        let db_path = db_dir.join("library.db");
+        let conn = db::open_db(&db_path).unwrap();
+        db::set_open_data_mirror_config(&conn, source_only_mirror_config(&mirror.path)).unwrap();
+
+        let manifest = load_open_data_mirror_manifest_blocking(db_path)
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(manifest.version, 1);
+        assert_eq!(
+            manifest.generated_at.as_deref(),
+            Some("2026-07-06T00:00:00Z")
+        );
+        assert!(manifest.assets.is_empty());
+        let counts = manifest.counts.unwrap();
+        assert_eq!(counts.sources, 2);
+        assert_eq!(counts.evidence, 1);
+        assert_eq!(counts.reports, 3);
+        assert_eq!(counts.investigations, 4);
+        assert_eq!(counts.journal, 5);
+        assert_eq!(counts.gallery, 6);
     }
 
     #[test]

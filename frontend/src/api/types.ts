@@ -466,6 +466,66 @@ export interface OpenDataMirrorConfig {
   exportGalleryIndex: boolean
 }
 
+export interface MirrorManifestCounts {
+  sources: number
+  evidence: number
+  reports: number
+  investigations: number
+  journal: number
+  gallery: number
+}
+
+export type MirrorPlanAction = 'write' | 'skip' | 'overwrite' | 'prune' | string
+
+export interface MirrorPlanItem {
+  kind: AssetKind | 'investigation'
+  id: string
+  title: string
+  path: string
+  contentHash: string | null
+  previousHash: string | null
+  action: MirrorPlanAction
+}
+
+export interface MirrorPlanError {
+  kind: string | null
+  id: string | null
+  path: string | null
+  message: string
+}
+
+export interface OpenDataMirrorPlan {
+  rootPath: string
+  generatedAt: string
+  counts: MirrorManifestCounts
+  toWrite: MirrorPlanItem[]
+  unchanged: MirrorPlanItem[]
+  stale: MirrorPlanItem[]
+  toPrune: MirrorPlanItem[]
+  errors: MirrorPlanError[]
+}
+
+export interface MirrorManifestAsset {
+  kind: AssetKind | 'investigation'
+  id: string
+  title: string
+  path: string
+  contentHash: string
+  exportedAt: string
+  attachments: unknown[]
+  warnings: string[]
+}
+
+export interface OpenDataMirrorManifest {
+  version: number
+  generatedAt: string | null
+  assets: MirrorManifestAsset[]
+  errors: MirrorPlanError[]
+  pruned: MirrorPlanItem[]
+  stale: MirrorPlanItem[]
+  counts: MirrorManifestCounts | null
+}
+
 export interface MirrorExportResult {
   rootPath: string
   filesWritten: number
@@ -475,6 +535,16 @@ export interface MirrorExportResult {
   investigations: number
   journal: number
   gallery: number
+  plan: OpenDataMirrorPlan
+  manifest: OpenDataMirrorManifest
+}
+
+export interface OpenDataMirrorPruneResult {
+  rootPath: string
+  filesDeleted: number
+  pruned: MirrorPlanItem[]
+  errors: MirrorPlanError[]
+  manifest: OpenDataMirrorManifest | null
 }
 
 export interface IndexedFolder {

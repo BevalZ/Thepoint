@@ -92,6 +92,7 @@ function browserPreviewFallback<T extends TauriCommandName>(
     case 'load_report_citation_audit':
     case 'load_report_invocation_audit':
     case 'load_report_audit':
+    case 'load_open_data_mirror_manifest':
       return null as TauriCommandResult<T>
     case 'get_open_data_mirror_config':
       return {
@@ -102,6 +103,76 @@ function browserPreviewFallback<T extends TauriCommandName>(
         exportReports: true,
         exportJournal: true,
         exportGalleryIndex: true,
+      } as TauriCommandResult<T>
+    case 'build_open_data_mirror_plan':
+      return {
+        rootPath: '',
+        generatedAt: new Date(0).toISOString(),
+        counts: {
+          sources: 0,
+          evidence: 0,
+          reports: 0,
+          investigations: 0,
+          journal: 0,
+          gallery: 0,
+        },
+        toWrite: [],
+        unchanged: [],
+        stale: [],
+        toPrune: [],
+        errors: [],
+      } as TauriCommandResult<T>
+    case 'export_open_data_mirror':
+      return {
+        rootPath: '',
+        filesWritten: 0,
+        sources: 0,
+        evidence: 0,
+        reports: 0,
+        investigations: 0,
+        journal: 0,
+        gallery: 0,
+        plan: {
+          rootPath: '',
+          generatedAt: new Date(0).toISOString(),
+          counts: {
+            sources: 0,
+            evidence: 0,
+            reports: 0,
+            investigations: 0,
+            journal: 0,
+            gallery: 0,
+          },
+          toWrite: [],
+          unchanged: [],
+          stale: [],
+          toPrune: [],
+          errors: [],
+        },
+        manifest: {
+          version: 2,
+          generatedAt: new Date(0).toISOString(),
+          assets: [],
+          errors: [],
+          pruned: [],
+          stale: [],
+          counts: {
+            sources: 0,
+            evidence: 0,
+            reports: 0,
+            investigations: 0,
+            journal: 0,
+            gallery: 0,
+          },
+        },
+      } as TauriCommandResult<T>
+    case 'prune_open_data_mirror':
+      return {
+        rootPath: '',
+        filesDeleted: 0,
+        pruned: [],
+        errors: [],
+        manifest: null,
       } as TauriCommandResult<T>
     default:
       return undefined

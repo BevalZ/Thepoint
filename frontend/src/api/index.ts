@@ -24,6 +24,10 @@ import type {
   GenerateSuggestionResult,
   IndexedFile,
   InvestigationInput,
+  MirrorExportResult,
+  OpenDataMirrorManifest,
+  OpenDataMirrorPlan,
+  OpenDataMirrorPruneResult,
   OpenDataMirrorConfig,
   MentalModel,
   PointSourceLinkInput,
@@ -193,8 +197,17 @@ export const getOpenDataMirrorConfig = () =>
 export const setOpenDataMirrorConfig = (config: OpenDataMirrorConfig) =>
   invokeCommand('set_open_data_mirror_config', { config })
 
-export const exportOpenDataMirror = () =>
+export const buildOpenDataMirrorPlan = (): Promise<OpenDataMirrorPlan> =>
+  invokeCommand('build_open_data_mirror_plan')
+
+export const exportOpenDataMirror = (): Promise<MirrorExportResult> =>
   invokeCommand('export_open_data_mirror')
+
+export const loadOpenDataMirrorManifest = (): Promise<OpenDataMirrorManifest | null> =>
+  invokeCommand('load_open_data_mirror_manifest')
+
+export const pruneOpenDataMirror = (): Promise<OpenDataMirrorPruneResult> =>
+  invokeCommand('prune_open_data_mirror')
 
 export const addIndexedFolder = (path: string) =>
   invokeCommand('add_indexed_folder', { path })
