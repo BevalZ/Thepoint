@@ -109,12 +109,18 @@ open_data_mirror_config(id, enabled, root_path, export_sources, export_evidence,
 indexed_folders(id, path, name, enabled, last_scanned_at, created_at)
 indexed_files(id, folder_id, path, name, extension, size_bytes, modified_at,
   source_id, indexed_at)
+ai_invocations(id, task_kind, model_profile_id, model_name, prompt_version,
+  input_query, input_refs_json, context_manifest_json, output_ref_kind,
+  output_ref_id, token_usage_json, warnings_json, created_at)
+investigation_context_items(id, invocation_id, target_kind, target_id, label,
+  role, included, truncated, reason, char_count, source_text_hash, created_at)
 ```
 
 Backend commands:
 
 ```rust
 generate_investigation(app, input: InvestigationInput) -> Result<DigestResult, String>
+load_report_invocation_audit(app, report_id: String) -> Result<Option<ReportInvocationAudit>, String>
 save_journal_entry(app, input: SaveJournalEntryInput) -> Result<JournalEntry, String>
 list_recent_journal_entries(app) -> Result<Vec<JournalEntry>, String>
 search_journal_entries(app, query: String) -> Result<Vec<JournalEntry>, String>
@@ -140,6 +146,7 @@ Frontend API:
 
 ```ts
 generateInvestigation(input: InvestigationInput): Promise<DigestResult>
+loadReportInvocationAudit(reportId: string): Promise<ReportInvocationAudit | null>
 listRecentJournalEntries(): Promise<JournalEntry[]>
 discoverRelatedAssets(kind: AssetKind, id: string): Promise<AssetRelationRecord[]>
 addReviewItem(input: AddReviewItemInput): Promise<ReviewItem>
@@ -153,6 +160,7 @@ scanIndexedFolder(folderId: string): Promise<IndexedFolderScanResult>
 - Saving an Investigation through `save_report` automatically creates one Journal entry with the report summary as the note and citation-derived Source/Point/Evidence IDs.
 - Journal can seed future Investigation context, but final citations must still point to Source, Point, or Evidence assets.
 - `generate_investigation` gathers explicit scope first, then optional Journal, workspace search, Evidence search, Report search, and related assets.
+- `generate_investigation` returns `DigestResult.invocationId` for Investigation calls and records a durable AI invocation plus context manifest. Digest and Synthesis may return `null` or omit this field.
 - `DigestCitation` keeps `kind`, `label`, `id`, `title`, `excerpt`, `source_id`, `chunk_index`, and `url`, and may include `quote` and `reason`.
 - Asset relations are rebuilt from Report co-citations, Evidence Source/Point links, Journal co-occurrence, Gallery Point links, and Review Queue co-presence.
 - Review scheduling is deliberately simple: `again = 1`, `hard = 3`, `good = 7`, `easy = 14` days. `ease` and `interval_days` are persisted for future scheduler upgrades.
@@ -167,6 +175,8 @@ scanIndexedFolder(folderId: string): Promise<IndexedFolderScanResult>
 | Existing `reports` table lacks `investigation` check value | Inline migration rebuilds the table and preserves existing report rows |
 | Blank Investigation query | `generate_investigation` returns `Err("调查问题不能为空")` |
 | Investigation context has no Source/Point/Evidence citations | `generate_investigation` returns an error instead of producing uncited output |
+| Report has no linked AI invocation | `load_report_invocation_audit` returns `Ok(None)` and ReportModal still opens |
+| Browser preview requests report invocation audit | Frontend fallback returns `null`, never a fake audit |
 | Invalid Journal invalidation reason | DB helper returns validation error |
 | Invalid asset kind or relation | DB helper returns validation error |
 | Invalid Review target kind, priority, or rating | DB helper returns validation error |
@@ -223,6 +233,205 @@ let text = crate::parsers::parse_document(&path)?;
 ```rust
 // Scanner owns the broader indexing contract without changing normal import parsing.
 let text = read_indexable_text_file(&path, extension.as_deref())?;
+```
+
+---
+
+## Scenario: AI Invocation Audit And Investigation Context Manifest
+
+### 1. Scope / Trigger
+
+- Trigger: Investigation generation needs a durable audit trail so a saved Report can explain which model, prompt version, input scope, context roles, truncation state, and warnings produced it.
+- Applies to: `src-tauri/src/db/mod.rs`, `src-tauri/src/commands/digest.rs`, `src-tauri/src/commands/library.rs`, `src-tauri/src/lib.rs`, `frontend/src/api/*`, `frontend/src/lib/reportArtifacts.ts`, `frontend/src/components/DigestModal.tsx`, and `frontend/src/components/ReportModal.tsx`.
+- This is local-first audit metadata. Do not add a sidecar service, HTTP API, vector DB, RAG runtime, plugin runtime, MCP server, or agent tool loop for this contract.
+
+### 2. Signatures
+
+Durable tables:
+
+```sql
+ai_invocations(
+  id TEXT PRIMARY KEY,
+  task_kind TEXT NOT NULL,
+  model_profile_id TEXT,
+  model_name TEXT,
+  prompt_version TEXT NOT NULL,
+  input_query TEXT,
+  input_refs_json TEXT NOT NULL,
+  context_manifest_json TEXT NOT NULL,
+  output_ref_kind TEXT,
+  output_ref_id TEXT,
+  token_usage_json TEXT,
+  warnings_json TEXT NOT NULL,
+  created_at TEXT NOT NULL
+)
+
+investigation_context_items(
+  id TEXT PRIMARY KEY,
+  invocation_id TEXT NOT NULL,
+  target_kind TEXT NOT NULL,
+  target_id TEXT NOT NULL,
+  label TEXT,
+  role TEXT NOT NULL,
+  included INTEGER NOT NULL,
+  truncated INTEGER NOT NULL,
+  reason TEXT,
+  char_count INTEGER,
+  source_text_hash TEXT,
+  created_at TEXT NOT NULL
+)
+```
+
+DB helpers:
+
+```rust
+save_ai_invocation(conn: &Connection, input: SaveAiInvocationInput) -> Result<AiInvocationRecord>
+get_ai_invocation(conn: &Connection, invocation_id: &str) -> Result<Option<AiInvocationRecord>>
+save_investigation_context_items(conn: &Connection, inputs: Vec<SaveInvestigationContextItemInput>) -> Result<Vec<InvestigationContextItemRecord>>
+link_ai_invocation_output(conn: &Connection, invocation_id: &str, output_ref_kind: &str, output_ref_id: &str) -> Result<()>
+load_report_invocation_audit(conn: &Connection, report_id: &str) -> Result<Option<ReportInvocationAudit>>
+stable_text_hash(text: &str) -> String
+```
+
+Backend command and payload changes:
+
+```rust
+DigestResult {
+  content: String,
+  citations: Vec<DigestCitation>,
+  invocation_id: Option<String>,
+}
+
+SaveReportCommandInput {
+  title: String,
+  kind: String,
+  source_name: Option<String>,
+  body_md: String,
+  summary: String,
+  citations_json: String,
+  invocation_id: Option<String>,
+}
+
+generate_investigation(app, input: InvestigationInput) -> Result<DigestResult, String>
+save_report(app, input: SaveReportCommandInput) -> Result<ReportRecord, String>
+load_report_invocation_audit(app, report_id: String) -> Result<Option<ReportInvocationAudit>, String>
+```
+
+Frontend API:
+
+```ts
+interface DigestResult {
+  content: string
+  citations: DigestCitation[]
+  invocationId?: string | null
+}
+
+interface SaveReportInput {
+  title: string
+  kind: ReportKind
+  sourceName?: string | null
+  bodyMd: string
+  summary: string
+  citationsJson: string
+  invocationId?: string | null
+}
+
+loadReportInvocationAudit(reportId: string): Promise<ReportInvocationAudit | null>
+```
+
+### 3. Contracts
+
+- `init_db` owns `ai_invocations` and `investigation_context_items` creation with idempotent `CREATE TABLE IF NOT EXISTS` and indexes.
+- `generate_investigation` writes one invocation record after a successful model response and returns its `invocationId`; `generate_digest` and `generate_synthesis` may return `null` or omit `invocationId`.
+- Investigation audit uses prompt version `investigation.v1` until the prompt contract changes; changing prompt semantics must bump the version.
+- Context roles are limited to `source`, `point`, `evidence`, `prior_report`, `journal_recall`, and `related_clue`.
+- Context target kinds are limited to `source`, `point`, `evidence`, `report`, `journal`, and `relation`.
+- Audit stores metadata only: model name, prompt version, input query, scoped refs, manifest counts, warnings, context role/label/id, included/truncated flags, reason, character count, and stable FNV-1a text hash. Do not persist full prompts or full source/report/journal text in these audit tables.
+- `save_report` links `input.invocation_id` to the saved report by updating `ai_invocations.output_ref_kind = 'report'` and `output_ref_id = report.id` before returning.
+- `load_report_invocation_audit` returns the latest invocation linked to the report plus its ordered context item list and aggregate counts.
+- Old Reports without a linked invocation return `Ok(None)` and must still open normally in ReportModal.
+- Browser preview fallback returns `null` for `load_report_invocation_audit`; do not synthesize fake audit data outside the Tauri runtime.
+- Frontend UI must call `loadReportInvocationAudit` through `frontend/src/api`, and `reportSaveInput()` must forward `DigestResult.invocationId` to `SaveReportInput.invocationId`.
+
+### 4. Validation & Error Matrix
+
+| Condition | Behavior |
+|---|---|
+| Blank invocation id for output linking | `link_ai_invocation_output` is a no-op success |
+| Blank output kind/id during non-blank link | DB helper returns validation error |
+| Unsupported output kind | DB helper returns validation error via asset kind validation |
+| Blank `task_kind` or `prompt_version` | DB helper returns validation error |
+| `input_refs_json`, `context_manifest_json`, or `token_usage_json` is invalid or non-object | DB helper returns validation error |
+| `warnings_json` is invalid or non-array | DB helper returns validation error |
+| Context item has unsupported `target_kind` or `role` | DB helper returns validation error |
+| Blank report id for audit load | Return `Ok(None)` |
+| Report exists but has no linked invocation | Return `Ok(None)` |
+| Browser fallback loads invocation audit | Return `null` |
+| SQLite failure in command | Return `Err(String)` from the command boundary |
+
+### 5. Good/Base/Bad Cases
+
+- Good: user generates an Investigation, saves it as a Report, reopens the Report, and sees model, prompt version, query, warnings, included/truncated counts, and context rows.
+- Good: Journal context appears as `journal_recall`, so recall clues are not confused with source/evidence citations.
+- Base: a Digest or Synthesis report has no invocation id; saving and reopening still works and no generation-context panel is shown.
+- Base: a legacy Investigation report has citations but no invocation link; citation audit can still run and invocation audit returns `null`.
+- Bad: storing the full prompt or entire source/report text in `ai_invocations.context_manifest_json`.
+- Bad: calling `invoke('load_report_invocation_audit')` directly from ReportModal instead of using the typed API wrapper.
+- Bad: treating Journal recall rows as final citation evidence in coverage or claim validation.
+
+### 6. Tests Required
+
+- Rust DB test: invocation input refs/manifest/warnings JSON validation and persistence.
+- Rust DB test: context items persist role, included/truncated flags, char count, and source text hash.
+- Rust DB test: report linkage via `link_ai_invocation_output` makes `load_report_invocation_audit(report_id)` return invocation, context rows, and aggregate counts.
+- Rust command test: `SaveReportCommandInput` remains camelCase-compatible and maps report fields without losing `invocation_id`.
+- Frontend helper test: `reportSaveInput()` forwards `DigestResult.invocationId` and `digestResultFromReport()` sets `invocationId: null`.
+- Frontend typecheck: `DigestResult`, `SaveReportInput`, `ReportInvocationAudit`, commandMap, API wrapper, and ReportModal compile.
+- Boundary check: ReportModal loads invocation audit through `frontend/src/api`.
+- Build/test gates: `cargo check`, `cargo test`, `npm run typecheck`, `npm run check:boundaries`, `npm run test:run`, and `npm run build`.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+// Leaks raw user/source content into a long-lived audit row.
+context_manifest_json = serde_json::json!({ "fullPrompt": prompt, "allContext": source_text })
+```
+
+#### Correct
+
+```rust
+// Stores enough metadata to debug generation without persisting full context text.
+context_manifest_json = serde_json::json!({ "promptVersion": "investigation.v1", "counts": counts })
+source_text_hash = Some(db::stable_text_hash(context_text))
+```
+
+#### Wrong
+
+```ts
+// Bypasses typed command and browser fallback contracts.
+const audit = await invoke('load_report_invocation_audit', { reportId: report.id })
+```
+
+#### Correct
+
+```ts
+const audit = await loadReportInvocationAudit(report.id)
+```
+
+#### Wrong
+
+```rust
+// Splits the generated output into an Investigation-only table and loses Report tooling.
+INSERT INTO investigation_reports (...)
+```
+
+#### Correct
+
+```rust
+let report = db::save_report(&conn, report_command_input_to_db(input))?;
+db::link_ai_invocation_output(&conn, &invocation_id, "report", &report.id)?;
 ```
 
 ## Scenario: Source Asset Aggregation And Gallery Search
