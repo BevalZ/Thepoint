@@ -1166,7 +1166,7 @@ filterReportsByKind(records: ReportRecord[], kind: 'all' | ReportKind): ReportRe
 - `body_md` stores the raw report body. Copy/download paths append the citation appendix from `citations_json`; do not store only flattened Markdown.
 - Reports list newest first by `created_at DESC`.
 - Report search matches title, kind, source name, body, summary, and citation JSON.
-- `delete_report` deletes only the `reports` row. It must not delete or mutate Sources, Points, Evidence, or files.
+- `delete_report` deletes the `reports` row plus that Report's own `report_claims`/`report_citations` rows. It must not delete or mutate Sources, Points, Evidence, or files.
 - Blank or missing `report_id` values are no-op success for delete so stale UI state and repeat actions stay idempotent.
 - `DigestModal` saves reports through `saveReport`, not `savePoints`.
 - Library `Reports` view uses `listRecentReports` for the empty-query ledger and `searchReports` for non-empty search.
@@ -1245,7 +1245,7 @@ DELETE FROM reports WHERE id = ?1;
 
 - Trigger: saved Report citations need post-save quote location and stale/missing diagnostics without changing the current report archive table shape.
 - Applies to: `src-tauri/src/commands/library.rs`, `src-tauri/src/lib.rs`, `frontend/src/api/*`, and `frontend/src/components/ReportModal.tsx`.
-- This is a computed audit contract. Do not introduce `report_citations` or `report_claims` tables until a later save-time claims/citations slice explicitly requires durable per-citation rows.
+- This is a computed audit contract. It remains read-only and recomputes against current Source/Point/Evidence text. Durable per-report citation and claim rows are owned by the later "Persistent Report Claims/Citations" scenario below.
 
 ### 2. Signatures
 
@@ -1407,4 +1407,130 @@ const audit = await invoke('load_report_citation_audit', { reportId: report.id }
 ```ts
 // Keeps command names, payloads, result types, and browser fallback centralized.
 const audit = await loadReportCitationAudit(report.id)
+```
+
+---
+
+## Scenario: Persistent Report Claims/Citations
+
+### 1. Scope / Trigger
+
+- Trigger: saved Reports need durable, save-time claim/citation audit rows so coverage can be reread without reparsing Markdown and citation JSON every time.
+- Applies to: `src-tauri/src/db/mod.rs`, `src-tauri/src/commands/library.rs`, `src-tauri/src/lib.rs`, `frontend/src/api/*`, and `frontend/src/components/ReportModal.tsx`.
+- This is a local-first persistence contract. Do not add model-based claim extraction, a hard save gate, RAG/vector DB, sidecar service, HTTP API, plugin runtime, or MCP server for this slice.
+
+### 2. Signatures
+
+Durable tables:
+
+```sql
+report_citations(
+  id, report_id, citation_index, target_kind, target_id, label, title,
+  quote, excerpt, reason, source_id, chunk_index, source_text_hash,
+  span_start, span_end, locator_status, match_count, created_at
+)
+
+report_claims(
+  id, report_id, claim_index, claim_text, claim_status,
+  citation_labels_json, created_at
+)
+```
+
+DB helpers:
+
+```rust
+replace_report_audit_rows(conn, report_id, claims, citations) -> Result<ReportAuditRecord>
+load_report_audit(conn, report_id) -> Result<Option<ReportAuditRecord>>
+extract_report_claims(body_md, citation_labels) -> Vec<SaveReportClaimInput>
+extract_report_claims_for_report(report) -> Vec<SaveReportClaimInput>
+```
+
+Backend command:
+
+```rust
+load_report_audit(app, report_id: String) -> Result<Option<ReportAuditRecord>, String>
+```
+
+Frontend API:
+
+```ts
+loadReportAudit(reportId: string): Promise<ReportAuditRecord | null>
+```
+
+### 3. Contracts
+
+- `init_db` owns `report_citations` and `report_claims` creation with idempotent `CREATE TABLE IF NOT EXISTS` and indexes.
+- `save_report` persists the Report and replaces its durable audit rows in the same SQLite transaction.
+- Citation rows are derived from `reports.citations_json` plus the existing computed locator behavior; do not implement a second locator in the DB layer.
+- Persisted citation `target_kind` is limited to `source`, `point`, and `evidence`.
+- Persisted citation `locator_status` values match computed audit: `located`, `multiple_matches`, `not_found`, `stale`, `target_missing`, and `not_applicable`.
+- Persisted citation `span_start` and `span_end` store the first located span when available. Multi-match details remain available through computed citation audit.
+- Persisted claim shells are extracted deterministically from Markdown paragraphs and list items, skipping headings, separators, and fenced code blocks.
+- Claim shells containing known citation labels such as `[S1]`, `[P1]`, or `[E1]` are marked `cited`; other substantive shells are marked `inferred`.
+- `unsupported` is a reserved claim status for a future stronger gate; this MVP does not aggressively infer it.
+- `load_report_audit` returns `Ok(None)` for blank or missing report ids; legacy reports without audit rows return an audit with empty `claims`/`citations` and coverage warnings.
+- Browser preview fallback returns `null`; do not synthesize fake audit data outside the Tauri runtime.
+- `delete_report` deletes only the Report and its own `report_claims`/`report_citations` rows. It must not delete Sources, Points, Evidence, files, Journal entries, or AI invocation rows.
+
+### 4. Validation & Error Matrix
+
+| Condition | Behavior |
+|---|---|
+| Blank report id for `load_report_audit` | Return `Ok(None)` |
+| Missing report id for `load_report_audit` | Return `Ok(None)` |
+| Existing report has no persistent audit rows | Return empty rows with coverage warnings |
+| Invalid claim status | DB helper returns validation error |
+| Invalid citation target kind | DB helper returns validation error |
+| Invalid citation locator status | DB helper returns validation error |
+| Negative claim/citation index | DB helper returns validation error |
+| Invalid citation span | DB helper returns validation error |
+| Malformed citation JSON entry | Save-time persistent citation row skips that entry; report save still uses existing normalized citations JSON validation |
+| Browser preview loads persistent audit | Frontend fallback returns `null` |
+
+### 5. Good/Base/Bad Cases
+
+- Good: saving a new Report writes the Report, citation rows, claim shells, invocation link, and Investigation Journal entry in one transaction.
+- Good: ReportModal shows persisted coverage and claim shells while still showing computed citation locator details for per-citation diagnosis.
+- Base: legacy Reports without audit rows still open and computed citation audit continues to work from `citations_json`.
+- Base: Reports with no citations save successfully and show coverage warnings rather than blocking.
+- Bad: using an AI model to invent structured claims in this slice, because it couples report saving to a second model workflow.
+- Bad: treating persisted citation rows as proof of current validity forever; computed citation audit is still the current-text diagnostic path.
+
+### 6. Tests Required
+
+- Rust DB tests: claim extraction marks cited vs inferred shells; persistent audit rows round-trip; coverage counts cited/inferred/located/warning/missing rows; legacy empty audit returns warnings; report delete removes audit rows only.
+- Rust command/helper tests: save-time persistent audit reuses locator-derived span, hash, status, and match count.
+- Frontend typecheck: `ReportAuditRecord`, command map, API wrapper, fallback, and ReportModal compile.
+- Boundary check: ReportModal imports `loadReportAudit` from `frontend/src/api`, never direct Tauri `invoke`.
+- Full checks: `cargo check --manifest-path src-tauri/Cargo.toml`, `cargo test --manifest-path src-tauri/Cargo.toml`, `npm run typecheck`, `npm run check:boundaries`, `npm run test:run`, and `npm run build`.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+// Duplicates locator rules and risks diverging from computed citation audit.
+let status = if citation.title.is_some() { "located" } else { "target_missing" };
+```
+
+#### Correct
+
+```rust
+// Reuse the existing locator, then persist the derived status/hash/span.
+let locator = locate_citation_quote_in_db(conn, &citation.input)?;
+```
+
+#### Wrong
+
+```ts
+// Browser preview must not invent durable audit data.
+return { reportId, claims: [], citations: [], coverage: { coverageRatio: 1 } }
+```
+
+#### Correct
+
+```ts
+// Keep non-Tauri preview honest: no runtime, no audit.
+case 'load_report_audit':
+  return null as TauriCommandResult<T>
 ```
