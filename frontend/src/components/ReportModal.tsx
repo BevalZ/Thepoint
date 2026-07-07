@@ -3,9 +3,10 @@ import { motion } from 'framer-motion'
 import { Check, Copy, Download, ExternalLink, LocateFixed, X } from 'lucide-react'
 import { loadReportAudit, loadReportCitationAudit, loadReportInvocationAudit } from '@/api'
 import { Markdown } from '@/components/Markdown'
-import type { CitationLocatorStatus, ReportAuditRecord, ReportClaimStatus, ReportCitationAudit, ReportInvocationAudit, ReportRecord } from '@/api/types'
+import type { CitationLocation, CitationLocatorStatus, ReportAuditRecord, ReportClaimStatus, ReportCitationAudit, ReportCitationAuditItem, ReportInvocationAudit, ReportRecord } from '@/api/types'
 import { citationKindLabel } from '@/lib/digestArtifacts'
 import { digestResultFromReport, reportKindLabel, reportMarkdownWithCitations } from '@/lib/reportArtifacts'
+import type { SourceHighlightRequest } from '@/lib/sourceHighlight'
 
 const LOCATOR_STATUS_LABELS: Record<string, string> = {
   located: '已定位',
@@ -89,7 +90,23 @@ function coveragePercent(value: number): string {
 interface ReportModalProps {
   report: ReportRecord
   onClose: () => void
-  onOpenSource?: (sourceId: string, focusChunkIndex?: number | null) => void
+  onOpenSource?: (sourceId: string, focusChunkIndex?: number | null, highlight?: SourceHighlightRequest | null) => void
+}
+
+function sourceHighlightFromCitation(
+  item: ReportCitationAuditItem | undefined,
+  location: CitationLocation | undefined
+): SourceHighlightRequest | null {
+  if (!item || item.kind !== 'source' || !item.sourceId || !location) return null
+  return {
+    sourceId: item.sourceId,
+    chunkIndex: item.chunkIndex,
+    label: item.label,
+    quote: item.locator.quote ?? item.quote ?? item.excerpt,
+    snippet: location.snippet,
+    start: location.start,
+    end: location.end,
+  }
 }
 
 export function ReportModal({ report, onClose, onOpenSource }: ReportModalProps) {
@@ -398,6 +415,14 @@ export function ReportModal({ report, onClose, onOpenSource }: ReportModalProps)
                 {result.citations.map((citation, index) => {
                   const canOpenSource = Boolean(citation.sourceId && onOpenSource)
                   const auditItem = citationAudit?.citations.find((item) => item.citationIndex === index)
+                  const firstLocation = auditItem?.locator.locations[0]
+                  const firstHighlight = sourceHighlightFromCitation(auditItem, firstLocation)
+                  const canHighlightSource = Boolean(
+                    citation.sourceId
+                    && onOpenSource
+                    && firstHighlight
+                    && (auditItem?.locator.status === 'located' || auditItem?.locator.status === 'multiple_matches')
+                  )
                   return (
                     <article key={`${citation.kind}-${citation.id}-${citation.label}`} className="rounded-lg border border-border bg-bg px-3 py-2">
                       <div className="flex items-start gap-3">
@@ -415,10 +440,37 @@ export function ReportModal({ report, onClose, onOpenSource }: ReportModalProps)
                             )}
                           </div>
                           <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-fg-muted">{citation.excerpt}</p>
-                          {auditItem?.locator.locations[0]?.snippet && (
+                          {firstLocation?.snippet && (
                             <p className="mt-1 line-clamp-1 text-[11px] text-fg-faint">
-                              命中片段：{auditItem.locator.locations[0].snippet}
+                              命中片段：{firstLocation.snippet}
                             </p>
+                          )}
+                          {auditItem?.locator.status === 'multiple_matches' && auditItem.locator.locations.length > 1 && (
+                            <div className="mt-2 flex flex-wrap gap-1.5">
+                              {auditItem.locator.locations.slice(0, 5).map((location, locationIndex) => {
+                                const highlight = sourceHighlightFromCitation(auditItem, location)
+                                return (
+                                  <button
+                                    key={`${citation.label}-match-${location.start}-${location.end}-${locationIndex}`}
+                                    type="button"
+                                    disabled={!highlight || !citation.sourceId || !onOpenSource}
+                                    onClick={() => {
+                                      if (!highlight || !citation.sourceId) return
+                                      onOpenSource?.(citation.sourceId, citation.chunkIndex, highlight)
+                                    }}
+                                    className="rounded-full border border-amber-500/25 bg-amber-500/10 px-2 py-0.5 text-[10px] text-amber-200 transition-colors hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-50"
+                                    title={location.snippet}
+                                  >
+                                    命中 {locationIndex + 1}
+                                  </button>
+                                )
+                              })}
+                              {auditItem.locator.locations.length > 5 && (
+                                <span className="rounded-full border border-border px-2 py-0.5 text-[10px] text-fg-faint">
+                                  +{auditItem.locator.locations.length - 5}
+                                </span>
+                              )}
+                            </div>
                           )}
                         </div>
                         <div className="flex shrink-0 items-center gap-1">
@@ -436,9 +488,9 @@ export function ReportModal({ report, onClose, onOpenSource }: ReportModalProps)
                           {canOpenSource && (
                             <button
                               type="button"
-                              onClick={() => onOpenSource?.(citation.sourceId!, citation.chunkIndex)}
+                              onClick={() => onOpenSource?.(citation.sourceId!, citation.chunkIndex, canHighlightSource ? firstHighlight : null)}
                               className="rounded-md border border-border px-2 py-1 text-fg-muted transition-colors hover:bg-bg-hover hover:text-accent"
-                              title="回到来源块"
+                              title={canHighlightSource ? '回到来源块并高亮引用' : '回到来源块'}
                             >
                               <LocateFixed size={12} />
                             </button>

@@ -12,6 +12,7 @@ import type {
   GalleryKnowledgeContext,
   StoredPoint,
 } from '@/api/types'
+import type { SourceHighlightRequest } from '@/lib/sourceHighlight'
 
 const SIZE = 56
 const R = 22
@@ -150,7 +151,7 @@ function buildKnowledgeContexts(
 
 interface StarRingProps {
   onNavigateGallery?: () => void
-  onOpenSource?: (sourceId: string, focusChunkIndex?: number | null) => void
+  onOpenSource?: (sourceId: string, focusChunkIndex?: number | null, highlight?: SourceHighlightRequest | null) => void
 }
 
 export function StarRing({ onNavigateGallery, onOpenSource }: StarRingProps) {

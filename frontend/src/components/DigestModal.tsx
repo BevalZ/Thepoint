@@ -4,6 +4,7 @@ import { X, Copy, Download, BookmarkPlus, Check, Loader2, LocateFixed, ExternalL
 import { saveReport } from '@/api'
 import { Markdown } from '@/components/Markdown'
 import type { DigestCitation, DigestResult, ReportKind } from '@/api/types'
+import type { SourceHighlightRequest } from '@/lib/sourceHighlight'
 import {
   DIGEST_SOURCE_NAME,
   citationKindLabel,
@@ -14,7 +15,7 @@ import { reportSaveInput } from '@/lib/reportArtifacts'
 interface Props {
   result: DigestResult
   onClose: () => void
-  onOpenSource?: (sourceId: string, focusChunkIndex?: number | null) => void
+  onOpenSource?: (sourceId: string, focusChunkIndex?: number | null, highlight?: SourceHighlightRequest | null) => void
   title?: string
   sourceName?: string
   reportKind?: ReportKind

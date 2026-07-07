@@ -14,6 +14,7 @@ import { EVIDENCE_VERDICT_FILTERS, filterEvidenceByVerdict } from '@/lib/evidenc
 import type { EvidenceVerdictFilter } from '@/lib/evidenceLedger'
 import { REPORT_KIND_FILTERS, filterReportsByKind, reportKindLabel } from '@/lib/reportArtifacts'
 import type { ReportKindFilter } from '@/lib/reportArtifacts'
+import type { SourceHighlightRequest } from '@/lib/sourceHighlight'
 import type { AssetKind, AssetRelationRecord, DigestResult, EvidenceRecord, GalleryItem, InvestigationInput, JournalEntry, ReportRecord, ReviewItem, ReviewRating, ReviewTargetKind, SourceSummaryRecord, WorkspaceSearchResult } from '@/api/types'
 import { addReviewItem, completeReviewItem, deleteReport, dismissReviewItem, discoverRelatedAssets, generateInvestigation, generateSynthesis, getReport, listAllReviewItems, listGallery, listRecentEvidence, listRecentJournalEntries, listRecentReports, listRecentSources, rebuildAssetRelations, searchEvidence, searchGallery, searchJournalEntries, searchReports, searchWorkspace, snoozeReviewItem, invalidateJournalEntry } from '@/api'
 
@@ -56,7 +57,7 @@ const INVESTIGATION_MODES: InvestigationInput['mode'][] = ['quick', 'standard', 
 
 interface LibraryProps {
   onOpenPointSource?: (pointId: string) => void
-  onOpenSource?: (sourceId: string, focusChunkIndex?: number | null) => void
+  onOpenSource?: (sourceId: string, focusChunkIndex?: number | null, highlight?: SourceHighlightRequest | null) => void
   onOpenGallery?: () => void
 }
 

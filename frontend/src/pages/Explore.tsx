@@ -39,6 +39,7 @@ import { ExternalLinkPreview } from '@/components/ExternalLinkPreview'
 import { DigestModal } from '@/components/DigestModal'
 import { reportKindLabel, reportMarkdownWithCitations } from '@/lib/reportArtifacts'
 import { evidenceMarkdown, markdownFileName, sourceAssetsMarkdown, sourceDisplayTitle } from '@/lib/workbenchArtifacts'
+import { splitSourceHighlight, type SourceHighlightRequest, type SourceHighlightSegment } from '@/lib/sourceHighlight'
 
 const URL_RE = /^https?:\/\/[^\s]+$/
 const SUPPORTED_EXTS = ['txt','md','markdown','rst','csv','docx','odt','html','htm']
@@ -142,6 +143,7 @@ interface ThemeBlockProps {
   userAnnotations?: UserTextAnnotation[]
   annotationColors?: AnnotationColors
   activeFactCheck?: FactCheckInlineMarker | null
+  sourceHighlight?: SourceHighlightRequest | null
 }
 
 type AnnotationKind = 'fact' | 'data' | 'viewpoint' | 'quote' | 'poem' | 'description'
@@ -1923,6 +1925,24 @@ function AnnotatedTextContent({ content, blockIndex, onFactCheck, userAnnotation
   )
 }
 
+function HighlightedSourceText({ segments, label }: { segments: SourceHighlightSegment[]; label?: string | null }) {
+  return (
+    <div className="whitespace-pre-wrap text-sm leading-relaxed">
+      {segments.map((segment, index) => segment.kind === 'match' ? (
+        <mark
+          key={`highlight-${index}`}
+          title={label ? `引用 ${label}` : '引用命中'}
+          className="rounded-sm bg-amber-300/25 px-0.5 text-amber-100 ring-1 ring-amber-300/45 shadow-[0_0_18px_rgba(251,191,36,0.2)]"
+        >
+          {segment.text}
+        </mark>
+      ) : (
+        <span key={`text-${index}`}>{segment.text}</span>
+      ))}
+    </div>
+  )
+}
+
 function FactCheckBubble({ bubble, onClose, onSave }: { bubble: FactBubbleState; onClose: () => void; onSave: () => void }) {
   const contentRef = useRef<HTMLDivElement>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
@@ -2243,9 +2263,10 @@ function CompletionConfetti({ burstKey }: { burstKey: number }) {
 }
 
 // ── ThemeBlock ──────────────────────────────────────────────────────────────
-function ThemeBlock({ card, index, starred, onOpen, onToggleStar, onAnalyze, analyzing = false, analyzeError = null, displayText, muted = false, blockRef, onFactCheck, userAnnotations = [], annotationColors = DEFAULT_ANNOTATION_COLORS, activeFactCheck = null }: ThemeBlockProps) {
+function ThemeBlock({ card, index, starred, onOpen, onToggleStar, onAnalyze, analyzing = false, analyzeError = null, displayText, muted = false, blockRef, onFactCheck, userAnnotations = [], annotationColors = DEFAULT_ANNOTATION_COLORS, activeFactCheck = null, sourceHighlight = null }: ThemeBlockProps) {
   const starRef = useRef<HTMLButtonElement>(null)
   const selectableText = displayText ?? card.text
+  const highlightSegments = splitSourceHighlight(selectableText, sourceHighlight)
   const shouldRenderAnnotations = displayText !== undefined || userAnnotations.length > 0 || activeFactCheck?.blockIndex === index
   return (
     <motion.div
@@ -2270,16 +2291,24 @@ function ThemeBlock({ card, index, starred, onOpen, onToggleStar, onAnalyze, ana
         )}
         <div className="relative" data-selectable-text="true" data-block-index={index}>
           {shouldRenderAnnotations ? (
-            <AnnotatedTextContent
-              content={selectableText}
-              blockIndex={index}
-              onFactCheck={onFactCheck}
-              userAnnotations={userAnnotations}
-              annotationColors={annotationColors}
-              activeFactCheck={activeFactCheck}
-            />
+            highlightSegments ? (
+              <HighlightedSourceText segments={highlightSegments} label={sourceHighlight?.label ?? null} />
+            ) : (
+              <AnnotatedTextContent
+                content={selectableText}
+                blockIndex={index}
+                onFactCheck={onFactCheck}
+                userAnnotations={userAnnotations}
+                annotationColors={annotationColors}
+                activeFactCheck={activeFactCheck}
+              />
+            )
           ) : (
-            <MarkdownContent content={card.text} />
+            highlightSegments ? (
+              <HighlightedSourceText segments={highlightSegments} label={sourceHighlight?.label ?? null} />
+            ) : (
+              <MarkdownContent content={card.text} />
+            )
           )}
         </div>
       </div>
@@ -2974,7 +3003,12 @@ function RecentSourcesDrawer({ sources, loading, onClose, onOpen }: {
 }
 
 // ── Main ────────────────────────────────────────────────────────────────────
-export default function Explore() {
+interface ExploreProps {
+  sourceHighlight?: SourceHighlightRequest | null
+  onSourceHighlightConsumed?: () => void
+}
+
+export default function Explore({ sourceHighlight = null, onSourceHighlightConsumed }: ExploreProps) {
   const {
     text,
     richHtml,
@@ -3035,6 +3069,7 @@ export default function Explore() {
   const [commentDraft, setCommentDraft] = useState('')
   const [commentSaving, setCommentSaving] = useState(false)
   const [userAnnotations, setUserAnnotations] = useState<Record<number, UserTextAnnotation[]>>({})
+  const [activeSourceHighlight, setActiveSourceHighlight] = useState<SourceHighlightRequest | null>(null)
   // index → saved point id (once a chunk has been saved+starred)
   const [savedIds, setSavedIds] = useState<Record<number, string>>({})
 
@@ -3487,6 +3522,24 @@ export default function Explore() {
       inline: 'nearest',
     })
   }, [])
+
+  const sourceHighlightForBlock = useCallback((blockIndex: number, cardIndex: number | null = null): SourceHighlightRequest | null => {
+    if (!activeSourceHighlight || !sourceId || activeSourceHighlight.sourceId !== sourceId) return null
+    const targetChunkIndex = activeSourceHighlight.chunkIndex
+    if (targetChunkIndex === null || targetChunkIndex === undefined) return activeSourceHighlight
+    if (targetChunkIndex === blockIndex || targetChunkIndex === cardIndex) return activeSourceHighlight
+    return null
+  }, [activeSourceHighlight, sourceId])
+
+  useEffect(() => {
+    if (!sourceHighlight || !sourceId || sourceHighlight.sourceId !== sourceId) return
+    setActiveSourceHighlight(sourceHighlight)
+    const timer = window.setTimeout(() => {
+      setActiveSourceHighlight((current) => current === sourceHighlight ? null : current)
+      onSourceHighlightConsumed?.()
+    }, 5200)
+    return () => window.clearTimeout(timer)
+  }, [onSourceHighlightConsumed, sourceHighlight, sourceId, sourceOpenVersion])
 
   useEffect(() => {
     if (focusChunkIndex === null || busy || showProcessing) return
@@ -3991,6 +4044,7 @@ export default function Explore() {
                             userAnnotations={userAnnotations[item.index] ?? []}
                             annotationColors={annotationColors}
                             activeFactCheck={activeFactCheckMarker}
+                            sourceHighlight={sourceHighlightForBlock(item.index, analysisCard?.index ?? null)}
                           />
                         )
                       })
@@ -4008,6 +4062,7 @@ export default function Explore() {
                           userAnnotations={userAnnotations[i] ?? []}
                           annotationColors={annotationColors}
                           activeFactCheck={activeFactCheckMarker}
+                          sourceHighlight={sourceHighlightForBlock(i, card.index)}
                         />
                       ))
                     )}

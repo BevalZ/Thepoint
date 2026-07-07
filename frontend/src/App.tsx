@@ -8,6 +8,7 @@ import { StarfieldBackground } from '@/components/StarfieldBackground'
 import { useConfigStore, useExploreStore, useThemeStore } from '@/store'
 import { cn } from '@/lib/utils'
 import { getPointSourceContext } from '@/api'
+import type { SourceHighlightRequest } from '@/lib/sourceHighlight'
 
 const Settings = lazy(() => import('@/pages/Settings'))
 const Explore = lazy(() => import('@/pages/Explore'))
@@ -150,6 +151,7 @@ export default function App() {
   const [page, setPage] = useState<Page>('explore')
   const [showSplash, setShowSplash] = useState(true)
   const [usageOpen, setUsageOpen] = useState(false)
+  const [sourceHighlight, setSourceHighlight] = useState<SourceHighlightRequest | null>(null)
   const prefersReducedMotion = useReducedMotion()
   const { loaded, fetchConfig } = useConfigStore()
   const openSourceById = useExploreStore((state) => state.openSourceById)
@@ -161,10 +163,20 @@ export default function App() {
 
   const handleSplashComplete = useCallback(() => setShowSplash(false), [])
 
-  const handleOpenSource = useCallback(async (sourceId: string, focusChunkIndex: number | null = null) => {
+  const handleOpenSource = useCallback(async (
+    sourceId: string,
+    focusChunkIndex: number | null = null,
+    highlight: SourceHighlightRequest | null = null
+  ) => {
+    setSourceHighlight(null)
     const opened = await openSourceById(sourceId, focusChunkIndex)
-    if (opened) setPage('explore')
+    if (opened) {
+      setSourceHighlight(highlight)
+      setPage('explore')
+    }
   }, [openSourceById])
+
+  const handleSourceHighlightConsumed = useCallback(() => setSourceHighlight(null), [])
 
   const handleOpenPointSource = useCallback(async (pointId: string) => {
     const context = await getPointSourceContext(pointId)
@@ -186,7 +198,7 @@ export default function App() {
     }
     if (page === 'gallery') return <Gallery />
     if (page === 'analytics') return <Analytics />
-    return <Explore />
+    return <Explore sourceHighlight={sourceHighlight} onSourceHighlightConsumed={handleSourceHighlightConsumed} />
   }
 
   return (
