@@ -729,3 +729,37 @@ Added Open Data Mirror v2 planning, manifest v2 loading/export, explicit prune f
 ### Next Steps
 
 - None - task complete
+
+
+## Session 22: Citation jump highlight UI
+
+**Date**: 2026-07-07
+**Task**: Citation jump highlight UI
+**Branch**: `main`
+
+### Summary
+
+Added Report citation jump/highlight UI from 炼化-derived research: ReportModal can open Source citations with transient quote highlights, Explore renders tested source highlight segments, and frontend component spec records the navigation contract.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `818eecf` | (see git log) |
+| `7eeca48` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
