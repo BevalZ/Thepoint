@@ -62,6 +62,27 @@ Examples:
 - `DigestModal.onOpenSource?: (sourceId: string, focusChunkIndex?: number | null) => void` keeps citation navigation owned by the app shell/page.
 - `LibraryProps.onOpenPointSource` and `onOpenSource` keep source opening coordinated through `App.tsx`.
 
+### Convention: Source Citation Highlight Navigation
+
+**What**: When a report citation needs to open Source Workspace and visually locate a quote, extend the existing source-open callback with an optional `SourceHighlightRequest` from `frontend/src/lib/sourceHighlight.ts`:
+
+```ts
+onOpenSource?: (
+  sourceId: string,
+  focusChunkIndex?: number | null,
+  highlight?: SourceHighlightRequest | null
+) => void
+```
+
+**Why**: ReportModal, DigestModal, Library, StarRing, App, and Explore all participate in source navigation. A single optional payload keeps the navigation owner in `App.tsx`, keeps the transient highlight state out of durable stores, and prevents each component from inventing its own quote/span shape.
+
+**Rules**:
+
+- Keep highlight state transient in the app/page layer; do not persist it to Zustand or SQLite unless the product becomes durable annotations.
+- Put quote/span splitting logic in `frontend/src/lib/sourceHighlight.ts` with focused Vitest coverage.
+- Components may pass a highlight payload, but only Explore should render the `<mark>` because it owns Source text blocks and scroll state.
+- If the quote/span cannot be found, open the Source normally rather than throwing or blocking navigation.
+
 ---
 
 ## Styling
