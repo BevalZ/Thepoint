@@ -130,6 +130,7 @@ rebuild_asset_relations(app) -> Result<usize, String>
 add_review_item(app, input: AddReviewItemInput) -> Result<ReviewItem, String>
 list_due_review_items(app) -> Result<Vec<ReviewItem>, String>
 list_all_review_items(app) -> Result<Vec<ReviewItem>, String>
+build_review_queue_plan(app, input: ReviewQueuePlanInput) -> Result<ReviewQueuePlan, String>
 complete_review_item(app, id: String, rating: String) -> Result<ReviewItem, String>
 snooze_review_item(app, id: String, days: i64) -> Result<ReviewItem, String>
 dismiss_review_item(app, id: String) -> Result<(), String>
@@ -153,6 +154,7 @@ loadReportInvocationAudit(reportId: string): Promise<ReportInvocationAudit | nul
 listRecentJournalEntries(): Promise<JournalEntry[]>
 discoverRelatedAssets(kind: AssetKind, id: string): Promise<AssetRelationRecord[]>
 addReviewItem(input: AddReviewItemInput): Promise<ReviewItem>
+buildReviewQueuePlan(input?: ReviewQueuePlanInput): Promise<ReviewQueuePlan>
 buildOpenDataMirrorPlan(): Promise<OpenDataMirrorPlan>
 exportOpenDataMirror(): Promise<MirrorExportResult>
 loadOpenDataMirrorManifest(): Promise<OpenDataMirrorManifest | null>
@@ -170,6 +172,8 @@ scanIndexedFolder(folderId: string): Promise<IndexedFolderScanResult>
 - `DigestCitation` keeps `kind`, `label`, `id`, `title`, `excerpt`, `source_id`, `chunk_index`, and `url`, and may include `quote` and `reason`.
 - Asset relations are rebuilt from Report co-citations, Evidence Source/Point links, Journal co-occurrence, Gallery Point links, and Review Queue co-presence.
 - Review scheduling is deliberately simple: `again = 1`, `hard = 3`, `good = 7`, `easy = 14` days. `ease` and `interval_days` are persisted for future scheduler upgrades.
+- Review Queue Planner is schema-free and read-only: `build_review_queue_plan` reads `review_items`, writes nothing, supports `mode = due | catchup`, clamps `limit`, and returns stats plus planned items with `reason`.
+- Review Queue Planner sorting must use an explicit rank (`high = 3`, `normal = 2`, `low = 1`) rather than lexicographic string order; future active and dismissed/non-active records are excluded from plan items but counted.
 - Open Data Mirror is export-only. It writes stable Markdown plus `manifest.json` under the configured root and never reads changes back into SQLite.
 - Open Data Mirror v2 is plan-first: `build_open_data_mirror_plan` returns current assets grouped into `to_write`, `unchanged`, `stale`/overwrite, and `to_prune` without writing or deleting files.
 - `export_open_data_mirror` must reuse the same planner, write only `write`/`overwrite` assets plus `index.md` and `manifest.json`, and return the executed plan plus a manifest v2 payload.
@@ -191,6 +195,10 @@ scanIndexedFolder(folderId: string): Promise<IndexedFolderScanResult>
 | Invalid Journal invalidation reason | DB helper returns validation error |
 | Invalid asset kind or relation | DB helper returns validation error |
 | Invalid Review target kind, priority, or rating | DB helper returns validation error |
+| Review planner input has blank/unknown mode | Planner falls back to `mode = "due"` |
+| Review planner input has `limit < 1` or missing limit | Planner clamps to `1` or defaults to `12` |
+| Review item has future active `due_at` | Planner excludes it from `items` and increments `future_count` |
+| Review item is dismissed or otherwise non-active | Planner excludes it from `items` and increments `dismissed_count` |
 | Snooze days less than 1 | DB helper returns validation error |
 | Mirror disabled or missing root path | Plan/export/prune commands return an error and write/delete nothing |
 | Mirror root path set but no manifest exists | Manifest load returns `Ok(None)` |
@@ -206,6 +214,7 @@ scanIndexedFolder(folderId: string): Promise<IndexedFolderScanResult>
 ### 5. Good/Base/Bad Cases
 
 - Good: a user generates an Investigation, saves it as a Report, sees an automatic Journal entry, rebuilds relations, adds the Report to Review, exports Mirror Markdown, and can still open citation-backed assets.
+- Good: a user opens Library -> Review and sees a deterministic plan with due/overdue/future/dismissed/overflow counts and per-item reasons.
 - Good: scanning a Markdown/code folder indexes readable text into Source Workspace while leaving the original files untouched.
 - Base: Journal search returns only non-invalidated entries by default.
 - Base: Mirror export can include zero assets in a category and still writes `index.md` plus manifest v2.
@@ -216,7 +225,7 @@ scanIndexedFolder(folderId: string): Promise<IndexedFolderScanResult>
 
 ### 6. Tests Required
 
-- Rust DB tests: Investigation report kind saves/searches, Journal list/search/invalidate, Review schedule/snooze/dismiss, Mirror config defaults/round-trip, Indexed Folder/File round-trip, and relation rebuild across report/journal/evidence/gallery/review signals.
+- Rust DB tests: Investigation report kind saves/searches, Journal list/search/invalidate, Review schedule/snooze/dismiss, Review planner priority rank/future/dismissed/overflow/limit behavior, Mirror config defaults/round-trip, Indexed Folder/File round-trip, and relation rebuild across report/journal/evidence/gallery/review signals.
 - Rust command/helper tests: command input conversion for Reports remains camelCase-compatible; Investigation context/citation helpers must stay deterministic when changed; Mirror planner covers first export, unchanged repeat plans, overwrite/stale detection, manifest v1 loading, disabled-scope prune candidates, and explicit prune deletion.
 - Frontend helper tests: report artifact parsing/filtering includes `investigation`; citation JSON with optional `quote`/`reason` remains backward compatible.
 - Frontend checks: `npm run typecheck`, `npm run check:boundaries`, `npm run test:run`, and `npm run build`.
@@ -238,6 +247,20 @@ CREATE TABLE investigations (...);
 // Investigation remains a first-class Report kind.
 validate_report_kind("investigation")?;
 db::save_report(conn, input)
+```
+
+#### Wrong
+
+```rust
+// Lexicographic order puts low/normal/high in string order, not scheduler order.
+ORDER BY due_at ASC, priority DESC
+```
+
+#### Correct
+
+```rust
+// Review planner and due listing use the explicit scheduler rank.
+CASE priority WHEN 'high' THEN 3 WHEN 'normal' THEN 2 WHEN 'low' THEN 1 ELSE 0 END
 ```
 
 #### Wrong
