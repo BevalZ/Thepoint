@@ -114,6 +114,37 @@ pub struct WorkspaceSearchResult {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
+pub struct SearchAssetsInput {
+    pub query: String,
+    pub kinds: Option<Vec<String>>,
+    pub filter: Option<String>,
+    pub limit: Option<i64>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchAssetResult {
+    pub kind: String,
+    pub id: String,
+    pub title: String,
+    pub snippet: String,
+    pub preview: Option<String>,
+    pub reason: String,
+    pub score: f64,
+    pub source_id: Option<String>,
+    pub chunk_index: Option<i64>,
+    pub metadata_json: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum SearchAssetFilter {
+    Kind(String),
+    ReportKind(String),
+    SourceKind(String),
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct EvidenceSourceRecord {
     pub id: String,
     pub evidence_id: String,
@@ -1380,6 +1411,277 @@ pub fn search_workspace(
 
     results.truncate(limit);
     Ok(results)
+}
+
+pub fn search_assets(conn: &Connection, input: SearchAssetsInput) -> Result<Vec<SearchAssetResult>> {
+    let query = input.query.trim();
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let limit = normalize_search_assets_limit(input.limit);
+    let filter = parse_search_asset_filter(input.filter.as_deref())?;
+    let allowed_kinds = search_asset_allowed_kinds(input.kinds.as_deref(), filter.as_ref());
+    if allowed_kinds.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut results = Vec::new();
+    if allowed_kinds.contains("source") || allowed_kinds.contains("point") {
+        for item in search_workspace(conn, query, limit.saturating_mul(2))? {
+            if allowed_kinds.contains(item.kind.as_str()) {
+                let score = if item.kind == "source" { 0.95 } else { 0.9 };
+                results.push(SearchAssetResult {
+                    kind: item.kind.clone(),
+                    id: item.id,
+                    title: item.title,
+                    snippet: item.snippet.clone(),
+                    preview: Some(compact_preview(&item.snippet, 240)),
+                    reason: if item.kind == "source" {
+                        "Matched Source title, URI, or metadata".to_string()
+                    } else {
+                        "Matched Point content or source context".to_string()
+                    },
+                    score,
+                    source_id: item.source_id,
+                    chunk_index: item.chunk_index,
+                    metadata_json: "{}".to_string(),
+                });
+            }
+        }
+    }
+
+    if allowed_kinds.contains("evidence") {
+        for evidence in search_evidence(conn, query, limit)? {
+            let snippet_source = first_non_empty([
+                Some(evidence.answer.as_str()),
+                evidence.reasoning.as_deref(),
+                evidence.context.as_deref(),
+            ])
+            .unwrap_or(evidence.claim.as_str());
+            let snippet = compact_preview(snippet_source, 240);
+            let preview = compact_preview(snippet_source, 360);
+            results.push(SearchAssetResult {
+                kind: "evidence".to_string(),
+                id: evidence.id,
+                title: evidence.claim,
+                snippet,
+                preview: Some(preview),
+                reason: "Matched Evidence claim, answer, reasoning, context, or source".to_string(),
+                score: 0.82,
+                source_id: evidence.source_id,
+                chunk_index: evidence.chunk_index,
+                metadata_json: serde_json::json!({ "verdict": evidence.verdict }).to_string(),
+            });
+        }
+    }
+
+    if allowed_kinds.contains("report") {
+        for report in search_reports(conn, query, limit)? {
+            if matches!(filter, Some(SearchAssetFilter::ReportKind(ref kind)) if report.kind != *kind) {
+                continue;
+            }
+            results.push(SearchAssetResult {
+                kind: "report".to_string(),
+                id: report.id,
+                title: report.title,
+                snippet: compact_preview(&report.summary, 240),
+                preview: Some(compact_preview(&report.body_md, 420)),
+                reason: "Matched Report title, kind, source name, body, summary, or citations"
+                    .to_string(),
+                score: if report.kind == "investigation" { 0.86 } else { 0.8 },
+                source_id: None,
+                chunk_index: None,
+                metadata_json: serde_json::json!({ "reportKind": report.kind }).to_string(),
+            });
+        }
+    }
+
+    if allowed_kinds.contains("journal") {
+        for entry in search_journal_entries(conn, query, limit)? {
+            results.push(SearchAssetResult {
+                kind: "journal".to_string(),
+                id: entry.id,
+                title: entry.query,
+                snippet: compact_preview(&entry.note, 240),
+                preview: Some(compact_preview(&entry.note, 360)),
+                reason: "Matched Journal query, note, tags, or linked asset ids".to_string(),
+                score: 0.76,
+                source_id: None,
+                chunk_index: None,
+                metadata_json: serde_json::json!({ "sourceKind": entry.source_kind }).to_string(),
+            });
+        }
+    }
+
+    if allowed_kinds.contains("gallery") {
+        for item in search_gallery(conn, query, limit)? {
+            let linked_preview = item
+                .source_points
+                .iter()
+                .map(|point| point.content.as_str())
+                .collect::<Vec<_>>()
+                .join(" · ");
+            results.push(SearchAssetResult {
+                kind: "gallery".to_string(),
+                id: item.id,
+                title: compact_preview(&item.prompt, 120),
+                snippet: compact_preview(
+                    first_non_empty([Some(linked_preview.as_str()), Some(item.file_path.as_str())])
+                        .unwrap_or(item.prompt.as_str()),
+                    240,
+                ),
+                preview: Some(compact_preview(&item.prompt, 360)),
+                reason: "Matched Gallery prompt, file path, linked points, or source point text"
+                    .to_string(),
+                score: 0.74,
+                source_id: None,
+                chunk_index: None,
+                metadata_json: serde_json::json!({
+                    "downloadStatus": item.download_status,
+                    "pointCount": item.point_ids.len()
+                })
+                .to_string(),
+            });
+        }
+    }
+
+    if allowed_kinds.contains("indexed_file") {
+        for file in search_indexed_files(conn, query, limit)? {
+            let preview = file.preview_text.as_deref().unwrap_or(file.path.as_str());
+            results.push(SearchAssetResult {
+                kind: "indexed_file".to_string(),
+                id: file.id,
+                title: file.name,
+                snippet: compact_preview(&file.path, 240),
+                preview: Some(compact_preview(preview, 420)),
+                reason: "Matched indexed file name, path, status, metadata, or preview".to_string(),
+                score: 0.78,
+                source_id: file.source_id,
+                chunk_index: None,
+                metadata_json: serde_json::json!({
+                    "sourceKind": "indexed_folder",
+                    "folderId": file.folder_id,
+                    "extension": file.extension,
+                    "descriptorKind": file.descriptor_kind,
+                    "readStatus": file.read_status,
+                    "indexStatus": file.index_status
+                })
+                .to_string(),
+            });
+        }
+    }
+
+    let mut seen = HashSet::new();
+    results.retain(|item| seen.insert((item.kind.clone(), item.id.clone())));
+    results.sort_by(|left, right| {
+        right
+            .score
+            .partial_cmp(&left.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| left.kind.cmp(&right.kind))
+            .then_with(|| left.title.cmp(&right.title))
+    });
+    results.truncate(limit);
+    Ok(results)
+}
+
+fn normalize_search_assets_limit(limit: Option<i64>) -> usize {
+    limit.unwrap_or(40).clamp(1, 100) as usize
+}
+
+fn parse_search_asset_filter(filter: Option<&str>) -> Result<Option<SearchAssetFilter>> {
+    let Some(filter) = filter.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(None);
+    };
+    let Some((field, raw_value)) = filter.split_once("==") else {
+        anyhow::bail!("unsupported search filter: expected field == \"value\"");
+    };
+    let field = field.trim();
+    let raw_value = raw_value.trim();
+    if raw_value.len() < 2 || !raw_value.starts_with('"') || !raw_value.ends_with('"') {
+        anyhow::bail!("unsupported search filter: value must be quoted");
+    }
+    let value = &raw_value[1..raw_value.len() - 1];
+    if value.contains('"') {
+        anyhow::bail!("unsupported search filter: quoted values cannot contain quotes");
+    }
+
+    match field {
+        "kind" if valid_search_asset_kind(value) => Ok(Some(SearchAssetFilter::Kind(value.to_string()))),
+        "kind" => anyhow::bail!("unsupported search filter kind: {value}"),
+        "reportKind" if value == "investigation" => {
+            Ok(Some(SearchAssetFilter::ReportKind(value.to_string())))
+        }
+        "reportKind" => anyhow::bail!("unsupported search filter reportKind: {value}"),
+        "sourceKind" if value == "indexed_folder" => {
+            Ok(Some(SearchAssetFilter::SourceKind(value.to_string())))
+        }
+        "sourceKind" => anyhow::bail!("unsupported search filter sourceKind: {value}"),
+        _ => anyhow::bail!("unsupported search filter field: {field}"),
+    }
+}
+
+fn search_asset_allowed_kinds(
+    input_kinds: Option<&[String]>,
+    filter: Option<&SearchAssetFilter>,
+) -> HashSet<String> {
+    let mut kinds: HashSet<String> = match input_kinds {
+        Some(values) => values
+            .iter()
+            .map(|value| value.trim())
+            .filter(|value| valid_search_asset_kind(value))
+            .map(str::to_string)
+            .collect(),
+        None => SEARCH_ASSET_KINDS.iter().map(|value| (*value).to_string()).collect(),
+    };
+
+    match filter {
+        Some(SearchAssetFilter::Kind(kind)) => {
+            kinds.retain(|value| value == kind);
+        }
+        Some(SearchAssetFilter::ReportKind(_)) => {
+            kinds.retain(|value| value == "report");
+        }
+        Some(SearchAssetFilter::SourceKind(source_kind)) if source_kind == "indexed_folder" => {
+            kinds.retain(|value| value == "indexed_file");
+        }
+        Some(SearchAssetFilter::SourceKind(_)) | None => {}
+    }
+    kinds
+}
+
+const SEARCH_ASSET_KINDS: [&str; 7] = [
+    "source",
+    "point",
+    "evidence",
+    "report",
+    "journal",
+    "gallery",
+    "indexed_file",
+];
+
+fn valid_search_asset_kind(kind: &str) -> bool {
+    SEARCH_ASSET_KINDS.contains(&kind)
+}
+
+fn first_non_empty<'a>(values: impl IntoIterator<Item = Option<&'a str>>) -> Option<&'a str> {
+    values
+        .into_iter()
+        .flatten()
+        .map(str::trim)
+        .find(|value| !value.is_empty())
+}
+
+fn compact_preview(value: &str, max_chars: usize) -> String {
+    let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    let char_count = normalized.chars().count();
+    if char_count <= max_chars {
+        return normalized;
+    }
+    let mut preview = normalized.chars().take(max_chars).collect::<String>();
+    preview.push('…');
+    preview
 }
 
 // Staged DB API for the next command/UI slice; this data-layer task does not wire callers yet.
@@ -3097,6 +3399,40 @@ pub fn list_indexed_files_for_folder(
          ORDER BY indexed_at DESC",
     )?;
     let rows = stmt.query_map(params![trimmed], map_indexed_file_row)?;
+    let mut files = Vec::new();
+    for row in rows {
+        files.push(row?);
+    }
+    Ok(files)
+}
+
+pub fn search_indexed_files(
+    conn: &Connection,
+    query: &str,
+    limit: usize,
+) -> Result<Vec<IndexedFile>> {
+    let trimmed = query.trim();
+    if trimmed.is_empty() || limit == 0 {
+        return Ok(Vec::new());
+    }
+    let pattern = format!("%{}%", escape_like(trimmed));
+    let mut stmt = conn.prepare(
+        "SELECT id, folder_id, path, canonical_path, name, extension, size_bytes, modified_at, source_id, indexed_at,
+                descriptor_kind, read_status, index_status, metadata_json, preview_text, text_hash, extracted_chars, total_chars, last_error
+         FROM indexed_files
+         WHERE name LIKE ?1 ESCAPE '\\'
+            OR path LIKE ?1 ESCAPE '\\'
+            OR canonical_path LIKE ?1 ESCAPE '\\'
+            OR extension LIKE ?1 ESCAPE '\\'
+            OR descriptor_kind LIKE ?1 ESCAPE '\\'
+            OR read_status LIKE ?1 ESCAPE '\\'
+            OR index_status LIKE ?1 ESCAPE '\\'
+            OR metadata_json LIKE ?1 ESCAPE '\\'
+            OR preview_text LIKE ?1 ESCAPE '\\'
+         ORDER BY indexed_at DESC
+         LIMIT ?2",
+    )?;
+    let rows = stmt.query_map(params![pattern, limit as i64], map_indexed_file_row)?;
     let mut files = Vec::new();
     for row in rows {
         files.push(row?);
@@ -5677,6 +6013,159 @@ mod tests {
             .unwrap()
             .iter()
             .any(|report| report.id == saved.id));
+    }
+
+    #[test]
+    fn search_assets_empty_query_returns_empty() {
+        let conn = memory_db();
+        let results = search_assets(
+            &conn,
+            SearchAssetsInput {
+                query: "   ".to_string(),
+                kinds: None,
+                filter: None,
+                limit: None,
+            },
+        )
+        .unwrap();
+
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn search_assets_kind_filter_returns_only_reports() {
+        let mut conn = memory_db();
+        save_report(
+            &conn,
+            report_input("Unified Search Report", "digest", "unified-search"),
+        )
+        .unwrap();
+        save_evidence(
+            &mut conn,
+            evidence_input(
+                "Unified Search Evidence",
+                None,
+                None,
+                "2026-07-05T00:10:00Z",
+            ),
+        )
+        .unwrap();
+
+        let results = search_assets(
+            &conn,
+            SearchAssetsInput {
+                query: "Unified Search".to_string(),
+                kinds: None,
+                filter: Some(r#"kind == "report""#.to_string()),
+                limit: Some(20),
+            },
+        )
+        .unwrap();
+
+        assert!(!results.is_empty());
+        assert!(results.iter().all(|result| result.kind == "report"));
+    }
+
+    #[test]
+    fn search_assets_report_kind_filter_returns_only_investigations() {
+        let conn = memory_db();
+        save_report(
+            &conn,
+            report_input("Shared Search Digest", "digest", "shared-search"),
+        )
+        .unwrap();
+        let investigation = save_report(
+            &conn,
+            report_input(
+                "Shared Search Investigation",
+                "investigation",
+                "shared-search",
+            ),
+        )
+        .unwrap();
+
+        let results = search_assets(
+            &conn,
+            SearchAssetsInput {
+                query: "Shared Search".to_string(),
+                kinds: None,
+                filter: Some(r#"reportKind == "investigation""#.to_string()),
+                limit: Some(20),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, investigation.id);
+        assert_eq!(results[0].kind, "report");
+        assert!(results[0]
+            .metadata_json
+            .contains(r#""reportKind":"investigation""#));
+    }
+
+    #[test]
+    fn search_assets_invalid_filter_errors() {
+        let conn = memory_db();
+        let err = search_assets(
+            &conn,
+            SearchAssetsInput {
+                query: "anything".to_string(),
+                kinds: None,
+                filter: Some("kind = report".to_string()),
+                limit: None,
+            },
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("unsupported search filter"));
+    }
+
+    #[test]
+    fn search_assets_source_kind_filter_returns_indexed_files() {
+        let conn = memory_db();
+        let folder = add_indexed_folder(&conn, "D:/Research Notes").unwrap();
+        let indexed = upsert_indexed_file(
+            &conn,
+            UpsertIndexedFileInput {
+                folder_id: folder.id.clone(),
+                path: "D:/Research Notes/semantic-map.md".to_string(),
+                canonical_path: Some("D:/Research Notes/semantic-map.md".to_string()),
+                name: "semantic-map.md".to_string(),
+                extension: Some("md".to_string()),
+                size_bytes: Some(256),
+                modified_at: Some("2026-07-05T00:00:00Z".to_string()),
+                source_id: Some("source-indexed".to_string()),
+                descriptor_kind: "markdown".to_string(),
+                read_status: "ok".to_string(),
+                index_status: "indexed".to_string(),
+                metadata_json: r#"{"kind":"indexed_file"}"#.to_string(),
+                preview_text: Some("Semantic map preview needle".to_string()),
+                text_hash: Some("fnv1a64:indexed".to_string()),
+                extracted_chars: Some(27),
+                total_chars: Some(27),
+                last_error: None,
+            },
+        )
+        .unwrap();
+
+        let results = search_assets(
+            &conn,
+            SearchAssetsInput {
+                query: "needle".to_string(),
+                kinds: None,
+                filter: Some(r#"sourceKind == "indexed_folder""#.to_string()),
+                limit: Some(20),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].kind, "indexed_file");
+        assert_eq!(results[0].id, indexed.id);
+        assert_eq!(results[0].source_id.as_deref(), Some("source-indexed"));
+        assert!(results[0]
+            .metadata_json
+            .contains(r#""sourceKind":"indexed_folder""#));
     }
 
     #[test]

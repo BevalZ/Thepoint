@@ -45,6 +45,8 @@ import type {
   ReviewRating,
   SaveReportInput,
   SaveJournalEntryInput,
+  SearchAssetResult,
+  SearchAssetsInput,
   SourceDocumentRecord,
   SourceAssetsRecord,
   SourceSummaryRecord,
@@ -142,6 +144,10 @@ export interface TauriCommandMap {
   search_evidence: {
     args: { query: string }
     result: EvidenceRecord[]
+  }
+  search_assets: {
+    args: { input: SearchAssetsInput }
+    result: SearchAssetResult[]
   }
   save_report: {
     args: { input: SaveReportInput }

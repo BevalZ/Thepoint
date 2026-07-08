@@ -39,6 +39,7 @@ pub fn run() {
             commands::library::list_recent_evidence,
             commands::library::get_evidence,
             commands::library::search_evidence,
+            commands::library::search_assets,
             commands::library::save_report,
             commands::library::list_recent_reports,
             commands::library::get_report,

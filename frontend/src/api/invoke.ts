@@ -63,6 +63,7 @@ function browserPreviewFallback<T extends TauriCommandName>(
     case 'search_points':
     case 'search_workspace':
     case 'search_evidence':
+    case 'search_assets':
     case 'search_reports':
     case 'search_gallery':
     case 'list_suggestions_by_date':

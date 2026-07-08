@@ -15,8 +15,8 @@ import type { EvidenceVerdictFilter } from '@/lib/evidenceLedger'
 import { REPORT_KIND_FILTERS, filterReportsByKind, reportKindLabel } from '@/lib/reportArtifacts'
 import type { ReportKindFilter } from '@/lib/reportArtifacts'
 import type { SourceHighlightRequest } from '@/lib/sourceHighlight'
-import type { AssetKind, AssetRelationRecord, DigestResult, EvidenceRecord, GalleryItem, InvestigationInput, JournalEntry, ReportRecord, ReviewItem, ReviewQueuePlan, ReviewQueuePlanItem, ReviewRating, ReviewTargetKind, SourceSummaryRecord, WorkspaceSearchResult } from '@/api/types'
-import { addReviewItem, buildReviewQueuePlan, completeReviewItem, deleteReport, dismissReviewItem, discoverRelatedAssets, generateInvestigation, generateSynthesis, getReport, listAllReviewItems, listGallery, listRecentEvidence, listRecentJournalEntries, listRecentReports, listRecentSources, rebuildAssetRelations, searchEvidence, searchGallery, searchJournalEntries, searchReports, searchWorkspace, snoozeReviewItem, invalidateJournalEntry } from '@/api'
+import type { AssetKind, AssetRelationRecord, DigestResult, EvidenceRecord, GalleryItem, InvestigationInput, JournalEntry, ReportRecord, ReviewItem, ReviewQueuePlan, ReviewQueuePlanItem, ReviewRating, ReviewTargetKind, SearchAssetResult, SourceSummaryRecord, WorkspaceSearchResult } from '@/api/types'
+import { addReviewItem, buildReviewQueuePlan, completeReviewItem, deleteReport, dismissReviewItem, discoverRelatedAssets, generateInvestigation, generateSynthesis, getReport, listAllReviewItems, listGallery, listRecentEvidence, listRecentJournalEntries, listRecentReports, listRecentSources, rebuildAssetRelations, searchAssets, searchEvidence, searchGallery, searchJournalEntries, searchReports, searchWorkspace, snoozeReviewItem, invalidateJournalEntry } from '@/api'
 
 const LS_VIEW = 'lib-view-mode'
 const LS_LIBRARY_MODE = 'lib-content-mode'
@@ -75,6 +75,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
   } = useSynthesisStore()
   const [query, setQuery] = useState('')
   const [searchResults, setSearchResults] = useState<WorkspaceSearchResult[] | null>(null)
+  const [assetSearchResults, setAssetSearchResults] = useState<SearchAssetResult[] | null>(null)
   const [evidenceResults, setEvidenceResults] = useState<EvidenceRecord[] | null>(null)
   const [reportResults, setReportResults] = useState<ReportRecord[] | null>(null)
   const [galleryResults, setGalleryResults] = useState<GalleryItem[] | null>(null)
@@ -236,6 +237,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
     if (timerRef.current) clearTimeout(timerRef.current)
     if (!query.trim()) {
       setSearchResults(null)
+      setAssetSearchResults(null)
       setEvidenceResults(null)
       setReportResults(null)
       setGalleryResults(null)
@@ -244,6 +246,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
       return
     }
     setSearchResults(null)
+    setAssetSearchResults(null)
     setEvidenceResults(null)
     setReportResults(null)
     setGalleryResults(null)
@@ -332,20 +335,14 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
         return
       }
 
-      Promise.all([searchWorkspace(query), searchEvidence(query), searchReports(query), searchGallery(query)])
-        .then(([workspace, evidence, reports, gallery]) => {
+      searchAssets({ query, limit: 60 })
+        .then((results) => {
           if (!alive) return
-          setSearchResults(workspace)
-          setEvidenceResults(evidence)
-          setReportResults(reports)
-          setGalleryResults(gallery)
+          setAssetSearchResults(results)
         })
         .catch(() => {
           if (!alive) return
-          setSearchResults([])
-          setEvidenceResults([])
-          setReportResults([])
-          setGalleryResults([])
+          setAssetSearchResults([])
         })
         .finally(() => { if (alive) setSearching(false) })
     }, 300)
@@ -617,9 +614,26 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
   const sourceResults = searchResults?.filter((result) => result.kind === 'source') ?? []
   const pointResults = searchResults?.filter((result) => result.kind === 'point') ?? []
   const searchActive = query.trim().length > 0
-  const unifiedReportResults = libraryMode === 'points' && searchActive ? (reportResults ?? []) : []
-  const unifiedGalleryResults = libraryMode === 'points' && searchActive ? (galleryResults ?? []) : []
-  const totalSearchResults = (searchResults?.length ?? 0) + (evidenceResults?.length ?? 0) + unifiedReportResults.length + unifiedGalleryResults.length
+  const assetResults = libraryMode === 'points' && searchActive ? (assetSearchResults ?? []) : []
+  const groupedAssetResults = {
+    source: assetResults.filter((result) => result.kind === 'source'),
+    point: assetResults.filter((result) => result.kind === 'point'),
+    evidence: assetResults.filter((result) => result.kind === 'evidence'),
+    report: assetResults.filter((result) => result.kind === 'report'),
+    journal: assetResults.filter((result) => result.kind === 'journal'),
+    gallery: assetResults.filter((result) => result.kind === 'gallery'),
+    indexedFile: assetResults.filter((result) => result.kind === 'indexed_file'),
+  }
+  const assetResultSections = [
+    { key: 'source', label: 'Sources', results: groupedAssetResults.source },
+    { key: 'point', label: 'Points', results: groupedAssetResults.point },
+    { key: 'evidence', label: 'Evidence', results: groupedAssetResults.evidence },
+    { key: 'report', label: 'Reports', results: groupedAssetResults.report },
+    { key: 'journal', label: 'Journal', results: groupedAssetResults.journal },
+    { key: 'gallery', label: 'Gallery', results: groupedAssetResults.gallery },
+    { key: 'indexed-file', label: 'Indexed Files', results: groupedAssetResults.indexedFile },
+  ].filter((section) => section.results.length > 0)
+  const totalSearchResults = assetResults.length
   const ledgerEvidenceRecords = searchActive ? (evidenceResults ?? []) : recentEvidence
   const filteredLedgerEvidence = filterEvidenceByVerdict(ledgerEvidenceRecords, evidenceVerdictFilter)
   const reportRecords = searchActive ? (reportResults ?? []) : recentReports
@@ -665,6 +679,33 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
     }
   }
 
+  const handleOpenAssetSearchResult = async (result: SearchAssetResult) => {
+    if (result.kind === 'source') {
+      onOpenSource?.(result.id, null)
+      return
+    }
+    if (result.kind === 'point') {
+      if (result.sourceId) {
+        onOpenSource?.(result.sourceId, result.chunkIndex)
+      } else {
+        onOpenPointSource?.(result.id)
+      }
+      return
+    }
+    if (result.kind === 'report') {
+      const report = await getReport(result.id)
+      if (report) setSelectedReport(report)
+      return
+    }
+    if (result.kind === 'gallery') {
+      onOpenGallery?.()
+      return
+    }
+    if (result.sourceId) {
+      onOpenSource?.(result.sourceId, result.chunkIndex)
+    }
+  }
+
   const handleGenerateSynthesis = async () => {
     if (!canGenerateSynthesis || synthesisGenerating) return
     setSynthesisGenerating(true)
@@ -680,6 +721,99 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
     } finally {
       setSynthesisGenerating(false)
     }
+  }
+
+  const assetKindLabel = (kind: SearchAssetResult['kind']) => {
+    switch (kind) {
+      case 'source':
+        return 'Source'
+      case 'point':
+        return 'Point'
+      case 'evidence':
+        return 'Evidence'
+      case 'report':
+        return 'Report'
+      case 'journal':
+        return 'Journal'
+      case 'gallery':
+        return 'Gallery'
+      case 'indexed_file':
+        return 'Indexed File'
+      default:
+        return kind
+    }
+  }
+
+  const renderAssetIcon = (kind: SearchAssetResult['kind']) => {
+    switch (kind) {
+      case 'source':
+      case 'journal':
+      case 'indexed_file':
+        return <FileText size={15} className="mt-0.5 shrink-0 text-accent" />
+      case 'point':
+        return <LocateFixed size={15} className="mt-0.5 shrink-0 text-accent" />
+      case 'evidence':
+        return <ShieldCheck size={15} className="mt-0.5 shrink-0 text-accent" />
+      case 'report':
+        return <ScrollText size={15} className="mt-0.5 shrink-0 text-accent" />
+      case 'gallery':
+        return <Images size={15} className="mt-0.5 shrink-0 text-accent" />
+      default:
+        return <Search size={15} className="mt-0.5 shrink-0 text-accent" />
+    }
+  }
+
+  const renderAssetSearchResult = (result: SearchAssetResult) => {
+    const canOpen =
+      result.kind === 'source' ||
+      result.kind === 'point' ||
+      result.kind === 'report' ||
+      result.kind === 'gallery' ||
+      Boolean(result.sourceId)
+
+    return (
+      <article
+        key={`${result.kind}-${result.id}`}
+        className="flex w-full items-start gap-3 rounded-lg border border-border bg-bg-elevated px-4 py-3 text-left transition-colors hover:bg-bg-hover"
+      >
+        <button
+          type="button"
+          onClick={() => void handleOpenAssetSearchResult(result)}
+          disabled={!canOpen}
+          className="flex min-w-0 flex-1 items-start gap-3 text-left disabled:cursor-default"
+        >
+          {renderAssetIcon(result.kind)}
+          <span className="min-w-0 flex-1">
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="truncate text-sm font-medium text-fg">{result.title}</span>
+              <span className="shrink-0 rounded-md border border-border px-2 py-0.5 text-[11px] text-fg-faint">
+                {assetKindLabel(result.kind)}
+              </span>
+            </span>
+            <span className="mt-1 line-clamp-2 text-xs leading-relaxed text-fg-muted">
+              {result.preview || result.snippet}
+            </span>
+            <span className="mt-2 block text-[11px] text-fg-faint">{result.reason}</span>
+          </span>
+        </button>
+        {result.kind === 'source' && (
+          <button
+            type="button"
+            onClick={() => toggleSynthesisSource({ id: result.id, title: result.title })}
+            className={cn(
+              'inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition-colors',
+              hasSynthesisSource(result.id)
+                ? 'border-accent/40 bg-accent/10 text-accent'
+                : 'border-border text-fg-muted hover:bg-bg-hover hover:text-accent'
+            )}
+            title={hasSynthesisSource(result.id) ? '从综合输入移除' : '加入综合输入'}
+          >
+            {hasSynthesisSource(result.id) ? <Check size={11} /> : <BookmarkPlus size={11} />}
+            {hasSynthesisSource(result.id) ? '已加入' : '加入综合'}
+          </button>
+        )}
+      </article>
+    )
   }
 
   const renderEvidenceDigestAction = (record: EvidenceRecord) => {
@@ -1578,143 +1712,22 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
             )}
           </div>
         ) : searchActive ? (
-          searching && searchResults === null && evidenceResults === null && reportResults === null && galleryResults === null ? (
+          searching && assetSearchResults === null ? (
             <div className="flex h-full min-h-32 items-center justify-center gap-2 text-sm text-fg-faint">
               <Loader2 size={16} className="animate-spin" />搜索中…
             </div>
           ) : totalSearchResults > 0 ? (
             <div className="space-y-5 pb-6">
               <p className="text-xs text-fg-faint">共 {totalSearchResults} 条结果</p>
-              {sourceResults.length > 0 && (
-                <section>
+              {assetResultSections.map((section) => (
+                <section key={section.key}>
                   <div className="mb-2 flex items-center justify-between text-xs text-fg-faint">
-                    <span>来源</span>
-                    <span>{sourceResults.length}</span>
+                    <span>{section.label}</span>
+                    <span>{section.results.length}</span>
                   </div>
-                  <div className="space-y-2">
-                    {sourceResults.map((result) => (
-                      <div
-                        key={`source-${result.id}`}
-                        className="flex w-full items-start gap-3 rounded-lg border border-border bg-bg-elevated px-4 py-3 text-left transition-colors hover:bg-bg-hover"
-                      >
-                        <button
-                          type="button"
-                          onClick={() => handleOpenSearchResult(result)}
-                          className="flex min-w-0 flex-1 items-start gap-3 text-left"
-                        >
-                          <FileText size={15} className="mt-0.5 shrink-0 text-accent" />
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate text-sm font-medium text-fg">{result.title}</span>
-                            <span className="mt-1 block truncate text-xs text-fg-faint">{result.snippet}</span>
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => toggleSynthesisSource({ id: result.id, title: result.title })}
-                          className={cn(
-                            'inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-[11px] transition-colors',
-                            hasSynthesisSource(result.id)
-                              ? 'border-accent/40 bg-accent/10 text-accent'
-                              : 'border-border text-fg-muted hover:bg-bg-hover hover:text-accent'
-                          )}
-                          title={hasSynthesisSource(result.id) ? '从综合输入移除' : '加入综合输入'}
-                        >
-                          {hasSynthesisSource(result.id) ? <Check size={11} /> : <BookmarkPlus size={11} />}
-                          {hasSynthesisSource(result.id) ? '已加入' : '加入综合'}
-                        </button>
-                      </div>
-                    ))}
-                  </div>
+                  <div className="space-y-2">{section.results.map(renderAssetSearchResult)}</div>
                 </section>
-              )}
-              {pointResults.length > 0 && (
-                <section>
-                  <div className="mb-2 flex items-center justify-between text-xs text-fg-faint">
-                    <span>Point</span>
-                    <span>{pointResults.length}</span>
-                  </div>
-                  <div className="space-y-2">
-                    {pointResults.map((result) => (
-                      <button
-                        key={`point-${result.id}`}
-                        type="button"
-                        onClick={() => handleOpenSearchResult(result)}
-                        disabled={!result.sourceId}
-                        className="flex w-full items-start gap-3 rounded-lg border border-border bg-bg-elevated px-4 py-3 text-left transition-colors hover:bg-bg-hover disabled:cursor-default disabled:opacity-70"
-                      >
-                        <LocateFixed size={15} className="mt-0.5 shrink-0 text-accent" />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-sm font-medium text-fg">{result.title}</span>
-                          <span className="mt-1 line-clamp-2 text-xs leading-relaxed text-fg-muted">{result.snippet}</span>
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                </section>
-              )}
-              {evidenceResults !== null && evidenceResults.length > 0 && (
-                <EvidenceList
-                  records={evidenceResults}
-                  title="Evidence"
-                  onOpenSource={(sourceId, chunkIndex) => onOpenSource?.(sourceId, chunkIndex)}
-                  renderAction={renderEvidenceDigestAction}
-                />
-              )}
-              {unifiedReportResults.length > 0 && (
-                <section>
-                  <div className="mb-2 flex items-center justify-between text-xs text-fg-faint">
-                    <span>Reports</span>
-                    <span>{unifiedReportResults.length}</span>
-                  </div>
-                  <div className="space-y-2">
-                    {unifiedReportResults.map(renderReportItem)}
-                  </div>
-                </section>
-              )}
-              {unifiedGalleryResults.length > 0 && (
-                <section>
-                  <div className="mb-2 flex items-center justify-between text-xs text-fg-faint">
-                    <span>Gallery</span>
-                    <span>{unifiedGalleryResults.length}</span>
-                  </div>
-                  <div className="space-y-2">
-                    {unifiedGalleryResults.map((item) => (
-                      <article
-                        key={`gallery-${item.id}`}
-                        className="flex w-full items-start gap-3 rounded-lg border border-border bg-bg-elevated px-4 py-3 text-left transition-colors hover:bg-bg-hover"
-                      >
-                        <Images size={15} className="mt-0.5 shrink-0 text-accent" />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex min-w-0 items-center gap-2">
-                            <span className="truncate text-sm font-medium text-fg">{item.prompt}</span>
-                            <span className="shrink-0 rounded-md border border-border px-2 py-0.5 text-[11px] text-fg-faint">
-                              {item.downloadStatus}
-                            </span>
-                          </div>
-                          <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-fg-muted">
-                            {item.sourcePoints.length > 0
-                              ? item.sourcePoints.map((point) => point.content).join(' · ')
-                              : item.filePath}
-                          </p>
-                          <p className="mt-2 text-[11px] text-fg-faint">
-                            {item.pointIds.length} linked Point · {item.generatedAt.slice(0, 10)}
-                          </p>
-                        </div>
-                        {onOpenGallery && (
-                          <button
-                            type="button"
-                            onClick={onOpenGallery}
-                            className="shrink-0 rounded-md border border-border px-2 py-1.5 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-accent"
-                            title="打开画廊"
-                          >
-                            打开
-                          </button>
-                        )}
-                      </article>
-                    ))}
-                  </div>
-                </section>
-              )}
+              ))}
             </div>
           ) : (
             <div className="flex h-full min-h-32 items-center justify-center text-sm text-fg-faint">无匹配结果</div>

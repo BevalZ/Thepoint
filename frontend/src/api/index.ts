@@ -42,6 +42,7 @@ import type {
   ReviewRating,
   SaveReportInput,
   SaveJournalEntryInput,
+  SearchAssetsInput,
   SourceAssetsRecord,
   SourceDocumentRecord,
   StoredPoint,
@@ -129,6 +130,9 @@ export const getEvidence = (evidenceId: string): Promise<EvidenceRecord | null> 
 
 export const searchEvidence = (query: string): Promise<EvidenceRecord[]> =>
   invokeCommand('search_evidence', { query })
+
+export const searchAssets = (input: SearchAssetsInput) =>
+  invokeCommand('search_assets', { input })
 
 export const saveReport = (input: SaveReportInput): Promise<ReportRecord> =>
   invokeCommand('save_report', { input })

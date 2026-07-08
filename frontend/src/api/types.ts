@@ -402,6 +402,27 @@ export interface JournalEntry {
 }
 
 export type AssetKind = 'source' | 'point' | 'evidence' | 'report' | 'journal' | 'gallery' | 'review'
+export type SearchAssetKind = AssetKind | 'indexed_file'
+
+export interface SearchAssetsInput {
+  query: string
+  kinds?: SearchAssetKind[] | null
+  filter?: string | null
+  limit?: number | null
+}
+
+export interface SearchAssetResult {
+  kind: SearchAssetKind
+  id: string
+  title: string
+  snippet: string
+  preview: string | null
+  reason: string
+  score: number
+  sourceId: string | null
+  chunkIndex: number | null
+  metadataJson: string
+}
 
 export type AssetRelation =
   | 'co_cited'

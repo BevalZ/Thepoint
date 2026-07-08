@@ -408,6 +408,21 @@ pub async fn search_evidence(
 }
 
 #[tauri::command]
+pub async fn search_assets(
+    app: tauri::AppHandle<Wry>,
+    input: db::SearchAssetsInput,
+) -> Result<Vec<db::SearchAssetResult>, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<db::SearchAssetResult>> {
+        let conn = db::open_db(&path)?;
+        db::search_assets(&conn, input)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn save_report(
     app: tauri::AppHandle<Wry>,
     input: SaveReportCommandInput,
