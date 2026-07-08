@@ -144,7 +144,7 @@ npm run test:run
 ### 1. Scope / Trigger
 
 - Trigger: changes to `frontend/src/pages/Library.tsx` search behavior in the default Library "points" mode.
-- Applies to: Library search UI that presents Source, Point, Evidence, Report, and Gallery records together.
+- Applies to: Library search UI that presents Source, Point, Evidence, Report, Journal, Gallery, and Indexed File records together.
 - Use this when adding a new saved asset type or changing which assets appear in the default Library search.
 
 ### 2. Signatures
@@ -152,19 +152,39 @@ npm run test:run
 Frontend API functions:
 
 ```ts
-searchWorkspace(query: string): Promise<WorkspaceSearchResult[]>
-searchEvidence(query: string): Promise<EvidenceRecord[]>
-searchReports(query: string): Promise<ReportRecord[]>
-searchGallery(query: string): Promise<GalleryItem[]>
+searchAssets(input: SearchAssetsInput): Promise<SearchAssetResult[]>
+
+interface SearchAssetsInput {
+  query: string
+  kinds?: SearchAssetKind[] | null
+  filter?: string | null
+  limit?: number | null
+}
+
+interface SearchAssetResult {
+  kind: 'source' | 'point' | 'evidence' | 'report' | 'journal' | 'gallery' | 'indexed_file'
+  id: string
+  title: string
+  snippet: string
+  preview: string | null
+  reason: string
+  score: number
+  sourceId: string | null
+  chunkIndex: number | null
+  metadataJson: string
+}
 ```
 
 ### 3. Contracts
 
-- The default `points` Library search aggregates existing frontend API wrappers; do not call Tauri `invoke` directly from the component.
-- `searchWorkspace` supplies Source and Point matches.
-- `searchEvidence` supplies Evidence matches.
-- `searchReports` supplies Report matches.
-- `searchGallery` supplies Gallery image matches.
+- The default `points` Library search uses `searchAssets({ query, limit })`; do not recreate the old multi-wrapper fan-out in the component.
+- `searchAssets` must be exposed through `frontend/src/api/index.ts` and typed in `frontend/src/api/commandMap.ts`.
+- Browser preview fallback for `search_assets` returns `[]`.
+- Results render grouped by `kind` using the unified `SearchAssetResult` stream.
+- Source results may be added to Synthesis input from the unified card.
+- Point results navigate to their linked Source/Chunk when available; otherwise they may fall back to point-source navigation.
+- Report results load the full report through `getReport(id)` before opening `ReportModal`.
+- Indexed File results can be display-only in the Library MVP, but should show preview/snippet and reason.
 - Evidence-only and Reports-only Library modes keep their scoped search behavior; do not apply the default unified result set to those tabs.
 - The unified result count includes every rendered asset type.
 - Gallery results render in a separate section and may navigate to the Gallery page through an optional `onOpenGallery` callback owned by `App.tsx`.
@@ -173,39 +193,40 @@ searchGallery(query: string): Promise<GalleryItem[]>
 
 | Condition | Behavior |
 |---|---|
-| Empty query | Clear all search result state and show the normal mode view |
-| Default `points` mode query | Request Workspace, Evidence, Reports, and Gallery before leaving the search loading state |
+| Empty query | Clear unified and scoped search result state and show the normal mode view |
+| Default `points` mode query | Request `searchAssets({ query, limit: 60 })` before leaving the search loading state |
 | Evidence mode query | Request only Evidence search results |
 | Reports mode query | Request only Report search results |
 | Search API failure | Show an empty result set for that search path; do not throw from render |
 
 ### 5. Good/Base/Bad Cases
 
-- Good: default Library search shows Source, Point, Evidence, Reports, and Gallery in separate sections using existing API wrappers.
+- Good: default Library search shows Source, Point, Evidence, Reports, Journal, Gallery, and Indexed Files in separate sections from one typed result stream.
 - Base: Reports tab filtering applies only inside Reports mode, not to unified default search results.
-- Base: Gallery results can open the Gallery page but do not need image-detail routing until the Gallery page supports it.
+- Base: Gallery and Indexed File results can be display-first; image-detail/file-detail routing can be added later.
 - Bad: adding Report search only to the Reports tab and leaving default Library search unable to find saved reports.
-- Bad: calling `invoke('search_gallery')` from `Library.tsx` instead of adding `searchGallery()` to `frontend/src/api`.
+- Bad: reintroducing `Promise.all([searchWorkspace, searchEvidence, searchReports, searchGallery])` in `Library.tsx` instead of using `searchAssets`.
+- Bad: calling `invoke('search_assets')` from `Library.tsx` instead of adding `searchAssets()` to `frontend/src/api`.
 
 ### 6. Tests Required
 
 - `npm run typecheck`: verify result state and render helpers stay aligned with API types.
 - `npm run check:boundaries`: verify UI code does not bypass `frontend/src/api`.
 - `npm run test:run`: keep existing frontend regression coverage green.
-- Manual desktop E2E: search for known Source, Point, Evidence, Report, and Gallery text from the default Library mode and confirm each grouped result opens or navigates where supported.
+- Manual desktop E2E: search for known Source, Point, Evidence, Report, Journal, Gallery, and Indexed File text from the default Library mode and confirm each grouped result renders and opens/navigates where supported.
 
 ### 7. Wrong vs Correct
 
 #### Wrong
 
 ```ts
-Promise.all([searchWorkspace(query), searchEvidence(query)])
+Promise.all([searchWorkspace(query), searchEvidence(query), searchReports(query), searchGallery(query)])
 ```
 
 #### Correct
 
 ```ts
-Promise.all([searchWorkspace(query), searchEvidence(query), searchReports(query), searchGallery(query)])
+searchAssets({ query, limit: 60 })
 ```
 
 ---

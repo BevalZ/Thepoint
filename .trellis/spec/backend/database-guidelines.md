@@ -1591,3 +1591,106 @@ return { reportId, claims: [], citations: [], coverage: { coverageRatio: 1 } }
 case 'load_report_audit':
   return null as TauriCommandResult<T>
 ```
+
+---
+
+## Scenario: Unified Asset Search Command
+
+### 1. Scope / Trigger
+
+- Trigger: backend search changes that aggregate multiple Library asset types behind one command.
+- Applies to: `src-tauri/src/db/mod.rs`, `src-tauri/src/commands/library.rs`, `src-tauri/src/lib.rs`, `frontend/src/api/*`, and `frontend/src/pages/Library.tsx`.
+- This is a local SQLite aggregation contract. Do not add a sidecar, HTTP endpoint, vector DB, schema migration, or arbitrary SQL DSL for this slice.
+
+### 2. Signatures
+
+Backend DTOs and command:
+
+```rust
+SearchAssetsInput {
+    query: String,
+    kinds: Option<Vec<String>>,
+    filter: Option<String>,
+    limit: Option<i64>,
+}
+
+SearchAssetResult {
+    kind: String,
+    id: String,
+    title: String,
+    snippet: String,
+    preview: Option<String>,
+    reason: String,
+    score: f64,
+    source_id: Option<String>,
+    chunk_index: Option<i64>,
+    metadata_json: String,
+}
+
+search_assets(app, input: SearchAssetsInput) -> Result<Vec<SearchAssetResult>, String>
+```
+
+Frontend API:
+
+```ts
+searchAssets(input: SearchAssetsInput): Promise<SearchAssetResult[]>
+```
+
+### 3. Contracts
+
+- `search_assets` runs SQLite work inside `tokio::task::spawn_blocking`.
+- Empty `query` returns `Ok(vec![])`.
+- `limit` defaults to `40` and clamps to `1..100`.
+- `kinds` is a whitelist over `source`, `point`, `evidence`, `report`, `journal`, `gallery`, and `indexed_file`; unknown kind strings are ignored.
+- `filter` supports only exact quoted equality: `kind == "..."`, `reportKind == "investigation"`, and `sourceKind == "indexed_folder"`.
+- Filter parsing must not concatenate caller values into SQL. Asset queries use bound parameters and existing helpers wherever possible.
+- `source` and `point` reuse `search_workspace`; Evidence, Report, Journal, and Gallery reuse their scoped helpers.
+- Indexed File search matches bounded LIKE terms over name, path, canonical path, extension, descriptor/read/index status, metadata, and preview text.
+- Results are deduplicated by `(kind, id)`, sorted by coarse score, and truncated to the normalized limit.
+
+### 4. Validation & Error Matrix
+
+| Condition | Behavior |
+|---|---|
+| Blank query | Return empty list |
+| `limit` missing | Use 40 |
+| `limit < 1` | Clamp to 1 |
+| `limit > 100` | Clamp to 100 |
+| Unknown `kinds` entry | Ignore it; if no valid kinds remain, return empty list |
+| Malformed filter such as `kind = report` | Return an error containing `unsupported search filter` |
+| Unsupported filter field/value | Return an error; do not execute fallback SQL |
+| Browser preview calls `search_assets` | Frontend fallback returns `[]` |
+
+### 5. Good/Base/Bad Cases
+
+- Good: default Library search finds a Report, Evidence, Journal entry, Gallery item, and Indexed File through one `searchAssets` call.
+- Good: `reportKind == "investigation"` returns Report results whose metadata marks `reportKind: investigation`.
+- Base: Indexed File results are display-first and may include `sourceId` when scanning produced a source.
+- Base: Ranking is coarse and deterministic; future FTS/semantic ranking can replace scoring behind the same DTO.
+- Bad: accepting arbitrary SQL-like filter strings or passing filter text directly into a SQL statement.
+- Bad: changing the default Library search back to a component-level multi-command fan-out.
+
+### 6. Tests Required
+
+- Rust DB test: empty query returns empty.
+- Rust DB test: `kind == "report"` returns only report results.
+- Rust DB test: `reportKind == "investigation"` excludes digest/synthesis reports.
+- Rust DB test: malformed filters return a clear error.
+- Rust DB test: `sourceKind == "indexed_folder"` can return an `indexed_file` result with metadata/source info.
+- Frontend checks: `npm run typecheck`, `npm run check:boundaries`, `npm run test:run`, and `npm run build`.
+- Backend checks: `cargo check --manifest-path src-tauri/Cargo.toml` and `cargo test --manifest-path src-tauri/Cargo.toml`.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+let sql = format!("SELECT * FROM reports WHERE {filter}");
+```
+
+#### Correct
+
+```rust
+let filter = parse_search_asset_filter(input.filter.as_deref())?;
+let reports = search_reports(conn, query, limit)?;
+```
