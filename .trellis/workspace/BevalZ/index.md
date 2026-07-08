@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 22
-- **Last Active**: 2026-07-07
+- **Total Sessions**: 23
+- **Last Active**: 2026-07-08
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~765 | Active |
+| `journal-1.md` | ~800 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 23 | 2026-07-08 | Review queue planner v2 | `89a94b1`, `0983c83`, `8df24e6` | `main` |
 | 22 | 2026-07-07 | Citation jump highlight UI | `818eecf`, `7eeca48` | `main` |
 | 21 | 2026-07-07 | Open Data Mirror v2 | `940d151`, `92b88ca` | `main` |
 | 20 | 2026-07-06 | Persisted Report Claims/Citations | `0bb7f4a`, `54119a2` | `main` |

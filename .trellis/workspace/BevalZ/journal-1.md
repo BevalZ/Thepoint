@@ -19,7 +19,10 @@ Implemented the foliole-inspired source persistence, source-linked library flow,
 
 ### Main Changes
 
-(Add details)
+- Added read-only `build_review_queue_plan` backend command backed by `review_items`.
+- Implemented explicit Review priority ranking (`high > normal > low`), due/future/dismissed/overflow stats, per-item plan positions, and explainable plan reasons.
+- Wired frontend typed API map/wrapper/fallback and rendered Library -> Review plan summary plus planned items.
+- Updated backend code-spec with the planner command contract and scheduler-rank warning.
 
 ### Git Commits
 
@@ -31,7 +34,12 @@ Implemented the foliole-inspired source persistence, source-linked library flow,
 
 ### Testing
 
-- [OK] (Add test results)
+- [OK] `cargo check --manifest-path src-tauri/Cargo.toml`
+- [OK] `cargo test --manifest-path src-tauri/Cargo.toml`
+- [OK] `npm run typecheck`
+- [OK] `npm run check:boundaries`
+- [OK] `npm run test:run`
+- [OK] `npm run build`
 
 ### Status
 
@@ -751,6 +759,41 @@ Added Report citation jump/highlight UI from 炼化-derived research: ReportModa
 |------|---------|
 | `818eecf` | (see git log) |
 | `7eeca48` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
+
+
+## Session 23: Review queue planner v2
+
+**Date**: 2026-07-08
+**Task**: Review queue planner v2
+**Branch**: `main`
+
+### Summary
+
+Implemented schema-free Review Queue Planner v2 with explicit priority ranking, plan stats/reasons, typed frontend API wiring, Library Review plan UI, backend tests, spec contract update, and task archive.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `89a94b1` | (see git log) |
+| `0983c83` | (see git log) |
+| `8df24e6` | (see git log) |
 
 ### Testing
 
