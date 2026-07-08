@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, Wry};
 
 const DB_FILE: &str = "deep_explorer.db";
+const REVIEW_QUEUE_DEFAULT_LIMIT: i64 = 12;
+const REVIEW_QUEUE_MAX_LIMIT: i64 = 50;
 
 /// A point persisted in the local SQLite library, returned to the frontend.
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -434,6 +436,38 @@ pub struct AddReviewItemInput {
     pub note: Option<String>,
     pub priority: Option<String>,
     pub due_at: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewQueuePlanInput {
+    pub mode: Option<String>,
+    pub limit: Option<i64>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewQueuePlan {
+    pub now: String,
+    pub mode: String,
+    pub limit: i64,
+    pub candidate_count: i64,
+    pub due_count: i64,
+    pub overdue_count: i64,
+    pub future_count: i64,
+    pub dismissed_count: i64,
+    pub overflow_count: i64,
+    pub items: Vec<ReviewQueuePlanItem>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ReviewQueuePlanItem {
+    pub item: ReviewItem,
+    pub position: i64,
+    pub priority_rank: i64,
+    pub days_overdue: i64,
+    pub reason: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -1634,10 +1668,7 @@ pub fn replace_report_audit_rows(
         .ok_or_else(|| anyhow::anyhow!("report audit report not found: {report_id}"))
 }
 
-pub fn load_report_audit(
-    conn: &Connection,
-    report_id: &str,
-) -> Result<Option<ReportAuditRecord>> {
+pub fn load_report_audit(conn: &Connection, report_id: &str) -> Result<Option<ReportAuditRecord>> {
     let report_id = report_id.trim();
     if report_id.is_empty() {
         return Ok(None);
@@ -1756,7 +1787,12 @@ fn report_audit_coverage(
         .min(i64::MAX as usize) as i64;
     let missing_citations = citations
         .iter()
-        .filter(|citation| matches!(citation.locator_status.as_str(), "not_found" | "target_missing"))
+        .filter(|citation| {
+            matches!(
+                citation.locator_status.as_str(),
+                "not_found" | "target_missing"
+            )
+        })
         .count()
         .min(i64::MAX as usize) as i64;
     let coverage_ratio = if total_claims == 0 {
@@ -1948,15 +1984,19 @@ fn strip_checklist_prefix(value: &str) -> &str {
 
 fn is_markdown_heading(value: &str) -> bool {
     let hashes = value.chars().take_while(|ch| *ch == '#').count();
-    (1..=6).contains(&hashes) && value[hashes..].chars().next().is_some_and(char::is_whitespace)
+    (1..=6).contains(&hashes)
+        && value[hashes..]
+            .chars()
+            .next()
+            .is_some_and(char::is_whitespace)
 }
 
 fn is_markdown_separator(value: &str) -> bool {
-    let chars = value.chars().filter(|ch| !ch.is_whitespace()).collect::<Vec<_>>();
-    chars.len() >= 3
-        && chars
-            .iter()
-            .all(|ch| matches!(*ch, '-' | '*' | '_'))
+    let chars = value
+        .chars()
+        .filter(|ch| !ch.is_whitespace())
+        .collect::<Vec<_>>();
+    chars.len() >= 3 && chars.iter().all(|ch| matches!(*ch, '-' | '*' | '_'))
 }
 
 fn is_markdown_list_item(value: &str) -> bool {
@@ -1982,10 +2022,7 @@ fn is_substantive_claim(candidate: &str) -> bool {
     {
         return false;
     }
-    let signal_chars = trimmed
-        .chars()
-        .filter(|ch| ch.is_alphanumeric())
-        .count();
+    let signal_chars = trimmed.chars().filter(|ch| ch.is_alphanumeric()).count();
     signal_chars >= 8
 }
 
@@ -2061,17 +2098,17 @@ pub fn save_ai_invocation(
     let task_kind = required_trimmed("AI invocation task kind", &input.task_kind)?.to_string();
     let prompt_version =
         required_trimmed("AI invocation prompt version", &input.prompt_version)?.to_string();
-    let input_refs_json = normalized_json_object("AI invocation input refs", &input.input_refs_json)?;
+    let input_refs_json =
+        normalized_json_object("AI invocation input refs", &input.input_refs_json)?;
     let context_manifest_json = normalized_json_object(
         "AI invocation context manifest",
         &input.context_manifest_json,
     )?;
     let warnings_json = normalized_json_array("AI invocation warnings", &input.warnings_json)?;
     let token_usage_json = match input.token_usage_json.as_deref() {
-        Some(value) if !value.trim().is_empty() => Some(normalized_json_object(
-            "AI invocation token usage",
-            value,
-        )?),
+        Some(value) if !value.trim().is_empty() => {
+            Some(normalized_json_object("AI invocation token usage", value)?)
+        }
         _ => None,
     };
 
@@ -2100,7 +2137,10 @@ pub fn save_ai_invocation(
         .ok_or_else(|| anyhow::anyhow!("saved AI invocation not found: {id}"))
 }
 
-pub fn get_ai_invocation(conn: &Connection, invocation_id: &str) -> Result<Option<AiInvocationRecord>> {
+pub fn get_ai_invocation(
+    conn: &Connection,
+    invocation_id: &str,
+) -> Result<Option<AiInvocationRecord>> {
     let trimmed = invocation_id.trim();
     if trimmed.is_empty() {
         return Ok(None);
@@ -2129,7 +2169,8 @@ pub fn save_investigation_context_items(
         let now = chrono::Utc::now().to_rfc3339();
         let invocation_id =
             required_trimmed("context item invocation id", &input.invocation_id)?.to_string();
-        let target_kind = required_trimmed("context item target kind", &input.target_kind)?.to_string();
+        let target_kind =
+            required_trimmed("context item target kind", &input.target_kind)?.to_string();
         validate_context_target_kind(&target_kind)?;
         let target_id = required_trimmed("context item target id", &input.target_id)?.to_string();
         let role = required_trimmed("context item role", &input.role)?.to_string();
@@ -2760,7 +2801,9 @@ pub fn list_due_review_items(conn: &Connection) -> Result<Vec<ReviewItem>> {
                 review_count, ease, interval_days, created_at, updated_at
          FROM review_items
          WHERE status = 'active' AND due_at <= ?1
-         ORDER BY due_at ASC, priority DESC, created_at ASC",
+         ORDER BY due_at ASC,
+                  CASE priority WHEN 'high' THEN 3 WHEN 'normal' THEN 2 WHEN 'low' THEN 1 ELSE 0 END DESC,
+                  created_at ASC",
     )?;
     let rows = stmt.query_map(params![now], map_review_item_row)?;
     let mut items = Vec::new();
@@ -2783,6 +2826,18 @@ pub fn list_all_review_items(conn: &Connection) -> Result<Vec<ReviewItem>> {
         items.push(row?);
     }
     Ok(items)
+}
+
+pub fn build_review_queue_plan(
+    conn: &Connection,
+    input: ReviewQueuePlanInput,
+) -> Result<ReviewQueuePlan> {
+    let items = list_all_review_items(conn)?;
+    Ok(build_review_queue_plan_from_items(
+        items,
+        input,
+        chrono::Utc::now(),
+    ))
 }
 
 pub fn complete_review_item(conn: &Connection, id: &str, rating: &str) -> Result<ReviewItem> {
@@ -3705,6 +3760,148 @@ fn map_review_item_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ReviewItem> 
     })
 }
 
+struct ReviewQueueCandidate {
+    item: ReviewItem,
+    due_at: Option<chrono::DateTime<chrono::Utc>>,
+    due_sort_at: chrono::DateTime<chrono::Utc>,
+    priority_rank: i64,
+    days_overdue: i64,
+}
+
+fn build_review_queue_plan_from_items(
+    items: Vec<ReviewItem>,
+    input: ReviewQueuePlanInput,
+    now: chrono::DateTime<chrono::Utc>,
+) -> ReviewQueuePlan {
+    let mode = normalize_review_queue_mode(input.mode.as_deref());
+    let limit = normalize_review_queue_limit(input.limit);
+    let mut due_count = 0;
+    let mut overdue_count = 0;
+    let mut future_count = 0;
+    let mut dismissed_count = 0;
+    let mut candidates = Vec::new();
+
+    for item in items {
+        if item.status != "active" {
+            dismissed_count += 1;
+            continue;
+        }
+
+        let due_at = parse_review_due_at(&item.due_at);
+        if due_at.as_ref().is_some_and(|value| *value > now) {
+            future_count += 1;
+            continue;
+        }
+
+        due_count += 1;
+        let is_overdue = due_at.as_ref().is_some_and(|value| *value < now);
+        if is_overdue {
+            overdue_count += 1;
+        }
+        let days_overdue = due_at
+            .as_ref()
+            .map(|value| {
+                now.signed_duration_since(value.to_owned())
+                    .num_days()
+                    .max(0)
+            })
+            .unwrap_or(0);
+        let priority_rank = review_priority_rank(&item.priority);
+        candidates.push(ReviewQueueCandidate {
+            due_sort_at: due_at.clone().unwrap_or(now),
+            due_at,
+            priority_rank,
+            days_overdue,
+            item,
+        });
+    }
+
+    candidates.sort_by(|left, right| {
+        left.due_sort_at
+            .cmp(&right.due_sort_at)
+            .then_with(|| right.priority_rank.cmp(&left.priority_rank))
+            .then_with(|| left.item.review_count.cmp(&right.item.review_count))
+            .then_with(|| left.item.created_at.cmp(&right.item.created_at))
+            .then_with(|| left.item.id.cmp(&right.item.id))
+    });
+
+    let candidate_count = candidates.len() as i64;
+    let planned_items: Vec<ReviewQueuePlanItem> = candidates
+        .into_iter()
+        .take(limit as usize)
+        .enumerate()
+        .map(|(index, candidate)| ReviewQueuePlanItem {
+            reason: review_queue_plan_reason(&candidate),
+            item: candidate.item,
+            position: index as i64 + 1,
+            priority_rank: candidate.priority_rank,
+            days_overdue: candidate.days_overdue,
+        })
+        .collect();
+    let overflow_count = (candidate_count - planned_items.len() as i64).max(0);
+
+    ReviewQueuePlan {
+        now: now.to_rfc3339(),
+        mode,
+        limit,
+        candidate_count,
+        due_count,
+        overdue_count,
+        future_count,
+        dismissed_count,
+        overflow_count,
+        items: planned_items,
+    }
+}
+
+fn normalize_review_queue_mode(mode: Option<&str>) -> String {
+    match optional_trimmed(mode).as_deref() {
+        Some("catchup") => "catchup".to_string(),
+        _ => "due".to_string(),
+    }
+}
+
+fn normalize_review_queue_limit(limit: Option<i64>) -> i64 {
+    limit
+        .unwrap_or(REVIEW_QUEUE_DEFAULT_LIMIT)
+        .clamp(1, REVIEW_QUEUE_MAX_LIMIT)
+}
+
+fn parse_review_due_at(value: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    chrono::DateTime::parse_from_rfc3339(value)
+        .ok()
+        .map(|date| date.with_timezone(&chrono::Utc))
+}
+
+fn review_priority_rank(priority: &str) -> i64 {
+    match priority {
+        "high" => 3,
+        "normal" => 2,
+        "low" => 1,
+        _ => 0,
+    }
+}
+
+fn review_queue_plan_reason(candidate: &ReviewQueueCandidate) -> String {
+    let priority = match candidate.priority_rank {
+        3 => "high priority",
+        2 => "normal priority",
+        1 => "low priority",
+        _ => "unknown priority",
+    };
+    let due_status = if candidate.due_at.is_none() {
+        "date unavailable".to_string()
+    } else if candidate.days_overdue > 0 {
+        format!("overdue {}d", candidate.days_overdue)
+    } else {
+        "due now".to_string()
+    };
+    format!(
+        "{priority} | {due_status} | reviewed {}x",
+        candidate.item.review_count
+    )
+}
+
 fn map_indexed_folder_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<IndexedFolder> {
     Ok(IndexedFolder {
         id: row.get(0)?,
@@ -3792,11 +3989,7 @@ fn validate_report_citation_target_kind(kind: &str) -> Result<()> {
 
 fn validate_citation_locator_status(status: &str) -> Result<()> {
     match status {
-        "located"
-        | "multiple_matches"
-        | "not_found"
-        | "stale"
-        | "target_missing"
+        "located" | "multiple_matches" | "not_found" | "stale" | "target_missing"
         | "not_applicable" => Ok(()),
         _ => anyhow::bail!("invalid citation locator status: {status}"),
     }
@@ -3818,12 +4011,9 @@ fn validate_context_target_kind(kind: &str) -> Result<()> {
 
 fn validate_context_role(role: &str) -> Result<()> {
     match role {
-        "source"
-        | "point"
-        | "evidence"
-        | "prior_report"
-        | "journal_recall"
-        | "related_clue" => Ok(()),
+        "source" | "point" | "evidence" | "prior_report" | "journal_recall" | "related_clue" => {
+            Ok(())
+        }
         _ => anyhow::bail!("invalid context role: {role}"),
     }
 }
@@ -5248,7 +5438,10 @@ mod tests {
         assert_eq!(audit.citations.len(), 3);
         assert_eq!(audit.citations[0].label.as_deref(), Some("S1"));
         assert_eq!(audit.citations[0].span_start, Some(2));
-        assert_eq!(audit.citations[0].reason.as_deref(), Some("supporting quote"));
+        assert_eq!(
+            audit.citations[0].reason.as_deref(),
+            Some("supporting quote")
+        );
         assert_eq!(audit.coverage.total_claims, 2);
         assert_eq!(audit.coverage.cited_claims, 1);
         assert_eq!(audit.coverage.inferred_claims, 1);
@@ -5550,6 +5743,121 @@ mod tests {
         dismiss_review_item(&conn, &item.id).unwrap();
         let dismissed = get_review_item(&conn, &item.id).unwrap().unwrap();
         assert_eq!(dismissed.status, "dismissed");
+    }
+
+    #[test]
+    fn review_queue_plan_ranks_counts_and_overflow() {
+        let conn = memory_db();
+        let due_at = "2026-01-01T00:00:00Z".to_string();
+        let normal = add_review_item(
+            &conn,
+            AddReviewItemInput {
+                target_kind: "source".to_string(),
+                target_id: "source-normal".to_string(),
+                title: "Normal source".to_string(),
+                note: None,
+                priority: Some("normal".to_string()),
+                due_at: Some(due_at.clone()),
+            },
+        )
+        .unwrap();
+        let high = add_review_item(
+            &conn,
+            AddReviewItemInput {
+                target_kind: "point".to_string(),
+                target_id: "point-high".to_string(),
+                title: "High point".to_string(),
+                note: None,
+                priority: Some("high".to_string()),
+                due_at: Some(due_at.clone()),
+            },
+        )
+        .unwrap();
+        let low = add_review_item(
+            &conn,
+            AddReviewItemInput {
+                target_kind: "evidence".to_string(),
+                target_id: "evidence-low".to_string(),
+                title: "Low evidence".to_string(),
+                note: None,
+                priority: Some("low".to_string()),
+                due_at: Some(due_at),
+            },
+        )
+        .unwrap();
+        let future = add_review_item(
+            &conn,
+            AddReviewItemInput {
+                target_kind: "report".to_string(),
+                target_id: "report-future".to_string(),
+                title: "Future report".to_string(),
+                note: None,
+                priority: Some("high".to_string()),
+                due_at: Some("2026-01-10T00:00:00Z".to_string()),
+            },
+        )
+        .unwrap();
+        let dismissed = add_review_item(
+            &conn,
+            AddReviewItemInput {
+                target_kind: "journal".to_string(),
+                target_id: "journal-dismissed".to_string(),
+                title: "Dismissed journal".to_string(),
+                note: None,
+                priority: Some("high".to_string()),
+                due_at: Some("2026-01-01T00:00:00Z".to_string()),
+            },
+        )
+        .unwrap();
+        dismiss_review_item(&conn, &dismissed.id).unwrap();
+
+        let now = chrono::DateTime::parse_from_rfc3339("2026-01-05T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let plan = build_review_queue_plan_from_items(
+            list_all_review_items(&conn).unwrap(),
+            ReviewQueuePlanInput {
+                mode: Some("due".to_string()),
+                limit: Some(2),
+            },
+            now,
+        );
+
+        assert_eq!(plan.mode, "due");
+        assert_eq!(plan.limit, 2);
+        assert_eq!(plan.candidate_count, 3);
+        assert_eq!(plan.due_count, 3);
+        assert_eq!(plan.overdue_count, 3);
+        assert_eq!(plan.future_count, 1);
+        assert_eq!(plan.dismissed_count, 1);
+        assert_eq!(plan.overflow_count, 1);
+        assert_eq!(plan.items.len(), 2);
+        assert_eq!(plan.items[0].item.id, high.id);
+        assert_eq!(plan.items[0].priority_rank, 3);
+        assert_eq!(plan.items[0].position, 1);
+        assert_eq!(plan.items[1].item.id, normal.id);
+        assert!(!plan.items.iter().any(|entry| entry.item.id == low.id));
+        assert!(!plan.items.iter().any(|entry| entry.item.id == future.id));
+        assert!(!plan.items.iter().any(|entry| entry.item.id == dismissed.id));
+        assert!(plan.items[0].reason.contains("high priority"));
+    }
+
+    #[test]
+    fn review_queue_plan_normalizes_mode_and_limit() {
+        let now = chrono::DateTime::parse_from_rfc3339("2026-01-05T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let plan = build_review_queue_plan_from_items(
+            Vec::new(),
+            ReviewQueuePlanInput {
+                mode: Some("unsupported".to_string()),
+                limit: Some(0),
+            },
+            now,
+        );
+
+        assert_eq!(plan.mode, "due");
+        assert_eq!(plan.limit, 1);
     }
 
     #[test]

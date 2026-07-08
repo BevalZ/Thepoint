@@ -57,6 +57,7 @@ pub fn run() {
             commands::library::add_review_item,
             commands::library::list_due_review_items,
             commands::library::list_all_review_items,
+            commands::library::build_review_queue_plan,
             commands::library::complete_review_item,
             commands::library::snooze_review_item,
             commands::library::dismiss_review_item,

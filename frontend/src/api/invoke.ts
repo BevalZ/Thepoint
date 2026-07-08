@@ -174,6 +174,19 @@ function browserPreviewFallback<T extends TauriCommandName>(
         errors: [],
         manifest: null,
       } as TauriCommandResult<T>
+    case 'build_review_queue_plan':
+      return {
+        now: new Date(0).toISOString(),
+        mode: 'due',
+        limit: 12,
+        candidateCount: 0,
+        dueCount: 0,
+        overdueCount: 0,
+        futureCount: 0,
+        dismissedCount: 0,
+        overflowCount: 0,
+        items: [],
+      } as TauriCommandResult<T>
     default:
       return undefined
   }

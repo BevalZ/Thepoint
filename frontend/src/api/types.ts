@@ -429,6 +429,7 @@ export interface AssetRelationRecord {
 export type ReviewTargetKind = 'source' | 'point' | 'evidence' | 'report' | 'journal'
 export type ReviewRating = 'again' | 'hard' | 'good' | 'easy'
 export type ReviewPriority = 'low' | 'normal' | 'high'
+export type ReviewQueueMode = 'due' | 'catchup'
 
 export interface AddReviewItemInput {
   targetKind: ReviewTargetKind
@@ -454,6 +455,32 @@ export interface ReviewItem {
   intervalDays: number | null
   createdAt: string
   updatedAt: string
+}
+
+export interface ReviewQueuePlanInput {
+  mode?: ReviewQueueMode | null
+  limit?: number | null
+}
+
+export interface ReviewQueuePlanItem {
+  item: ReviewItem
+  position: number
+  priorityRank: number
+  daysOverdue: number
+  reason: string
+}
+
+export interface ReviewQueuePlan {
+  now: string
+  mode: ReviewQueueMode
+  limit: number
+  candidateCount: number
+  dueCount: number
+  overdueCount: number
+  futureCount: number
+  dismissedCount: number
+  overflowCount: number
+  items: ReviewQueuePlanItem[]
 }
 
 export interface OpenDataMirrorConfig {

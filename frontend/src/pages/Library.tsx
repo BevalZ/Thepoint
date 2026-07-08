@@ -15,8 +15,8 @@ import type { EvidenceVerdictFilter } from '@/lib/evidenceLedger'
 import { REPORT_KIND_FILTERS, filterReportsByKind, reportKindLabel } from '@/lib/reportArtifacts'
 import type { ReportKindFilter } from '@/lib/reportArtifacts'
 import type { SourceHighlightRequest } from '@/lib/sourceHighlight'
-import type { AssetKind, AssetRelationRecord, DigestResult, EvidenceRecord, GalleryItem, InvestigationInput, JournalEntry, ReportRecord, ReviewItem, ReviewRating, ReviewTargetKind, SourceSummaryRecord, WorkspaceSearchResult } from '@/api/types'
-import { addReviewItem, completeReviewItem, deleteReport, dismissReviewItem, discoverRelatedAssets, generateInvestigation, generateSynthesis, getReport, listAllReviewItems, listGallery, listRecentEvidence, listRecentJournalEntries, listRecentReports, listRecentSources, rebuildAssetRelations, searchEvidence, searchGallery, searchJournalEntries, searchReports, searchWorkspace, snoozeReviewItem, invalidateJournalEntry } from '@/api'
+import type { AssetKind, AssetRelationRecord, DigestResult, EvidenceRecord, GalleryItem, InvestigationInput, JournalEntry, ReportRecord, ReviewItem, ReviewQueuePlan, ReviewQueuePlanItem, ReviewRating, ReviewTargetKind, SourceSummaryRecord, WorkspaceSearchResult } from '@/api/types'
+import { addReviewItem, buildReviewQueuePlan, completeReviewItem, deleteReport, dismissReviewItem, discoverRelatedAssets, generateInvestigation, generateSynthesis, getReport, listAllReviewItems, listGallery, listRecentEvidence, listRecentJournalEntries, listRecentReports, listRecentSources, rebuildAssetRelations, searchEvidence, searchGallery, searchJournalEntries, searchReports, searchWorkspace, snoozeReviewItem, invalidateJournalEntry } from '@/api'
 
 const LS_VIEW = 'lib-view-mode'
 const LS_LIBRARY_MODE = 'lib-content-mode'
@@ -105,6 +105,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
   const [journalError, setJournalError] = useState<string | null>(null)
   const [invalidatingJournalId, setInvalidatingJournalId] = useState<string | null>(null)
   const [reviewItems, setReviewItems] = useState<ReviewItem[]>([])
+  const [reviewPlan, setReviewPlan] = useState<ReviewQueuePlan | null>(null)
   const [reviewLoading, setReviewLoading] = useState(false)
   const [reviewError, setReviewError] = useState<string | null>(null)
   const [reviewMutatingId, setReviewMutatingId] = useState<string | null>(null)
@@ -190,9 +191,15 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
     setReviewLoading(true)
     setReviewError(null)
     try {
-      setReviewItems(await listAllReviewItems())
+      const [items, plan] = await Promise.all([
+        listAllReviewItems(),
+        buildReviewQueuePlan({ mode: 'due', limit: 12 }),
+      ])
+      setReviewItems(items)
+      setReviewPlan(plan)
     } catch (error) {
       setReviewItems([])
+      setReviewPlan(null)
       setReviewError(error instanceof Error ? error.message : '加载 Review Queue 失败，请稍后重试。')
     } finally {
       setReviewLoading(false)
@@ -468,15 +475,15 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
     setReviewMutatingId('__new__')
     setReviewError(null)
     try {
-      const created = await addReviewItem({
+      await addReviewItem({
         targetKind: reviewDraftKind,
         targetId,
         title,
         priority: 'normal',
       })
-      setReviewItems((records) => upsertReviewItem(records, created))
       setReviewDraftId('')
       setReviewDraftTitle('')
+      await loadReviewItems()
     } catch (error) {
       setReviewError(errorMessage(error, '加入 Review Queue 失败，请稍后重试。'))
     } finally {
@@ -489,13 +496,13 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
     setReviewMutatingId(`${targetKind}:${targetId}`)
     setReviewError(null)
     try {
-      const created = await addReviewItem({
+      await addReviewItem({
         targetKind,
         targetId,
         title,
         priority: 'normal',
       })
-      setReviewItems((records) => upsertReviewItem(records, created))
+      await loadReviewItems()
     } catch (error) {
       setReviewError(errorMessage(error, '加入 Review Queue 失败，请稍后重试。'))
     } finally {
@@ -508,8 +515,8 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
     setReviewMutatingId(item.id)
     setReviewError(null)
     try {
-      const updated = await completeReviewItem(item.id, rating)
-      setReviewItems((records) => upsertReviewItem(records, updated))
+      await completeReviewItem(item.id, rating)
+      await loadReviewItems()
     } catch (error) {
       setReviewError(errorMessage(error, '完成 Review 失败，请稍后重试。'))
     } finally {
@@ -522,8 +529,8 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
     setReviewMutatingId(item.id)
     setReviewError(null)
     try {
-      const updated = await snoozeReviewItem(item.id, 3)
-      setReviewItems((records) => upsertReviewItem(records, updated))
+      await snoozeReviewItem(item.id, 3)
+      await loadReviewItems()
     } catch (error) {
       setReviewError(errorMessage(error, '推迟 Review 失败，请稍后重试。'))
     } finally {
@@ -537,7 +544,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
     setReviewError(null)
     try {
       await dismissReviewItem(item.id)
-      setReviewItems((records) => records.filter((record) => record.id !== item.id))
+      await loadReviewItems()
     } catch (error) {
       setReviewError(errorMessage(error, '移除 Review 失败，请稍后重试。'))
     } finally {
@@ -878,7 +885,15 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
     )
   }
 
-  const renderReviewItem = (item: ReviewItem) => {
+  const renderReviewStat = (label: string, value: number, detail?: string) => (
+    <div key={label} className="rounded-lg border border-border bg-bg px-3 py-2">
+      <p className="text-[11px] uppercase tracking-wide text-fg-faint">{label}</p>
+      <p className="mt-1 text-lg font-semibold text-fg">{value}</p>
+      {detail && <p className="mt-0.5 text-[11px] text-fg-faint">{detail}</p>}
+    </div>
+  )
+
+  const renderReviewItem = (item: ReviewItem, planItem?: ReviewQueuePlanItem) => {
     const due = new Date(item.dueAt)
     const dueText = Number.isNaN(due.getTime()) ? item.dueAt : due.toLocaleDateString('zh-CN')
     return (
@@ -888,12 +903,30 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center gap-2">
               <h3 className="truncate text-sm font-medium text-fg">{item.title}</h3>
+              {planItem && (
+                <span className="shrink-0 rounded-md border border-accent/30 bg-accent/10 px-2 py-0.5 text-[11px] text-accent">
+                  #{planItem.position}
+                </span>
+              )}
               <span className="shrink-0 rounded-md border border-border px-2 py-0.5 text-[11px] text-fg-faint">
                 {item.targetKind}
               </span>
+              <span className="shrink-0 rounded-md border border-border px-2 py-0.5 text-[11px] text-fg-faint">
+                {item.priority}
+              </span>
+              {item.status !== 'active' && (
+                <span className="shrink-0 rounded-md border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-[11px] text-red-300">
+                  {item.status}
+                </span>
+              )}
             </div>
             <p className="mt-1 truncate text-xs text-fg-faint">{item.targetId}</p>
             {item.note && <p className="mt-1 line-clamp-2 text-xs text-fg-muted">{item.note}</p>}
+            {planItem && (
+              <p className="mt-2 rounded-md border border-accent/20 bg-accent/5 px-2 py-1 text-[11px] text-accent">
+                rank {planItem.priorityRank} · {planItem.reason}
+              </p>
+            )}
             <p className="mt-2 text-[11px] text-fg-faint">
               due {dueText} · reviewed {item.reviewCount} · interval {item.intervalDays ?? 0}d
             </p>
@@ -1294,13 +1327,69 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
               <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-fg-faint">
                 <Loader2 size={16} className="animate-spin" />加载 Review…
               </div>
-            ) : reviewItems.length > 0 ? (
-              <div className="space-y-2">{reviewItems.map(renderReviewItem)}</div>
             ) : (
-              <div className="flex min-h-40 flex-col items-center justify-center gap-2 text-center text-sm text-fg-faint">
-                <Clock size={24} className="opacity-50" />
-                <p>还没有 Review item。可从 Source 或手动输入资产 ID 加入。</p>
-              </div>
+              <>
+                <section className="rounded-lg border border-border bg-bg-elevated px-4 py-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-fg-faint">queue planner</p>
+                      <h2 className="mt-1 text-sm font-semibold text-fg">本轮 Review 计划</h2>
+                      <p className="mt-1 text-xs text-fg-faint">
+                        {reviewPlan ? `生成于 ${formatReportDate(reviewPlan.now)}` : 'planner 暂无可用结果'}
+                      </p>
+                    </div>
+                    {reviewPlan && (
+                      <span className="rounded-md border border-accent/30 bg-accent/10 px-2 py-1 text-xs text-accent">
+                        {reviewPlan.mode} · limit {reviewPlan.limit}
+                      </span>
+                    )}
+                  </div>
+                  {reviewPlan ? (
+                    <>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                        {renderReviewStat('planned', reviewPlan.items.length, `${reviewPlan.candidateCount} candidates`)}
+                        {renderReviewStat('due', reviewPlan.dueCount, `${reviewPlan.overdueCount} overdue`)}
+                        {renderReviewStat('future', reviewPlan.futureCount, 'active later')}
+                        {renderReviewStat('overflow', reviewPlan.overflowCount, `${reviewPlan.dismissedCount} dismissed`)}
+                      </div>
+                      <div className="mt-4">
+                        <div className="mb-2 flex items-center justify-between text-xs text-fg-faint">
+                          <span>计划项</span>
+                          <span>{reviewPlan.items.length}</span>
+                        </div>
+                        {reviewPlan.items.length > 0 ? (
+                          <div className="space-y-2">
+                            {reviewPlan.items.map((planItem) => renderReviewItem(planItem.item, planItem))}
+                          </div>
+                        ) : (
+                          <div className="flex min-h-28 flex-col items-center justify-center gap-2 text-center text-sm text-fg-faint">
+                            <Clock size={22} className="opacity-50" />
+                            <p>当前没有到期 Review item；future 项会计入统计但不进入本轮计划。</p>
+                          </div>
+                        )}
+                      </div>
+                    </>
+                  ) : (
+                    <div className="mt-3 rounded-lg border border-border bg-bg px-3 py-3 text-sm text-fg-faint">
+                      Planner 未返回结果。请刷新 Review 或检查后端命令状态。
+                    </div>
+                  )}
+                </section>
+                <section className="space-y-2">
+                  <div className="flex items-center justify-between text-xs text-fg-faint">
+                    <span>全部 Review Queue</span>
+                    <span>{reviewItems.length}</span>
+                  </div>
+                  {reviewItems.length > 0 ? (
+                    <div className="space-y-2">{reviewItems.map((item) => renderReviewItem(item))}</div>
+                  ) : (
+                    <div className="flex min-h-40 flex-col items-center justify-center gap-2 text-center text-sm text-fg-faint">
+                      <Clock size={24} className="opacity-50" />
+                      <p>还没有 Review item。可从 Source 或手动输入资产 ID 加入。</p>
+                    </div>
+                  )}
+                </section>
+              </>
             )}
           </div>
         ) : libraryMode === 'gallery' ? (
@@ -1718,12 +1807,6 @@ function parseStringArray(value: string): string[] {
   } catch {
     return []
   }
-}
-
-function upsertReviewItem(records: ReviewItem[], item: ReviewItem): ReviewItem[] {
-  const existingIndex = records.findIndex((record) => record.id === item.id)
-  if (existingIndex === -1) return [item, ...records]
-  return records.map((record) => record.id === item.id ? item : record)
 }
 
 function errorMessage(error: unknown, fallback: string): string {

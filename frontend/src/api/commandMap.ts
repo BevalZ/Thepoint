@@ -40,6 +40,8 @@ import type {
   ReportInvocationAudit,
   ReportRecord,
   ReviewItem,
+  ReviewQueuePlan,
+  ReviewQueuePlanInput,
   ReviewRating,
   SaveReportInput,
   SaveJournalEntryInput,
@@ -212,6 +214,10 @@ export interface TauriCommandMap {
   list_all_review_items: {
     args: undefined
     result: ReviewItem[]
+  }
+  build_review_queue_plan: {
+    args: { input: ReviewQueuePlanInput }
+    result: ReviewQueuePlan
   }
   complete_review_item: {
     args: { id: string; rating: ReviewRating }

@@ -37,6 +37,8 @@ import type {
   ReportAuditRecord,
   ReportInvocationAudit,
   ReportRecord,
+  ReviewQueuePlan,
+  ReviewQueuePlanInput,
   ReviewRating,
   SaveReportInput,
   SaveJournalEntryInput,
@@ -181,6 +183,11 @@ export const listDueReviewItems = () =>
 
 export const listAllReviewItems = () =>
   invokeCommand('list_all_review_items')
+
+export const buildReviewQueuePlan = (
+  input: ReviewQueuePlanInput = {}
+): Promise<ReviewQueuePlan> =>
+  invokeCommand('build_review_queue_plan', { input })
 
 export const completeReviewItem = (id: string, rating: ReviewRating) =>
   invokeCommand('complete_review_item', { id, rating })

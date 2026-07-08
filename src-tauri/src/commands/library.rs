@@ -458,10 +458,12 @@ pub async fn load_report_invocation_audit(
     report_id: String,
 ) -> Result<Option<db::ReportInvocationAudit>, String> {
     let path = db::db_path(&app).map_err(|e| e.to_string())?;
-    tokio::task::spawn_blocking(move || -> anyhow::Result<Option<db::ReportInvocationAudit>> {
-        let conn = db::open_db(&path)?;
-        db::load_report_invocation_audit(&conn, &report_id)
-    })
+    tokio::task::spawn_blocking(
+        move || -> anyhow::Result<Option<db::ReportInvocationAudit>> {
+            let conn = db::open_db(&path)?;
+            db::load_report_invocation_audit(&conn, &report_id)
+        },
+    )
     .await
     .map_err(|e| e.to_string())?
     .map_err(|e| e.to_string())
@@ -696,6 +698,21 @@ pub async fn list_all_review_items(
     tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<db::ReviewItem>> {
         let conn = db::open_db(&path)?;
         db::list_all_review_items(&conn)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn build_review_queue_plan(
+    app: tauri::AppHandle<Wry>,
+    input: db::ReviewQueuePlanInput,
+) -> Result<db::ReviewQueuePlan, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<db::ReviewQueuePlan> {
+        let conn = db::open_db(&path)?;
+        db::build_review_queue_plan(&conn, input)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -1529,7 +1546,10 @@ fn export_open_data_mirror_blocking(db_path: PathBuf) -> anyhow::Result<MirrorEx
         &root.join("manifest.json"),
         &serde_json::to_string_pretty(&manifest)?,
     )?;
-    write_text_file(&root.join("index.md"), &mirror_index_markdown(&build.plan.counts))?;
+    write_text_file(
+        &root.join("index.md"),
+        &mirror_index_markdown(&build.plan.counts),
+    )?;
     files_written += 2;
 
     Ok(MirrorExportResult {
@@ -1891,7 +1911,11 @@ fn read_mirror_file_hash(root: &Path, relative_path: &str) -> anyhow::Result<Opt
     Ok(Some(stable_text_hash(&content)))
 }
 
-fn write_mirror_relative_file(root: &Path, relative_path: &str, content: &str) -> anyhow::Result<()> {
+fn write_mirror_relative_file(
+    root: &Path,
+    relative_path: &str,
+    content: &str,
+) -> anyhow::Result<()> {
     let path = mirror_relative_path(root, relative_path)?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
@@ -1954,7 +1978,10 @@ fn read_open_data_mirror_manifest(root: &Path) -> anyhow::Result<Option<OpenData
 fn parse_open_data_mirror_manifest(
     value: serde_json::Value,
 ) -> anyhow::Result<OpenDataMirrorManifest> {
-    let version = value.get("version").and_then(|item| item.as_i64()).unwrap_or(1);
+    let version = value
+        .get("version")
+        .and_then(|item| item.as_i64())
+        .unwrap_or(1);
     if version >= 2 {
         let mut manifest: OpenDataMirrorManifest = serde_json::from_value(value)?;
         manifest.version = version;
@@ -3239,7 +3266,10 @@ mod tests {
             "Persisted Source",
             &["alpha persisted quote beta"],
         );
-        let point = point_with_content(&mut conn, "repeat persisted appears twice: repeat persisted.");
+        let point = point_with_content(
+            &mut conn,
+            "repeat persisted appears twice: repeat persisted.",
+        );
         let citations_json = serde_json::to_string(&serde_json::json!([
             {
                 "kind": "source",
