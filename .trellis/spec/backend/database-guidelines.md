@@ -1694,3 +1694,95 @@ let sql = format!("SELECT * FROM reports WHERE {filter}");
 let filter = parse_search_asset_filter(input.filter.as_deref())?;
 let reports = search_reports(conn, query, limit)?;
 ```
+
+---
+
+## Scenario: Capability Refinement Read-only Manifests
+
+### 1. Scope / Trigger
+
+- Trigger: adding read-only capability manifest, diagnostic, evaluation, or scorecard commands that aggregate existing local workspace data across backend DB helpers and frontend typed API boundaries.
+- Applies to: `src-tauri/src/db/mod.rs`, `src-tauri/src/commands/library.rs`, `src-tauri/src/lib.rs`, `frontend/src/api/types.ts`, `frontend/src/api/commandMap.ts`, `frontend/src/api/index.ts`, and `frontend/src/api/invoke.ts`.
+- This scenario covers commands such as `build_block_reference_manifest`, `build_board_snapshot_export`, `build_export_sync_audit`, `run_investigation_qa_eval`, and `build_capability_scorecard`.
+
+### 2. Signatures
+
+Backend helpers and commands:
+
+```rust
+build_block_reference_manifest(conn, input: BlockReferenceInput) -> Result<BlockReferenceManifest>
+build_board_snapshot_export(conn, input: BoardSnapshotInput) -> Result<BoardSnapshotExport>
+build_export_sync_audit(app) -> Result<ExportSyncAuditReport, String>
+run_investigation_qa_eval(conn, input: InvestigationQaEvalInput) -> Result<InvestigationQaEvalReport>
+build_capability_scorecard() -> CapabilityScorecard
+```
+
+Frontend API wrappers:
+
+```ts
+buildBlockReferenceManifest(input: BlockReferenceInput): Promise<BlockReferenceManifest>
+buildBoardSnapshotExport(input: BoardSnapshotInput): Promise<BoardSnapshotExport>
+buildExportSyncAudit(): Promise<ExportSyncAuditReport>
+runInvestigationQaEval(input?: InvestigationQaEvalInput): Promise<InvestigationQaEvalReport>
+buildCapabilityScorecard(): Promise<CapabilityScorecard>
+```
+
+### 3. Contracts
+
+- These commands are read-only unless their name explicitly says save/resolve/export/prune. They must not insert, update, delete, write mirror files, call models, or read arbitrary user files outside existing planner/manifest read paths.
+- Manifest payloads must include enough action metadata for future UI: `commandName`, `wrapperName`, `inputJson`, ids, hashes, warnings, and source inspiration where applicable.
+- `BlockReferenceManifest` is the source of truth for block cards; board/export UIs should consume it or helpers derived from it rather than reparsing Source/Point/Evidence independently.
+- `BoardSnapshotExport` is a draft payload. Markdown generation is allowed, but filesystem writes belong only to explicit export commands.
+- `ExportSyncAuditReport` may read mirror files and manifest to compare hashes, but must not create directories, write `manifest.json`, export files, or prune files.
+- `InvestigationQaEvalReport` evaluates saved Investigation Reports using persisted report audit rows and deterministic checks; no model judge is allowed in this slice.
+- `CapabilityScorecard` is a static product manifest and should be updated when capability rounds or command names change.
+
+### 4. Validation & Error Matrix
+
+| Condition | Behavior |
+|---|---|
+| Blank block reference kind/id | Return empty manifest with warning |
+| Unknown asset kind | Return validation error |
+| Missing target asset | Return empty manifest with not-found warning |
+| Board snapshot has no block cards | Return empty nodes/edges and propagate warnings |
+| Mirror disabled or root path missing | Export sync audit returns `needs_config`, not success |
+| Mirror plan/manifest read fails | Export sync audit returns `error` report with diagnostic item |
+| No Investigation reports | QA eval returns zero cases with warning |
+| Browser preview calls read-only manifest command | Frontend fallback returns empty honest payload with `Tauri runtime unavailable` warning |
+
+### 5. Good/Base/Bad Cases
+
+- Good: a Point target produces `point_card`, linked `source_chunk`, Evidence cards, command metadata, hashes, and no table writes.
+- Good: a board snapshot converts block cards to stable nodes/edges plus Mermaid Markdown without writing files.
+- Good: mirror audit reports missing/stale/orphaned exports before the user runs export/prune.
+- Good: Investigation QA eval marks a multi-document, citation-backed report as pass and an uncited report as fail.
+- Base: scorecard command returns a static manifest and has no DB dependency.
+- Bad: a read-only diagnostic command silently mutates `asset_relations`, saves review items, writes mirror files, or calls an LLM.
+- Bad: frontend components bypass `frontend/src/api` and call Tauri `invoke` directly for these commands.
+
+### 6. Tests Required
+
+- Rust DB/helper tests must compare table counts before/after read-only manifest/eval commands when SQLite data is involved.
+- Rust command tests must cover mirror audit states: `needs_config`, missing export, in-sync, and stale export.
+- Command palette tests must verify each new capability command is discoverable by source-inspired query terms.
+- Frontend checks must include `npm run typecheck` and `npm run check:boundaries` for every new command wrapper.
+- Full backend checks must include `cargo check --manifest-path src-tauri/Cargo.toml` and `cargo test --manifest-path src-tauri/Cargo.toml`.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+// A diagnostic command writes mirror files as a side effect.
+let export = export_open_data_mirror_blocking(db_path)?;
+Ok(audit_from_export(export))
+```
+
+#### Correct
+
+```rust
+// Audit is read-only: reuse planner and manifest reads, but never export/prune.
+let build = build_open_data_mirror_plan_data(&conn, &config, &root)?;
+let manifest = read_open_data_mirror_manifest(&root)?;
+Ok(export_sync_audit_from_plan(build.plan, manifest))
+```
