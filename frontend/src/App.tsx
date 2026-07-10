@@ -1,7 +1,8 @@
 import { Suspense, lazy, useCallback, useEffect, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { AnimatePresence, motion, useReducedMotion, type Variants } from 'framer-motion'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { BarChart2, ChevronDown, Compass, HelpCircle, Image, Settings as SettingsIcon, Library as LibraryIcon, Maximize2, Minus, Sparkles, X } from 'lucide-react'
+import { BarChart2, ChevronDown, Command, Compass, HelpCircle, Image, Settings as SettingsIcon, Library as LibraryIcon, Maximize2, Minus, Sparkles, X } from 'lucide-react'
+import { CommandPalette } from '@/components/CommandPalette'
 import { StarRing } from '@/components/StarRing'
 import { StartupSplash } from '@/components/StartupSplash'
 import { StarfieldBackground } from '@/components/StarfieldBackground'
@@ -9,20 +10,24 @@ import { useConfigStore, useExploreStore, useThemeStore } from '@/store'
 import { cn } from '@/lib/utils'
 import { getPointSourceContext } from '@/api'
 import type { SourceHighlightRequest } from '@/lib/sourceHighlight'
+import { capabilityTargetForCommand, type CapabilityCenterTarget } from '@/lib/capabilityCenter'
+import type { CommandPaletteItem } from '@/api/types'
 
 const Settings = lazy(() => import('@/pages/Settings'))
 const Explore = lazy(() => import('@/pages/Explore'))
 const Library = lazy(() => import('@/pages/Library'))
 const Analytics = lazy(() => import('@/pages/Analytics'))
 const Gallery = lazy(() => import('@/pages/Gallery'))
+const CapabilityCenter = lazy(() => import('@/pages/CapabilityCenter'))
 
-type Page = 'explore' | 'library' | 'gallery' | 'analytics' | 'settings'
+type Page = 'explore' | 'library' | 'gallery' | 'analytics' | 'capabilities' | 'settings'
 
 const NAV: { id: Page; label: string; icon: typeof Compass }[] = [
   { id: 'explore', label: '探索', icon: Compass },
   { id: 'library', label: '知识库', icon: LibraryIcon },
   { id: 'gallery', label: '画廊', icon: Image },
   { id: 'analytics', label: '统计', icon: BarChart2 },
+  { id: 'capabilities', label: '能力', icon: Command },
   { id: 'settings', label: '设置', icon: SettingsIcon },
 ]
 
@@ -151,11 +156,24 @@ export default function App() {
   const [page, setPage] = useState<Page>('explore')
   const [showSplash, setShowSplash] = useState(true)
   const [usageOpen, setUsageOpen] = useState(false)
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false)
+  const [capabilityTarget, setCapabilityTarget] = useState<CapabilityCenterTarget>({ view: 'overview' })
   const [sourceHighlight, setSourceHighlight] = useState<SourceHighlightRequest | null>(null)
   const prefersReducedMotion = useReducedMotion()
   const { loaded, fetchConfig } = useConfigStore()
   const openSourceById = useExploreStore((state) => state.openSourceById)
   useThemeStore()
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault()
+        setCommandPaletteOpen(true)
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [])
 
   useEffect(() => {
     if (!loaded) fetchConfig()
@@ -198,6 +216,7 @@ export default function App() {
     }
     if (page === 'gallery') return <Gallery />
     if (page === 'analytics') return <Analytics />
+    if (page === 'capabilities') return <CapabilityCenter target={capabilityTarget} />
     return <Explore sourceHighlight={sourceHighlight} onSourceHighlightConsumed={handleSourceHighlightConsumed} />
   }
 
@@ -322,6 +341,15 @@ export default function App() {
 
       {/* Global star-collect ring — persists across all pages (PRD: 全局累计 + 固定悬浮) */}
       <StarRing onNavigateGallery={() => setPage('gallery')} onOpenSource={handleOpenSource} />
+      <CommandPalette
+        open={commandPaletteOpen}
+        onClose={() => setCommandPaletteOpen(false)}
+        onSelect={(item: CommandPaletteItem) => {
+          setCapabilityTarget(capabilityTargetForCommand(item))
+          setPage('capabilities')
+          setCommandPaletteOpen(false)
+        }}
+      />
     </div>
   )
 }
