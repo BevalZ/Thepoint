@@ -1,0 +1,9 @@
+{"file":".trellis/spec/frontend/index.md","reason":"Frontend checklist and quality gates."}
+{"file":".trellis/spec/frontend/directory-structure.md","reason":"Placement rules for page, shared component, and helper."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Dense desktop UI, accessibility, motion, and ownership conventions."}
+{"file":".trellis/spec/frontend/hook-guidelines.md","reason":"Global keyboard listener and async effect cleanup."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Transient app/page state ownership."}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Typed command boundary and nullability contracts."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Required checks and forbidden API patterns."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Reuse wrappers and centralize mappings."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Backend DTO to API to UI flow."}

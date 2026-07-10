@@ -1,0 +1,8 @@
+{"file":".trellis/spec/frontend/index.md","reason":"Frontend checklist and expected verification."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Review composition, accessibility, and runtime states."}
+{"file":".trellis/spec/frontend/hook-guidelines.md","reason":"Review listener and async cleanup."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Review transient and backend-backed state ownership."}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Review typed API usage and empty contracts."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Run all frontend quality gates."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Check mapping duplication."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Check end-to-end data flow and failures."}
