@@ -806,3 +806,38 @@ Implemented schema-free Review Queue Planner v2 with explicit priority ranking, 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 24: 20-round capability refinement
+
+**Date**: 2026-07-10
+**Task**: 20-round capability refinement
+**Branch**: `main`
+
+### Summary
+
+Completed capability refinement rounds 16-20, added read-only manifests, board snapshots, export sync audit, investigation QA eval, capability scorecard, and documented the cross-layer contracts.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1e1eea2` | (see git log) |
+| `235dcd5` | (see git log) |
+| `c4f4dea` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
