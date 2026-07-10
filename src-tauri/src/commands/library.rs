@@ -142,6 +142,39 @@ pub struct OpenDataMirrorPruneResult {
     pub manifest: Option<OpenDataMirrorManifest>,
 }
 
+#[derive(serde::Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportSyncAuditItem {
+    pub kind: Option<String>,
+    pub id: Option<String>,
+    pub title: Option<String>,
+    pub path: Option<String>,
+    pub status: String,
+    pub action: String,
+    pub current_hash: Option<String>,
+    pub previous_hash: Option<String>,
+    pub message: String,
+}
+
+#[derive(serde::Serialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportSyncAuditReport {
+    pub generated_at: String,
+    pub status: String,
+    pub root_path: Option<String>,
+    pub manifest_version: Option<i64>,
+    pub current_asset_count: i64,
+    pub manifest_asset_count: i64,
+    pub in_sync_count: i64,
+    pub pending_write_count: i64,
+    pub pending_overwrite_count: i64,
+    pub pending_prune_count: i64,
+    pub error_count: i64,
+    pub items: Vec<ExportSyncAuditItem>,
+    pub warnings: Vec<String>,
+    pub source_inspiration: String,
+}
+
 #[derive(serde::Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct CitationLocatorInput {
@@ -423,6 +456,380 @@ pub async fn search_assets(
 }
 
 #[tauri::command]
+pub async fn explain_search_ranking(
+    app: tauri::AppHandle<Wry>,
+    input: db::SearchRankingExplanationInput,
+) -> Result<db::SearchRankingExplanation, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<db::SearchRankingExplanation> {
+        let conn = db::open_db(&path)?;
+        db::explain_search_ranking(&conn, input)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn build_block_reference_manifest(
+    app: tauri::AppHandle<Wry>,
+    input: db::BlockReferenceInput,
+) -> Result<db::BlockReferenceManifest, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<db::BlockReferenceManifest> {
+        let conn = db::open_db(&path)?;
+        db::build_block_reference_manifest(&conn, input)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn build_board_snapshot_export(
+    app: tauri::AppHandle<Wry>,
+    input: db::BoardSnapshotInput,
+) -> Result<db::BoardSnapshotExport, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<db::BoardSnapshotExport> {
+        let conn = db::open_db(&path)?;
+        db::build_board_snapshot_export(&conn, input)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn build_retrieval_context(
+    app: tauri::AppHandle<Wry>,
+    input: db::RetrievalContextInput,
+) -> Result<db::RetrievalContext, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<db::RetrievalContext> {
+        let conn = db::open_db(&path)?;
+        db::build_retrieval_context(&conn, input)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn suggest_backlinks(
+    app: tauri::AppHandle<Wry>,
+    input: db::BacklinkSuggestionInput,
+) -> Result<Vec<db::BacklinkSuggestion>, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<db::BacklinkSuggestion>> {
+        let conn = db::open_db(&path)?;
+        db::suggest_backlinks(&conn, input)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn save_asset_search(
+    app: tauri::AppHandle<Wry>,
+    input: db::SaveAssetSearchInput,
+) -> Result<db::SavedAssetSearch, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<db::SavedAssetSearch> {
+        let conn = db::open_db(&path)?;
+        db::save_asset_search(&conn, input)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn list_saved_asset_searches(
+    app: tauri::AppHandle<Wry>,
+) -> Result<Vec<db::SavedAssetSearch>, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<db::SavedAssetSearch>> {
+        let conn = db::open_db(&path)?;
+        db::list_saved_asset_searches(&conn)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn preview_saved_asset_search(
+    app: tauri::AppHandle<Wry>,
+    id: String,
+    limit: Option<i64>,
+) -> Result<Option<db::SavedAssetSearchPreview>, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(
+        move || -> anyhow::Result<Option<db::SavedAssetSearchPreview>> {
+            let conn = db::open_db(&path)?;
+            db::preview_saved_asset_search(&conn, &id, limit)
+        },
+    )
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_saved_asset_search(
+    app: tauri::AppHandle<Wry>,
+    id: String,
+) -> Result<(), String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+        let conn = db::open_db(&path)?;
+        db::delete_saved_asset_search(&conn, &id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn save_retrieval_profile(
+    app: tauri::AppHandle<Wry>,
+    input: db::SaveRetrievalProfileInput,
+) -> Result<db::RetrievalProfile, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<db::RetrievalProfile> {
+        let conn = db::open_db(&path)?;
+        db::save_retrieval_profile(&conn, input)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn list_retrieval_profiles(
+    app: tauri::AppHandle<Wry>,
+) -> Result<Vec<db::RetrievalProfile>, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<db::RetrievalProfile>> {
+        let conn = db::open_db(&path)?;
+        db::list_retrieval_profiles(&conn)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn preview_retrieval_profile(
+    app: tauri::AppHandle<Wry>,
+    input: db::PreviewRetrievalProfileInput,
+) -> Result<Option<db::RetrievalProfilePreview>, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(
+        move || -> anyhow::Result<Option<db::RetrievalProfilePreview>> {
+            let conn = db::open_db(&path)?;
+            db::preview_retrieval_profile(&conn, input)
+        },
+    )
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_retrieval_profile(
+    app: tauri::AppHandle<Wry>,
+    id: String,
+) -> Result<(), String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+        let conn = db::open_db(&path)?;
+        db::delete_retrieval_profile(&conn, &id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn save_quick_capture(
+    app: tauri::AppHandle<Wry>,
+    input: db::SaveQuickCaptureInput,
+) -> Result<db::QuickCaptureItem, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<db::QuickCaptureItem> {
+        let conn = db::open_db(&path)?;
+        db::save_quick_capture(&conn, input)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn list_quick_captures(
+    app: tauri::AppHandle<Wry>,
+    status: Option<String>,
+    limit: Option<i64>,
+) -> Result<Vec<db::QuickCaptureItem>, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<db::QuickCaptureItem>> {
+        let conn = db::open_db(&path)?;
+        db::list_quick_captures(&conn, status.as_deref(), limit)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn resolve_quick_capture(
+    app: tauri::AppHandle<Wry>,
+    input: db::ResolveQuickCaptureInput,
+) -> Result<Option<db::QuickCaptureResolution>, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(
+        move || -> anyhow::Result<Option<db::QuickCaptureResolution>> {
+            let mut conn = db::open_db(&path)?;
+            db::resolve_quick_capture(&mut conn, input)
+        },
+    )
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn dismiss_quick_capture(
+    app: tauri::AppHandle<Wry>,
+    id: String,
+) -> Result<Option<db::QuickCaptureItem>, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<Option<db::QuickCaptureItem>> {
+        let conn = db::open_db(&path)?;
+        db::dismiss_quick_capture(&conn, &id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn list_report_starter_templates(
+    category: Option<String>,
+    query: Option<String>,
+) -> Result<Vec<db::ReportStarterTemplate>, String> {
+    Ok(db::list_report_starter_templates(
+        category.as_deref(),
+        query.as_deref(),
+    ))
+}
+
+#[tauri::command]
+pub async fn list_command_palette_items(
+    input: db::CommandPaletteInput,
+) -> Result<db::CommandPaletteManifest, String> {
+    Ok(db::list_command_palette_items(input))
+}
+
+#[tauri::command]
+pub async fn build_capability_scorecard() -> Result<db::CapabilityScorecard, String> {
+    Ok(db::build_capability_scorecard())
+}
+
+#[tauri::command]
+pub async fn load_automation_suggestions(
+    app: tauri::AppHandle<Wry>,
+    input: db::AutomationSuggestionInput,
+) -> Result<db::AutomationSuggestionReport, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<db::AutomationSuggestionReport> {
+        let conn = db::open_db(&path)?;
+        db::load_automation_suggestions(&conn, input)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn load_import_diagnostics_ledger(
+    app: tauri::AppHandle<Wry>,
+    input: db::ImportDiagnosticsInput,
+) -> Result<db::ImportDiagnosticsLedger, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<db::ImportDiagnosticsLedger> {
+        let conn = db::open_db(&path)?;
+        db::load_import_diagnostics_ledger(&conn, input)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn build_report_starter(
+    app: tauri::AppHandle<Wry>,
+    input: db::BuildReportStarterInput,
+) -> Result<db::ReportStarterDraft, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<db::ReportStarterDraft> {
+        let conn = db::open_db(&path)?;
+        db::build_report_starter(&conn, input)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn load_reprocess_queue(
+    app: tauri::AppHandle<Wry>,
+    input: db::ReprocessQueueInput,
+) -> Result<db::ReprocessQueue, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<db::ReprocessQueue> {
+        let conn = db::open_db(&path)?;
+        db::build_reprocess_queue(&conn, input)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn detect_duplicate_assets(
+    app: tauri::AppHandle<Wry>,
+    input: db::DuplicateAssetInput,
+) -> Result<db::DuplicateAssetReport, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<db::DuplicateAssetReport> {
+        let conn = db::open_db(&path)?;
+        db::detect_duplicate_assets(&conn, input)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn build_graph_neighborhood_preview(
+    app: tauri::AppHandle<Wry>,
+    input: db::GraphNeighborhoodInput,
+) -> Result<db::GraphNeighborhoodPreview, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<db::GraphNeighborhoodPreview> {
+        let conn = db::open_db(&path)?;
+        db::build_graph_neighborhood_preview(&conn, input)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn save_report(
     app: tauri::AppHandle<Wry>,
     input: SaveReportCommandInput,
@@ -500,6 +907,21 @@ pub async fn load_report_audit(
 }
 
 #[tauri::command]
+pub async fn load_citation_quality_dashboard(
+    app: tauri::AppHandle<Wry>,
+    limit: Option<i64>,
+) -> Result<db::CitationQualityDashboard, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<db::CitationQualityDashboard> {
+        let conn = db::open_db(&path)?;
+        db::build_citation_quality_dashboard(&conn, limit)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn list_recent_reports(
     app: tauri::AppHandle<Wry>,
 ) -> Result<Vec<db::ReportRecord>, String> {
@@ -570,6 +992,21 @@ pub async fn load_report_citation_audit(
             return Ok(None);
         };
         build_report_citation_audit(&conn, &report).map(Some)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn run_investigation_qa_eval(
+    app: tauri::AppHandle<Wry>,
+    input: db::InvestigationQaEvalInput,
+) -> Result<db::InvestigationQaEvalReport, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || -> anyhow::Result<db::InvestigationQaEvalReport> {
+        let conn = db::open_db(&path)?;
+        db::run_investigation_qa_eval(&conn, input)
     })
     .await
     .map_err(|e| e.to_string())?
@@ -813,6 +1250,17 @@ pub async fn build_open_data_mirror_plan(
 ) -> Result<OpenDataMirrorPlan, String> {
     let path = db::db_path(&app).map_err(|e| e.to_string())?;
     tokio::task::spawn_blocking(move || build_open_data_mirror_plan_blocking(path))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn build_export_sync_audit(
+    app: tauri::AppHandle<Wry>,
+) -> Result<ExportSyncAuditReport, String> {
+    let path = db::db_path(&app).map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || build_export_sync_audit_blocking(path))
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
@@ -1505,6 +1953,201 @@ fn build_open_data_mirror_plan_blocking(db_path: PathBuf) -> anyhow::Result<Open
     let config = db::get_open_data_mirror_config(&conn)?;
     let root = mirror_root_from_config(&config)?;
     Ok(build_open_data_mirror_plan_data(&conn, &config, &root)?.plan)
+}
+
+fn build_export_sync_audit_blocking(db_path: PathBuf) -> anyhow::Result<ExportSyncAuditReport> {
+    let generated_at = chrono::Utc::now().to_rfc3339();
+    let conn = db::open_db(&db_path)?;
+    let config = db::get_open_data_mirror_config(&conn)?;
+    let root_path = config
+        .root_path
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    if !config.enabled {
+        return Ok(export_sync_audit_needs_config(
+            generated_at,
+            root_path,
+            "Open Data Mirror is disabled",
+        ));
+    }
+    let Some(root_path) = root_path else {
+        return Ok(export_sync_audit_needs_config(
+            generated_at,
+            None,
+            "Open Data Mirror root path is required",
+        ));
+    };
+    let root = PathBuf::from(&root_path);
+    let build = match build_open_data_mirror_plan_data(&conn, &config, &root) {
+        Ok(build) => build,
+        Err(error) => {
+            return Ok(ExportSyncAuditReport {
+                generated_at,
+                status: "error".to_string(),
+                root_path: Some(root_path),
+                manifest_version: None,
+                current_asset_count: 0,
+                manifest_asset_count: 0,
+                in_sync_count: 0,
+                pending_write_count: 0,
+                pending_overwrite_count: 0,
+                pending_prune_count: 0,
+                error_count: 1,
+                items: vec![ExportSyncAuditItem {
+                    kind: None,
+                    id: None,
+                    title: None,
+                    path: None,
+                    status: "error".to_string(),
+                    action: "inspect_mirror_config".to_string(),
+                    current_hash: None,
+                    previous_hash: None,
+                    message: error.to_string(),
+                }],
+                warnings: vec![format!("failed to build export sync audit: {error}")],
+                source_inspiration: export_sync_audit_source_inspiration(),
+            });
+        }
+    };
+    let manifest = read_open_data_mirror_manifest(&root)?;
+    let mut items = Vec::new();
+    for item in &build.plan.unchanged {
+        items.push(export_sync_audit_item(
+            item,
+            "in_sync",
+            "skip",
+            "Exported file hash matches the current local asset.",
+        ));
+    }
+    for item in &build.plan.to_write {
+        items.push(export_sync_audit_item(
+            item,
+            "missing_export",
+            "write",
+            "Current local asset has no exported mirror file yet.",
+        ));
+    }
+    for item in &build.plan.stale {
+        items.push(export_sync_audit_item(
+            item,
+            "stale_export",
+            "overwrite",
+            "Exported mirror file differs from the current local asset.",
+        ));
+    }
+    for item in &build.plan.to_prune {
+        items.push(export_sync_audit_item(
+            item,
+            "orphaned_export",
+            "prune",
+            "Manifest or mirror root contains an asset no longer in current export scope.",
+        ));
+    }
+    for error in &build.plan.errors {
+        items.push(ExportSyncAuditItem {
+            kind: error.kind.clone(),
+            id: error.id.clone(),
+            title: None,
+            path: error.path.clone(),
+            status: "error".to_string(),
+            action: "inspect_export_item".to_string(),
+            current_hash: None,
+            previous_hash: None,
+            message: error.message.clone(),
+        });
+    }
+
+    let pending_write_count = build.plan.to_write.len() as i64;
+    let pending_overwrite_count = build.plan.stale.len() as i64;
+    let pending_prune_count = build.plan.to_prune.len() as i64;
+    let error_count = build.plan.errors.len() as i64;
+    let status = if error_count > 0 {
+        "error"
+    } else if pending_write_count == 0 && pending_overwrite_count == 0 && pending_prune_count == 0 {
+        "in_sync"
+    } else {
+        "out_of_sync"
+    };
+    let mut warnings = Vec::new();
+    if manifest.is_none() {
+        warnings.push("No Open Data Mirror manifest found; audit used current files and local assets only.".to_string());
+    }
+    if status == "out_of_sync" {
+        warnings.push(format!(
+            "{} write(s), {} overwrite(s), and {} prune candidate(s) are pending.",
+            pending_write_count, pending_overwrite_count, pending_prune_count
+        ));
+    }
+
+    Ok(ExportSyncAuditReport {
+        generated_at,
+        status: status.to_string(),
+        root_path: Some(root_path),
+        manifest_version: manifest.as_ref().map(|value| value.version),
+        current_asset_count: (build.plan.to_write.len()
+            + build.plan.unchanged.len()
+            + build.plan.stale.len()) as i64,
+        manifest_asset_count: manifest
+            .as_ref()
+            .map(|value| value.assets.len() as i64)
+            .unwrap_or(0),
+        in_sync_count: build.plan.unchanged.len() as i64,
+        pending_write_count,
+        pending_overwrite_count,
+        pending_prune_count,
+        error_count,
+        items,
+        warnings,
+        source_inspiration: export_sync_audit_source_inspiration(),
+    })
+}
+
+fn export_sync_audit_needs_config(
+    generated_at: String,
+    root_path: Option<String>,
+    message: &str,
+) -> ExportSyncAuditReport {
+    ExportSyncAuditReport {
+        generated_at,
+        status: "needs_config".to_string(),
+        root_path,
+        manifest_version: None,
+        current_asset_count: 0,
+        manifest_asset_count: 0,
+        in_sync_count: 0,
+        pending_write_count: 0,
+        pending_overwrite_count: 0,
+        pending_prune_count: 0,
+        error_count: 0,
+        items: Vec::new(),
+        warnings: vec![message.to_string()],
+        source_inspiration: export_sync_audit_source_inspiration(),
+    }
+}
+
+fn export_sync_audit_item(
+    item: &MirrorPlanItem,
+    status: &str,
+    action: &str,
+    message: &str,
+) -> ExportSyncAuditItem {
+    ExportSyncAuditItem {
+        kind: Some(item.kind.clone()),
+        id: Some(item.id.clone()),
+        title: Some(item.title.clone()),
+        path: Some(item.path.clone()),
+        status: status.to_string(),
+        action: action.to_string(),
+        current_hash: item.content_hash.clone(),
+        previous_hash: item.previous_hash.clone(),
+        message: message.to_string(),
+    }
+}
+
+fn export_sync_audit_source_inspiration() -> String {
+    "AppFlowy local-first workspace consistency checks refined into Thepoint Round 18".to_string()
 }
 
 fn export_open_data_mirror_blocking(db_path: PathBuf) -> anyhow::Result<MirrorExportResult> {
@@ -3434,6 +4077,75 @@ mod tests {
         assert!(manifest.stale.is_empty());
         assert_eq!(manifest.assets.len(), 1);
         assert_eq!(manifest.assets[0].path, renamed_path);
+    }
+
+    #[test]
+    fn export_sync_audit_reports_missing_in_sync_and_stale_read_only() {
+        let db_dir = TempFixture::new("thepoint-export-sync-db");
+        let mirror = TempFixture::new("thepoint-export-sync-root");
+        let db_path = db_dir.join("library.db");
+        let conn = db::open_db(&db_path).unwrap();
+
+        let needs_config = build_export_sync_audit_blocking(db_path.clone()).unwrap();
+        assert_eq!(needs_config.status, "needs_config");
+        assert!(needs_config
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("disabled")));
+
+        db::set_open_data_mirror_config(&conn, source_only_mirror_config(&mirror.path)).unwrap();
+        db::upsert_source_document(
+            &conn,
+            "test",
+            "test://sync-source",
+            Some("Sync Source"),
+            r#"{}"#,
+        )
+        .unwrap();
+
+        let missing = build_export_sync_audit_blocking(db_path.clone()).unwrap();
+        assert_eq!(missing.status, "out_of_sync");
+        assert_eq!(missing.pending_write_count, 1);
+        assert_eq!(missing.pending_overwrite_count, 0);
+        assert_eq!(missing.pending_prune_count, 0);
+        assert!(missing
+            .items
+            .iter()
+            .any(|item| item.status == "missing_export" && item.action == "write"));
+
+        let export = export_open_data_mirror_blocking(db_path.clone()).unwrap();
+        let exported_path = export.manifest.assets[0].path.clone();
+        let synced = build_export_sync_audit_blocking(db_path.clone()).unwrap();
+        assert_eq!(synced.status, "in_sync");
+        assert_eq!(synced.manifest_version, Some(2));
+        assert_eq!(synced.current_asset_count, 1);
+        assert_eq!(synced.manifest_asset_count, 1);
+        assert_eq!(synced.in_sync_count, 1);
+        assert!(synced
+            .items
+            .iter()
+            .any(|item| item.status == "in_sync" && item.action == "skip"));
+
+        fs::write(mirror.join(&exported_path), "stale mirror content").unwrap();
+        let stale = build_export_sync_audit_blocking(db_path).unwrap();
+        assert_eq!(stale.status, "out_of_sync");
+        assert_eq!(stale.pending_overwrite_count, 1);
+        assert!(stale.items.iter().any(|item| {
+            item.status == "stale_export"
+                && item.action == "overwrite"
+                && item.path.as_deref() == Some(exported_path.as_str())
+        }));
+
+        let manifest_item = db::list_command_palette_items(db::CommandPaletteInput {
+            query: Some("appflowy local first sync audit".to_string()),
+            category: Some("export".to_string()),
+            limit: Some(20),
+        });
+        assert!(manifest_item.items.iter().any(|item| {
+            item.command_name == "build_export_sync_audit"
+                && item.wrapper_name == "buildExportSyncAudit"
+                && item.source_inspiration.contains("Round 18")
+        }));
     }
 
     #[test]

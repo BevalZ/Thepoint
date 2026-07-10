@@ -2,15 +2,31 @@ import type {
   AnalyticsData,
   AppConfig,
   AddReviewItemInput,
+  AutomationSuggestionInput,
+  AutomationSuggestionReport,
   AssetKind,
   AssetRelationRecord,
+  BacklinkSuggestion,
+  BacklinkSuggestionInput,
+  BlockReferenceInput,
+  BlockReferenceManifest,
+  BoardSnapshotExport,
+  BoardSnapshotInput,
+  BuildReportStarterInput,
+  CapabilityScorecard,
   ChunkCard,
+  CitationQualityDashboard,
   CitationLocatorInput,
   CitationLocatorResult,
   CommentatorProfile,
+  CommandPaletteInput,
+  CommandPaletteManifest,
   ConfigProfile,
   DigestResult,
+  DuplicateAssetInput,
+  DuplicateAssetReport,
   EvidenceRecord,
+  ExportSyncAuditReport,
   FactCheckResult,
   FileMetadata,
   FrameworkRecommendation,
@@ -20,9 +36,15 @@ import type {
   GalleryPromptPreview,
   GallerySourcePoint,
   GenerateSuggestionResult,
+  GraphNeighborhoodInput,
+  GraphNeighborhoodPreview,
+  ImportDiagnosticsInput,
+  ImportDiagnosticsLedger,
   IndexedFile,
   IndexedFolder,
   IndexedFolderScanResult,
+  InvestigationQaEvalInput,
+  InvestigationQaEvalReport,
   InvestigationInput,
   JournalEntry,
   MentalModel,
@@ -33,20 +55,40 @@ import type {
   OpenDataMirrorConfig,
   PointSourceLinkInput,
   PointSourceContext,
+  QuickCaptureItem,
+  QuickCaptureResolution,
+  QuickCaptureStatus,
+  ReprocessQueue,
+  ReprocessQueueInput,
   RelatedClassification,
   RelatedCandidateInput,
+  ResolveQuickCaptureInput,
+  PreviewRetrievalProfileInput,
   ReportCitationAudit,
   ReportAuditRecord,
   ReportInvocationAudit,
   ReportRecord,
+  ReportStarterDraft,
+  ReportStarterTemplate,
+  RetrievalContext,
+  RetrievalContextInput,
+  RetrievalProfile,
+  RetrievalProfilePreview,
   ReviewItem,
   ReviewQueuePlan,
   ReviewQueuePlanInput,
   ReviewRating,
+  SaveAssetSearchInput,
+  SavedAssetSearch,
+  SavedAssetSearchPreview,
+  SaveQuickCaptureInput,
+  SaveRetrievalProfileInput,
   SaveReportInput,
   SaveJournalEntryInput,
   SearchAssetResult,
   SearchAssetsInput,
+  SearchRankingExplanation,
+  SearchRankingExplanationInput,
   SourceDocumentRecord,
   SourceAssetsRecord,
   SourceSummaryRecord,
@@ -149,6 +191,110 @@ export interface TauriCommandMap {
     args: { input: SearchAssetsInput }
     result: SearchAssetResult[]
   }
+  explain_search_ranking: {
+    args: { input: SearchRankingExplanationInput }
+    result: SearchRankingExplanation
+  }
+  build_block_reference_manifest: {
+    args: { input: BlockReferenceInput }
+    result: BlockReferenceManifest
+  }
+  build_board_snapshot_export: {
+    args: { input: BoardSnapshotInput }
+    result: BoardSnapshotExport
+  }
+  build_retrieval_context: {
+    args: { input: RetrievalContextInput }
+    result: RetrievalContext
+  }
+  suggest_backlinks: {
+    args: { input: BacklinkSuggestionInput }
+    result: BacklinkSuggestion[]
+  }
+  save_asset_search: {
+    args: { input: SaveAssetSearchInput }
+    result: SavedAssetSearch
+  }
+  list_saved_asset_searches: {
+    args: undefined
+    result: SavedAssetSearch[]
+  }
+  preview_saved_asset_search: {
+    args: { id: string; limit?: number | null }
+    result: SavedAssetSearchPreview | null
+  }
+  delete_saved_asset_search: {
+    args: { id: string }
+    result: void
+  }
+  save_retrieval_profile: {
+    args: { input: SaveRetrievalProfileInput }
+    result: RetrievalProfile
+  }
+  list_retrieval_profiles: {
+    args: undefined
+    result: RetrievalProfile[]
+  }
+  preview_retrieval_profile: {
+    args: { input: PreviewRetrievalProfileInput }
+    result: RetrievalProfilePreview | null
+  }
+  delete_retrieval_profile: {
+    args: { id: string }
+    result: void
+  }
+  save_quick_capture: {
+    args: { input: SaveQuickCaptureInput }
+    result: QuickCaptureItem
+  }
+  list_quick_captures: {
+    args: { status?: QuickCaptureStatus | null; limit?: number | null }
+    result: QuickCaptureItem[]
+  }
+  resolve_quick_capture: {
+    args: { input: ResolveQuickCaptureInput }
+    result: QuickCaptureResolution | null
+  }
+  dismiss_quick_capture: {
+    args: { id: string }
+    result: QuickCaptureItem | null
+  }
+  list_report_starter_templates: {
+    args: { category?: string | null; query?: string | null }
+    result: ReportStarterTemplate[]
+  }
+  list_command_palette_items: {
+    args: { input: CommandPaletteInput }
+    result: CommandPaletteManifest
+  }
+  build_capability_scorecard: {
+    args: undefined
+    result: CapabilityScorecard
+  }
+  load_automation_suggestions: {
+    args: { input: AutomationSuggestionInput }
+    result: AutomationSuggestionReport
+  }
+  load_import_diagnostics_ledger: {
+    args: { input: ImportDiagnosticsInput }
+    result: ImportDiagnosticsLedger
+  }
+  build_report_starter: {
+    args: { input: BuildReportStarterInput }
+    result: ReportStarterDraft
+  }
+  load_reprocess_queue: {
+    args: { input: ReprocessQueueInput }
+    result: ReprocessQueue
+  }
+  detect_duplicate_assets: {
+    args: { input: DuplicateAssetInput }
+    result: DuplicateAssetReport
+  }
+  build_graph_neighborhood_preview: {
+    args: { input: GraphNeighborhoodInput }
+    result: GraphNeighborhoodPreview
+  }
   save_report: {
     args: { input: SaveReportInput }
     result: ReportRecord
@@ -180,6 +326,14 @@ export interface TauriCommandMap {
   load_report_audit: {
     args: { reportId: string }
     result: ReportAuditRecord | null
+  }
+  load_citation_quality_dashboard: {
+    args: { limit?: number | null }
+    result: CitationQualityDashboard
+  }
+  run_investigation_qa_eval: {
+    args: { input: InvestigationQaEvalInput }
+    result: InvestigationQaEvalReport
   }
   delete_report: {
     args: { reportId: string }
@@ -248,6 +402,10 @@ export interface TauriCommandMap {
   build_open_data_mirror_plan: {
     args: undefined
     result: OpenDataMirrorPlan
+  }
+  build_export_sync_audit: {
+    args: undefined
+    result: ExportSyncAuditReport
   }
   export_open_data_mirror: {
     args: undefined

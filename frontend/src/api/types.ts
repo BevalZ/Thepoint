@@ -298,6 +298,103 @@ export interface ReportAuditRecord {
   coverage: ReportAuditCoverage
 }
 
+export interface InvestigationQaEvalInput {
+  reportId?: string | null
+  limit?: number | null
+}
+
+export interface InvestigationQaEvalCheck {
+  name: string
+  status: 'pass' | 'warning' | 'fail' | string
+  score: number
+  message: string
+}
+
+export interface InvestigationQaEvalCase {
+  caseId: string
+  reportId: string
+  title: string
+  question: string
+  expectedCitationKinds: string[]
+  uniqueCitationTargets: number
+  status: 'pass' | 'warning' | 'fail' | string
+  score: number
+  checks: InvestigationQaEvalCheck[]
+  warnings: string[]
+}
+
+export interface InvestigationQaEvalReport {
+  generatedAt: string
+  caseCount: number
+  passCount: number
+  warningCount: number
+  failCount: number
+  averageScore: number
+  cases: InvestigationQaEvalCase[]
+  warnings: string[]
+  sourceInspiration: string
+}
+
+export type CitationQualitySeverity = 'ok' | 'warning' | 'critical' | string
+
+export interface CitationQualityReportRow {
+  reportId: string
+  title: string
+  kind: ReportKind | string
+  createdAt: string
+  totalClaims: number
+  citedClaims: number
+  inferredClaims: number
+  unsupportedClaims: number
+  totalCitations: number
+  locatedCitations: number
+  warningCitations: number
+  missingCitations: number
+  coverageRatio: number
+  qualityScore: number
+  severity: CitationQualitySeverity
+  warnings: string[]
+}
+
+export interface CitationQualityProblemCitation {
+  reportId: string
+  reportTitle: string
+  citationIndex: number
+  label: string | null
+  title: string | null
+  targetKind: DigestCitation['kind']
+  targetId: string
+  locatorStatus: CitationLocatorStatus
+  reason: string
+  sourceId: string | null
+  chunkIndex: number | null
+  message: string
+}
+
+export interface CitationQualityDashboard {
+  generatedAt: string
+  reportCount: number
+  auditedReportCount: number
+  totalClaims: number
+  citedClaims: number
+  inferredClaims: number
+  unsupportedClaims: number
+  totalCitations: number
+  locatedCitations: number
+  warningCitations: number
+  missingCitations: number
+  staleCitations: number
+  ambiguousCitations: number
+  notFoundCitations: number
+  targetMissingCitations: number
+  notApplicableCitations: number
+  coverageRatio: number
+  qualityScore: number
+  reports: CitationQualityReportRow[]
+  problemCitations: CitationQualityProblemCitation[]
+  warnings: string[]
+}
+
 export interface AiInvocationRecord {
   id: string
   taskKind: string
@@ -373,6 +470,272 @@ export interface SaveReportInput {
   invocationId?: string | null
 }
 
+export interface ReportStarterTemplate {
+  id: string
+  name: string
+  category: string
+  kind: ReportKind
+  description: string
+  sections: string[]
+  sourceInspiration: string
+}
+
+export interface BuildReportStarterInput {
+  templateId: string
+  query: string
+  sourceIds: string[]
+  pointIds: string[]
+  evidenceIds: string[]
+}
+
+export interface ReportStarterContextItem {
+  kind: DigestCitation['kind']
+  id: string
+  label: string
+  title: string
+  excerpt: string
+  reason: string
+}
+
+export interface ReportStarterDraft {
+  template: ReportStarterTemplate
+  saveInput: SaveReportInput
+  contextItems: ReportStarterContextItem[]
+  warnings: string[]
+}
+
+export type ReprocessQueueKind = 'indexed_file' | 'source' | 'report'
+
+export type ReprocessQueueSeverity = 'critical' | 'warning'
+
+export interface ReprocessQueueInput {
+  kinds?: ReprocessQueueKind[] | null
+  limit?: number | null
+}
+
+export interface ReprocessQueueItem {
+  targetKind: ReprocessQueueKind
+  targetId: string
+  title: string
+  severity: ReprocessQueueSeverity
+  issueKind: string
+  reason: string
+  suggestedAction: string
+  sourceId: string | null
+  folderId: string | null
+  metadataJson: string
+}
+
+export interface ReprocessQueue {
+  generatedAt: string
+  itemCount: number
+  criticalCount: number
+  warningCount: number
+  items: ReprocessQueueItem[]
+  warnings: string[]
+}
+
+export type DuplicateAssetKind = 'source' | 'point' | 'report'
+
+export interface DuplicateAssetInput {
+  kinds?: DuplicateAssetKind[] | null
+  limit?: number | null
+}
+
+export interface DuplicateAssetCandidate {
+  kind: DuplicateAssetKind
+  id: string
+  title: string
+  excerpt: string
+  fingerprint: string
+  metadataJson: string
+}
+
+export interface DuplicateAssetGroup {
+  groupId: string
+  duplicateKey: string
+  matchKind: 'exact_fingerprint' | 'near_fingerprint' | string
+  score: number
+  reason: string
+  candidates: DuplicateAssetCandidate[]
+}
+
+export interface DuplicateAssetReport {
+  generatedAt: string
+  groupCount: number
+  candidateCount: number
+  groups: DuplicateAssetGroup[]
+  warnings: string[]
+}
+
+export interface GraphNeighborhoodInput {
+  kind: AssetKind
+  id: string
+  depth?: number | null
+  includeSuggestions?: boolean | null
+  limit?: number | null
+}
+
+export interface GraphNeighborhoodNode {
+  kind: AssetKind
+  id: string
+  title: string
+  label: string
+  depth: number
+  root: boolean
+  assetExists: boolean
+  metadataJson: string
+}
+
+export interface GraphNeighborhoodEdge {
+  fromKind: AssetKind
+  fromId: string
+  toKind: AssetKind
+  toId: string
+  relation: AssetRelation | string
+  reason: string
+  score: number
+  edgeKind: 'relation' | 'suggested_backlink' | 'suggested_duplicate' | string
+  provenance: string
+  existingRelation: boolean
+}
+
+export interface GraphNeighborhoodPreview {
+  generatedAt: string
+  rootKind: AssetKind
+  rootId: string
+  depth: number
+  nodeCount: number
+  edgeCount: number
+  nodes: GraphNeighborhoodNode[]
+  edges: GraphNeighborhoodEdge[]
+  warnings: string[]
+}
+
+export interface CommandPaletteInput {
+  query?: string | null
+  category?: string | null
+  limit?: number | null
+}
+
+export type CommandPaletteExecutionKind =
+  | 'read'
+  | 'write'
+  | 'draft'
+  | 'diagnostic'
+  | 'export'
+  | 'model'
+  | string
+
+export type CommandPaletteRisk =
+  | 'read_only'
+  | 'creates_or_updates_local_records'
+  | 'draft_only'
+  | 'writes_export_files'
+  | 'model_call'
+  | string
+
+export interface CommandPaletteItem {
+  id: string
+  title: string
+  category: string
+  description: string
+  keywords: string[]
+  commandName: string
+  wrapperName: string
+  executionKind: CommandPaletteExecutionKind
+  requiredInput: string[]
+  inputHint: string
+  risk: CommandPaletteRisk
+  shortcutHint: string | null
+  sourceInspiration: string
+  priority: number
+}
+
+export interface CommandPaletteManifest {
+  generatedAt: string
+  itemCount: number
+  categories: string[]
+  items: CommandPaletteItem[]
+  warnings: string[]
+}
+
+export interface CapabilityScorecardItem {
+  round: number
+  sourceInspiration: string
+  capability: string
+  status: string
+  boundary: 'read_only' | 'write' | 'draft_only' | 'model_call' | string
+  impactScore: number
+  riskScore: number
+  readiness: string
+  commandNames: string[]
+  verification: string
+  nextStep: string
+}
+
+export interface CapabilityScorecard {
+  generatedAt: string
+  itemCount: number
+  completedCount: number
+  readOnlyCount: number
+  writeCount: number
+  draftCount: number
+  modelCallCount: number
+  averageImpactScore: number
+  averageRiskScore: number
+  items: CapabilityScorecardItem[]
+  recommendations: string[]
+  sourceInspiration: string
+}
+
+export type AutomationSuggestionCategory =
+  | 'review'
+  | 'citations'
+  | 'reprocess'
+  | 'import'
+  | 'duplicates'
+  | 'capture'
+  | 'sources'
+  | 'retrieval'
+  | string
+
+export type AutomationSuggestionPriority = 'critical' | 'high' | 'normal' | 'low' | string
+
+export interface AutomationSuggestionInput {
+  categories?: AutomationSuggestionCategory[] | null
+  limit?: number | null
+}
+
+export interface AutomationSuggestionItem {
+  id: string
+  category: AutomationSuggestionCategory
+  priority: AutomationSuggestionPriority
+  priorityScore: number
+  subject: string
+  summary: string
+  reason: string
+  actionLabel: string
+  commandName: string
+  wrapperName: string
+  inputJson: string
+  targetKind: string | null
+  targetId: string | null
+  scheduleHint: string
+  sourceInspiration: string
+}
+
+export interface AutomationSuggestionReport {
+  generatedAt: string
+  itemCount: number
+  criticalCount: number
+  highCount: number
+  normalCount: number
+  lowCount: number
+  items: AutomationSuggestionItem[]
+  warnings: string[]
+}
+
 export interface SaveJournalEntryInput {
   query: string
   note: string
@@ -422,6 +785,307 @@ export interface SearchAssetResult {
   sourceId: string | null
   chunkIndex: number | null
   metadataJson: string
+}
+
+export interface SearchRankingExplanationInput {
+  query: string
+  kinds?: SearchAssetKind[] | null
+  filter?: string | null
+  limit?: number | null
+}
+
+export interface SearchRankingComponent {
+  name: string
+  value: number
+  weight: number
+  contribution: number
+  usedForRanking: boolean
+  reason: string
+}
+
+export interface SearchRankingItemExplanation {
+  rank: number
+  kind: SearchAssetKind
+  id: string
+  title: string
+  score: number
+  scoreDeltaFromTop: number
+  reason: string
+  matchedTerms: string[]
+  missingTerms: string[]
+  matchedFields: string[]
+  components: SearchRankingComponent[]
+  sourceId: string | null
+  chunkIndex: number | null
+  metadataJson: string
+}
+
+export interface SearchRankingExplanation {
+  query: string
+  queryTerms: string[]
+  ranker: string
+  diagnosticModel: string
+  resultCount: number
+  analyzedCount: number
+  maxScore: number | null
+  minScore: number | null
+  items: SearchRankingItemExplanation[]
+  warnings: string[]
+  generatedAt: string
+}
+
+export interface BlockReferenceInput {
+  kind: SearchAssetKind
+  id: string
+  query?: string | null
+  limit?: number | null
+  includeRelated?: boolean | null
+}
+
+export interface BlockReferenceCard {
+  index: number
+  blockKind: string
+  assetKind: SearchAssetKind
+  assetId: string
+  blockId: string
+  title: string
+  excerpt: string
+  locator: string
+  sourceId: string | null
+  chunkIndex: number | null
+  matchedTerms: string[]
+  matchedFields: string[]
+  reason: string
+  score: number
+  commandName: string
+  wrapperName: string
+  inputJson: string
+  metadataJson: string
+  blockHash: string
+}
+
+export interface BlockReferenceManifest {
+  rootKind: SearchAssetKind
+  rootId: string
+  rootTitle: string | null
+  query: string | null
+  blockCount: number
+  cards: BlockReferenceCard[]
+  warnings: string[]
+  generatedAt: string
+  sourceInspiration: string
+}
+
+export interface BoardSnapshotInput {
+  kind: SearchAssetKind
+  id: string
+  query?: string | null
+  limit?: number | null
+  includeRelated?: boolean | null
+}
+
+export interface BoardSnapshotNode {
+  index: number
+  nodeId: string
+  lane: string
+  x: number
+  y: number
+  assetKind: SearchAssetKind
+  assetId: string
+  blockKind: string
+  blockId: string
+  title: string
+  excerpt: string
+  locator: string
+  commandName: string
+  wrapperName: string
+  inputJson: string
+  blockHash: string
+}
+
+export interface BoardSnapshotEdge {
+  fromNodeId: string
+  toNodeId: string
+  relation: string
+  reason: string
+}
+
+export interface BoardSnapshotExport {
+  rootKind: SearchAssetKind
+  rootId: string
+  title: string
+  nodeCount: number
+  edgeCount: number
+  nodes: BoardSnapshotNode[]
+  edges: BoardSnapshotEdge[]
+  markdown: string
+  warnings: string[]
+  generatedAt: string
+  sourceInspiration: string
+}
+
+export interface RetrievalContextInput {
+  query: string
+  kinds?: SearchAssetKind[] | null
+  filter?: string | null
+  limit?: number | null
+  maxCharsPerItem?: number | null
+}
+
+export interface RetrievalContextItem {
+  index: number
+  kind: SearchAssetKind
+  id: string
+  title: string
+  excerpt: string
+  reason: string
+  score: number
+  sourceId: string | null
+  chunkIndex: number | null
+  metadataJson: string
+}
+
+export interface RetrievalContext {
+  query: string
+  itemCount: number
+  totalChars: number
+  items: RetrievalContextItem[]
+  warnings: string[]
+}
+
+export type RetrievalProfileMode = 'automatic' | 'query' | 'chat'
+
+export interface SaveRetrievalProfileInput {
+  name: string
+  description?: string | null
+  query: string
+  kinds?: SearchAssetKind[] | null
+  filter?: string | null
+  savedSearchId?: string | null
+  limit?: number | null
+  maxCharsPerItem?: number | null
+  minScore?: number | null
+  mode?: RetrievalProfileMode | null
+}
+
+export interface RetrievalProfile {
+  id: string
+  name: string
+  description: string | null
+  query: string
+  kinds: SearchAssetKind[]
+  filter: string | null
+  savedSearchId: string | null
+  limit: number
+  maxCharsPerItem: number
+  minScore: number
+  mode: RetrievalProfileMode
+  createdAt: string
+  updatedAt: string
+}
+
+export interface PreviewRetrievalProfileInput {
+  id: string
+  queryOverride?: string | null
+  limit?: number | null
+  maxCharsPerItem?: number | null
+}
+
+export interface RetrievalProfilePreview {
+  profile: RetrievalProfile
+  savedSearch: SavedAssetSearch | null
+  effectiveQuery: string
+  effectiveKinds: SearchAssetKind[]
+  effectiveFilter: string | null
+  minScore: number
+  context: RetrievalContext
+  warnings: string[]
+}
+
+export interface BacklinkSuggestionInput {
+  kind: SearchAssetKind
+  id: string
+  limit?: number | null
+}
+
+export interface BacklinkSuggestion {
+  targetKind: SearchAssetKind
+  targetId: string
+  candidateKind: SearchAssetKind
+  candidateId: string
+  candidateTitle: string
+  candidateExcerpt: string
+  relation: AssetRelation
+  reason: string
+  score: number
+  existingRelation: boolean
+  sourceId: string | null
+  chunkIndex: number | null
+  metadataJson: string
+}
+
+export interface SaveAssetSearchInput {
+  name: string
+  query: string
+  kinds?: SearchAssetKind[] | null
+  filter?: string | null
+  limit?: number | null
+}
+
+export interface SavedAssetSearch {
+  id: string
+  name: string
+  query: string
+  kinds: SearchAssetKind[]
+  filter: string | null
+  limit: number
+  createdAt: string
+  updatedAt: string
+}
+
+export interface SavedAssetSearchPreview {
+  search: SavedAssetSearch
+  resultCount: number
+  results: SearchAssetResult[]
+  warnings: string[]
+}
+
+export type QuickCaptureStatus = 'inbox' | 'resolved' | 'dismissed'
+
+export type QuickCaptureTargetKind = 'journal' | 'point' | 'source'
+
+export interface SaveQuickCaptureInput {
+  content: string
+  tags: string[]
+  sourceKind?: string | null
+}
+
+export interface ResolveQuickCaptureInput {
+  id: string
+  targetKind: QuickCaptureTargetKind
+  title?: string | null
+  query?: string | null
+  parentId?: string | null
+}
+
+export interface QuickCaptureItem {
+  id: string
+  content: string
+  tags: string[]
+  sourceKind: string
+  status: QuickCaptureStatus
+  resolvedKind: QuickCaptureTargetKind | null
+  resolvedId: string | null
+  resolvedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface QuickCaptureResolution {
+  item: QuickCaptureItem
+  journal: JournalEntry | null
+  point: StoredPoint | null
+  source: SourceDocumentRecord | null
 }
 
 export type AssetRelation =
@@ -595,6 +1259,37 @@ export interface OpenDataMirrorPruneResult {
   manifest: OpenDataMirrorManifest | null
 }
 
+export type ExportSyncAuditStatus = 'in_sync' | 'out_of_sync' | 'needs_config' | 'error' | string
+
+export interface ExportSyncAuditItem {
+  kind: string | null
+  id: string | null
+  title: string | null
+  path: string | null
+  status: string
+  action: string
+  currentHash: string | null
+  previousHash: string | null
+  message: string
+}
+
+export interface ExportSyncAuditReport {
+  generatedAt: string
+  status: ExportSyncAuditStatus
+  rootPath: string | null
+  manifestVersion: number | null
+  currentAssetCount: number
+  manifestAssetCount: number
+  inSyncCount: number
+  pendingWriteCount: number
+  pendingOverwriteCount: number
+  pendingPruneCount: number
+  errorCount: number
+  items: ExportSyncAuditItem[]
+  warnings: string[]
+  sourceInspiration: string
+}
+
 export interface IndexedFolder {
   id: string
   path: string
@@ -631,6 +1326,68 @@ export interface IndexedFolderScanResult {
   files: IndexedFile[]
   indexedCount: number
   metadataOnlyCount: number
+}
+
+export type ImportDiagnosticSeverity = 'ok' | 'warning' | 'critical' | string
+
+export interface ImportDiagnosticsInput {
+  folderId?: string | null
+  statuses?: string[] | null
+  includeOk?: boolean | null
+  limit?: number | null
+}
+
+export interface ImportDiagnosticItem {
+  id: string
+  folderId: string
+  folderName: string
+  folderPath: string
+  fileId: string
+  fileName: string
+  path: string
+  extension: string | null
+  descriptorKind: string
+  readStatus: string
+  indexStatus: string
+  severity: ImportDiagnosticSeverity
+  issueKind: string
+  message: string
+  recoveryAction: string
+  commandName: string
+  wrapperName: string
+  inputJson: string
+  sourceId: string | null
+  indexedAt: string
+  lastError: string | null
+  metadataJson: string
+}
+
+export interface ImportFolderDiagnosticSummary {
+  folderId: string
+  folderName: string
+  folderPath: string
+  lastScannedAt: string | null
+  totalFiles: number
+  okCount: number
+  metadataOnlyCount: number
+  partialCount: number
+  failedCount: number
+  missingCount: number
+  staleCount: number
+  warningCount: number
+  criticalCount: number
+}
+
+export interface ImportDiagnosticsLedger {
+  generatedAt: string
+  itemCount: number
+  folderCount: number
+  okCount: number
+  warningCount: number
+  criticalCount: number
+  folders: ImportFolderDiagnosticSummary[]
+  items: ImportDiagnosticItem[]
+  warnings: string[]
 }
 
 export type RelatedRelation = 'same_view' | 'opposite_view' | 'similar_case' | 'evidence' | 'duplicate'

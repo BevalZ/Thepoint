@@ -2,15 +2,31 @@ import type {
   AnalyticsData,
   AppConfig,
   AddReviewItemInput,
+  AutomationSuggestionInput,
+  AutomationSuggestionReport,
   AssetKind,
+  BacklinkSuggestion,
+  BacklinkSuggestionInput,
+  BlockReferenceInput,
+  BlockReferenceManifest,
+  BoardSnapshotExport,
+  BoardSnapshotInput,
+  BuildReportStarterInput,
+  CapabilityScorecard,
+  CitationQualityDashboard,
   CitationLocatorInput,
   CitationLocatorResult,
   ChunkCard,
   CommentatorProfile,
+  CommandPaletteInput,
+  CommandPaletteManifest,
   ConfigProfile,
   DeepenAction,
   DigestResult,
+  DuplicateAssetInput,
+  DuplicateAssetReport,
   EvidenceRecord,
+  ExportSyncAuditReport,
   ExtractedPoint,
   FactCheckResult,
   FileMetadata,
@@ -22,7 +38,13 @@ import type {
   GalleryPromptPreview,
   GallerySourcePoint,
   GenerateSuggestionResult,
+  GraphNeighborhoodInput,
+  GraphNeighborhoodPreview,
+  ImportDiagnosticsInput,
+  ImportDiagnosticsLedger,
   IndexedFile,
+  InvestigationQaEvalInput,
+  InvestigationQaEvalReport,
   InvestigationInput,
   MirrorExportResult,
   OpenDataMirrorManifest,
@@ -31,17 +53,37 @@ import type {
   OpenDataMirrorConfig,
   MentalModel,
   PointSourceLinkInput,
+  QuickCaptureItem,
+  QuickCaptureResolution,
+  QuickCaptureStatus,
+  ReprocessQueue,
+  ReprocessQueueInput,
   RelatedClassification,
   RelatedCandidateInput,
+  ResolveQuickCaptureInput,
+  PreviewRetrievalProfileInput,
   ReportCitationAudit,
   ReportAuditRecord,
   ReportInvocationAudit,
   ReportRecord,
+  ReportStarterDraft,
+  ReportStarterTemplate,
+  RetrievalContext,
+  RetrievalContextInput,
+  RetrievalProfile,
+  RetrievalProfilePreview,
   ReviewQueuePlan,
   ReviewQueuePlanInput,
   ReviewRating,
+  SaveAssetSearchInput,
+  SavedAssetSearch,
+  SavedAssetSearchPreview,
+  SaveQuickCaptureInput,
+  SaveRetrievalProfileInput,
   SaveReportInput,
   SaveJournalEntryInput,
+  SearchRankingExplanation,
+  SearchRankingExplanationInput,
   SearchAssetsInput,
   SourceAssetsRecord,
   SourceDocumentRecord,
@@ -134,6 +176,114 @@ export const searchEvidence = (query: string): Promise<EvidenceRecord[]> =>
 export const searchAssets = (input: SearchAssetsInput) =>
   invokeCommand('search_assets', { input })
 
+export const explainSearchRanking = (
+  input: SearchRankingExplanationInput
+): Promise<SearchRankingExplanation> => invokeCommand('explain_search_ranking', { input })
+
+export const buildBlockReferenceManifest = (
+  input: BlockReferenceInput
+): Promise<BlockReferenceManifest> => invokeCommand('build_block_reference_manifest', { input })
+
+export const buildBoardSnapshotExport = (
+  input: BoardSnapshotInput
+): Promise<BoardSnapshotExport> => invokeCommand('build_board_snapshot_export', { input })
+
+export const buildRetrievalContext = (input: RetrievalContextInput): Promise<RetrievalContext> =>
+  invokeCommand('build_retrieval_context', { input })
+
+export const suggestBacklinks = (
+  input: BacklinkSuggestionInput,
+): Promise<BacklinkSuggestion[]> => invokeCommand('suggest_backlinks', { input })
+
+export const saveAssetSearch = (input: SaveAssetSearchInput): Promise<SavedAssetSearch> =>
+  invokeCommand('save_asset_search', { input })
+
+export const listSavedAssetSearches = (): Promise<SavedAssetSearch[]> =>
+  invokeCommand('list_saved_asset_searches')
+
+export const previewSavedAssetSearch = (
+  id: string,
+  limit?: number | null
+): Promise<SavedAssetSearchPreview | null> =>
+  invokeCommand('preview_saved_asset_search', { id, limit: limit ?? null })
+
+export const deleteSavedAssetSearch = (id: string): Promise<void> =>
+  invokeCommand('delete_saved_asset_search', { id })
+
+export const saveRetrievalProfile = (
+  input: SaveRetrievalProfileInput
+): Promise<RetrievalProfile> => invokeCommand('save_retrieval_profile', { input })
+
+export const listRetrievalProfiles = (): Promise<RetrievalProfile[]> =>
+  invokeCommand('list_retrieval_profiles')
+
+export const previewRetrievalProfile = (
+  input: PreviewRetrievalProfileInput
+): Promise<RetrievalProfilePreview | null> =>
+  invokeCommand('preview_retrieval_profile', { input })
+
+export const deleteRetrievalProfile = (id: string): Promise<void> =>
+  invokeCommand('delete_retrieval_profile', { id })
+
+export const saveQuickCapture = (input: SaveQuickCaptureInput): Promise<QuickCaptureItem> =>
+  invokeCommand('save_quick_capture', { input })
+
+export const listQuickCaptures = (
+  status?: QuickCaptureStatus | null,
+  limit?: number | null
+): Promise<QuickCaptureItem[]> =>
+  invokeCommand('list_quick_captures', { status: status ?? null, limit: limit ?? null })
+
+export const resolveQuickCapture = (
+  input: ResolveQuickCaptureInput
+): Promise<QuickCaptureResolution | null> =>
+  invokeCommand('resolve_quick_capture', { input })
+
+export const dismissQuickCapture = (id: string): Promise<QuickCaptureItem | null> =>
+  invokeCommand('dismiss_quick_capture', { id })
+
+export const listReportStarterTemplates = (
+  category?: string | null,
+  query?: string | null
+): Promise<ReportStarterTemplate[]> =>
+  invokeCommand('list_report_starter_templates', {
+    category: category ?? null,
+    query: query ?? null,
+  })
+
+export const listCommandPaletteItems = (
+  input: CommandPaletteInput = {}
+): Promise<CommandPaletteManifest> => invokeCommand('list_command_palette_items', { input })
+
+export const buildCapabilityScorecard = (): Promise<CapabilityScorecard> =>
+  invokeCommand('build_capability_scorecard')
+
+export const loadAutomationSuggestions = (
+  input: AutomationSuggestionInput = {}
+): Promise<AutomationSuggestionReport> => invokeCommand('load_automation_suggestions', { input })
+
+export const loadImportDiagnosticsLedger = (
+  input: ImportDiagnosticsInput = {}
+): Promise<ImportDiagnosticsLedger> =>
+  invokeCommand('load_import_diagnostics_ledger', { input })
+
+export const buildReportStarter = (
+  input: BuildReportStarterInput
+): Promise<ReportStarterDraft> => invokeCommand('build_report_starter', { input })
+
+export const loadReprocessQueue = (
+  input: ReprocessQueueInput = {}
+): Promise<ReprocessQueue> => invokeCommand('load_reprocess_queue', { input })
+
+export const detectDuplicateAssets = (
+  input: DuplicateAssetInput = {}
+): Promise<DuplicateAssetReport> => invokeCommand('detect_duplicate_assets', { input })
+
+export const buildGraphNeighborhoodPreview = (
+  input: GraphNeighborhoodInput
+): Promise<GraphNeighborhoodPreview> =>
+  invokeCommand('build_graph_neighborhood_preview', { input })
+
 export const saveReport = (input: SaveReportInput): Promise<ReportRecord> =>
   invokeCommand('save_report', { input })
 
@@ -157,6 +307,15 @@ export const loadReportInvocationAudit = (reportId: string): Promise<ReportInvoc
 
 export const loadReportAudit = (reportId: string): Promise<ReportAuditRecord | null> =>
   invokeCommand('load_report_audit', { reportId })
+
+export const loadCitationQualityDashboard = (
+  limit?: number | null
+): Promise<CitationQualityDashboard> =>
+  invokeCommand('load_citation_quality_dashboard', { limit: limit ?? null })
+
+export const runInvestigationQaEval = (
+  input: InvestigationQaEvalInput = {}
+): Promise<InvestigationQaEvalReport> => invokeCommand('run_investigation_qa_eval', { input })
 
 export const deleteReport = (reportId: string): Promise<void> =>
   invokeCommand('delete_report', { reportId })
@@ -210,6 +369,9 @@ export const setOpenDataMirrorConfig = (config: OpenDataMirrorConfig) =>
 
 export const buildOpenDataMirrorPlan = (): Promise<OpenDataMirrorPlan> =>
   invokeCommand('build_open_data_mirror_plan')
+
+export const buildExportSyncAudit = (): Promise<ExportSyncAuditReport> =>
+  invokeCommand('build_export_sync_audit')
 
 export const exportOpenDataMirror = (): Promise<MirrorExportResult> =>
   invokeCommand('export_open_data_mirror')

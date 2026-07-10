@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -136,6 +136,313 @@ pub struct SearchAssetResult {
     pub metadata_json: String,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchRankingExplanationInput {
+    pub query: String,
+    pub kinds: Option<Vec<String>>,
+    pub filter: Option<String>,
+    pub limit: Option<i64>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchRankingComponent {
+    pub name: String,
+    pub value: f64,
+    pub weight: f64,
+    pub contribution: f64,
+    pub used_for_ranking: bool,
+    pub reason: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchRankingItemExplanation {
+    pub rank: i64,
+    pub kind: String,
+    pub id: String,
+    pub title: String,
+    pub score: f64,
+    pub score_delta_from_top: f64,
+    pub reason: String,
+    pub matched_terms: Vec<String>,
+    pub missing_terms: Vec<String>,
+    pub matched_fields: Vec<String>,
+    pub components: Vec<SearchRankingComponent>,
+    pub source_id: Option<String>,
+    pub chunk_index: Option<i64>,
+    pub metadata_json: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SearchRankingExplanation {
+    pub query: String,
+    pub query_terms: Vec<String>,
+    pub ranker: String,
+    pub diagnostic_model: String,
+    pub result_count: i64,
+    pub analyzed_count: i64,
+    pub max_score: Option<f64>,
+    pub min_score: Option<f64>,
+    pub items: Vec<SearchRankingItemExplanation>,
+    pub warnings: Vec<String>,
+    pub generated_at: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct BlockReferenceInput {
+    pub kind: String,
+    pub id: String,
+    pub query: Option<String>,
+    pub limit: Option<i64>,
+    pub include_related: Option<bool>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct BlockReferenceCard {
+    pub index: i64,
+    pub block_kind: String,
+    pub asset_kind: String,
+    pub asset_id: String,
+    pub block_id: String,
+    pub title: String,
+    pub excerpt: String,
+    pub locator: String,
+    pub source_id: Option<String>,
+    pub chunk_index: Option<i64>,
+    pub matched_terms: Vec<String>,
+    pub matched_fields: Vec<String>,
+    pub reason: String,
+    pub score: f64,
+    pub command_name: String,
+    pub wrapper_name: String,
+    pub input_json: String,
+    pub metadata_json: String,
+    pub block_hash: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct BlockReferenceManifest {
+    pub root_kind: String,
+    pub root_id: String,
+    pub root_title: Option<String>,
+    pub query: Option<String>,
+    pub block_count: i64,
+    pub cards: Vec<BlockReferenceCard>,
+    pub warnings: Vec<String>,
+    pub generated_at: String,
+    pub source_inspiration: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct BoardSnapshotInput {
+    pub kind: String,
+    pub id: String,
+    pub query: Option<String>,
+    pub limit: Option<i64>,
+    pub include_related: Option<bool>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct BoardSnapshotNode {
+    pub index: i64,
+    pub node_id: String,
+    pub lane: String,
+    pub x: i64,
+    pub y: i64,
+    pub asset_kind: String,
+    pub asset_id: String,
+    pub block_kind: String,
+    pub block_id: String,
+    pub title: String,
+    pub excerpt: String,
+    pub locator: String,
+    pub command_name: String,
+    pub wrapper_name: String,
+    pub input_json: String,
+    pub block_hash: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct BoardSnapshotEdge {
+    pub from_node_id: String,
+    pub to_node_id: String,
+    pub relation: String,
+    pub reason: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct BoardSnapshotExport {
+    pub root_kind: String,
+    pub root_id: String,
+    pub title: String,
+    pub node_count: i64,
+    pub edge_count: i64,
+    pub nodes: Vec<BoardSnapshotNode>,
+    pub edges: Vec<BoardSnapshotEdge>,
+    pub markdown: String,
+    pub warnings: Vec<String>,
+    pub generated_at: String,
+    pub source_inspiration: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct RetrievalContextInput {
+    pub query: String,
+    pub kinds: Option<Vec<String>>,
+    pub filter: Option<String>,
+    pub limit: Option<i64>,
+    pub max_chars_per_item: Option<i64>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct RetrievalContextItem {
+    pub index: i64,
+    pub kind: String,
+    pub id: String,
+    pub title: String,
+    pub excerpt: String,
+    pub reason: String,
+    pub score: f64,
+    pub source_id: Option<String>,
+    pub chunk_index: Option<i64>,
+    pub metadata_json: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct RetrievalContext {
+    pub query: String,
+    pub item_count: i64,
+    pub total_chars: i64,
+    pub items: Vec<RetrievalContextItem>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct BacklinkSuggestionInput {
+    pub kind: String,
+    pub id: String,
+    pub limit: Option<i64>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct BacklinkSuggestion {
+    pub target_kind: String,
+    pub target_id: String,
+    pub candidate_kind: String,
+    pub candidate_id: String,
+    pub candidate_title: String,
+    pub candidate_excerpt: String,
+    pub relation: String,
+    pub reason: String,
+    pub score: f64,
+    pub existing_relation: bool,
+    pub source_id: Option<String>,
+    pub chunk_index: Option<i64>,
+    pub metadata_json: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveAssetSearchInput {
+    pub name: String,
+    pub query: String,
+    pub kinds: Option<Vec<String>>,
+    pub filter: Option<String>,
+    pub limit: Option<i64>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedAssetSearch {
+    pub id: String,
+    pub name: String,
+    pub query: String,
+    pub kinds: Vec<String>,
+    pub filter: Option<String>,
+    pub limit: i64,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedAssetSearchPreview {
+    pub search: SavedAssetSearch,
+    pub result_count: i64,
+    pub results: Vec<SearchAssetResult>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveRetrievalProfileInput {
+    pub name: String,
+    pub description: Option<String>,
+    pub query: String,
+    pub kinds: Option<Vec<String>>,
+    pub filter: Option<String>,
+    pub saved_search_id: Option<String>,
+    pub limit: Option<i64>,
+    pub max_chars_per_item: Option<i64>,
+    pub min_score: Option<f64>,
+    pub mode: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct RetrievalProfile {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub query: String,
+    pub kinds: Vec<String>,
+    pub filter: Option<String>,
+    pub saved_search_id: Option<String>,
+    pub limit: i64,
+    pub max_chars_per_item: i64,
+    pub min_score: f64,
+    pub mode: String,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewRetrievalProfileInput {
+    pub id: String,
+    pub query_override: Option<String>,
+    pub limit: Option<i64>,
+    pub max_chars_per_item: Option<i64>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct RetrievalProfilePreview {
+    pub profile: RetrievalProfile,
+    pub saved_search: Option<SavedAssetSearch>,
+    pub effective_query: String,
+    pub effective_kinds: Vec<String>,
+    pub effective_filter: Option<String>,
+    pub min_score: f64,
+    pub context: RetrievalContext,
+    pub warnings: Vec<String>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum SearchAssetFilter {
     Kind(String),
@@ -222,6 +529,317 @@ pub struct SaveReportInput {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
+pub struct ReportStarterTemplate {
+    pub id: String,
+    pub name: String,
+    pub category: String,
+    pub kind: String,
+    pub description: String,
+    pub sections: Vec<String>,
+    pub source_inspiration: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct BuildReportStarterInput {
+    pub template_id: String,
+    pub query: String,
+    pub source_ids: Vec<String>,
+    pub point_ids: Vec<String>,
+    pub evidence_ids: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ReportStarterContextItem {
+    pub kind: String,
+    pub id: String,
+    pub label: String,
+    pub title: String,
+    pub excerpt: String,
+    pub reason: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ReportStarterDraft {
+    pub template: ReportStarterTemplate,
+    pub save_input: SaveReportInput,
+    pub context_items: Vec<ReportStarterContextItem>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ReprocessQueueInput {
+    pub kinds: Option<Vec<String>>,
+    pub limit: Option<i64>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ReprocessQueueItem {
+    pub target_kind: String,
+    pub target_id: String,
+    pub title: String,
+    pub severity: String,
+    pub issue_kind: String,
+    pub reason: String,
+    pub suggested_action: String,
+    pub source_id: Option<String>,
+    pub folder_id: Option<String>,
+    pub metadata_json: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ReprocessQueue {
+    pub generated_at: String,
+    pub item_count: i64,
+    pub critical_count: i64,
+    pub warning_count: i64,
+    pub items: Vec<ReprocessQueueItem>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct DuplicateAssetInput {
+    pub kinds: Option<Vec<String>>,
+    pub limit: Option<i64>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct DuplicateAssetCandidate {
+    pub kind: String,
+    pub id: String,
+    pub title: String,
+    pub excerpt: String,
+    pub fingerprint: String,
+    pub metadata_json: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct DuplicateAssetGroup {
+    pub group_id: String,
+    pub duplicate_key: String,
+    pub match_kind: String,
+    pub score: f64,
+    pub reason: String,
+    pub candidates: Vec<DuplicateAssetCandidate>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct DuplicateAssetReport {
+    pub generated_at: String,
+    pub group_count: i64,
+    pub candidate_count: i64,
+    pub groups: Vec<DuplicateAssetGroup>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphNeighborhoodInput {
+    pub kind: String,
+    pub id: String,
+    pub depth: Option<i64>,
+    pub include_suggestions: Option<bool>,
+    pub limit: Option<i64>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphNeighborhoodNode {
+    pub kind: String,
+    pub id: String,
+    pub title: String,
+    pub label: String,
+    pub depth: i64,
+    pub root: bool,
+    pub asset_exists: bool,
+    pub metadata_json: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphNeighborhoodEdge {
+    pub from_kind: String,
+    pub from_id: String,
+    pub to_kind: String,
+    pub to_id: String,
+    pub relation: String,
+    pub reason: String,
+    pub score: f64,
+    pub edge_kind: String,
+    pub provenance: String,
+    pub existing_relation: bool,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct GraphNeighborhoodPreview {
+    pub generated_at: String,
+    pub root_kind: String,
+    pub root_id: String,
+    pub depth: i64,
+    pub node_count: i64,
+    pub edge_count: i64,
+    pub nodes: Vec<GraphNeighborhoodNode>,
+    pub edges: Vec<GraphNeighborhoodEdge>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandPaletteInput {
+    pub query: Option<String>,
+    pub category: Option<String>,
+    pub limit: Option<i64>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandPaletteItem {
+    pub id: String,
+    pub title: String,
+    pub category: String,
+    pub description: String,
+    pub keywords: Vec<String>,
+    pub command_name: String,
+    pub wrapper_name: String,
+    pub execution_kind: String,
+    pub required_input: Vec<String>,
+    pub input_hint: String,
+    pub risk: String,
+    pub shortcut_hint: Option<String>,
+    pub source_inspiration: String,
+    pub priority: i64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct CommandPaletteManifest {
+    pub generated_at: String,
+    pub item_count: i64,
+    pub categories: Vec<String>,
+    pub items: Vec<CommandPaletteItem>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct AutomationSuggestionInput {
+    pub categories: Option<Vec<String>>,
+    pub limit: Option<i64>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct AutomationSuggestionItem {
+    pub id: String,
+    pub category: String,
+    pub priority: String,
+    pub priority_score: i64,
+    pub subject: String,
+    pub summary: String,
+    pub reason: String,
+    pub action_label: String,
+    pub command_name: String,
+    pub wrapper_name: String,
+    pub input_json: String,
+    pub target_kind: Option<String>,
+    pub target_id: Option<String>,
+    pub schedule_hint: String,
+    pub source_inspiration: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct AutomationSuggestionReport {
+    pub generated_at: String,
+    pub item_count: i64,
+    pub critical_count: i64,
+    pub high_count: i64,
+    pub normal_count: i64,
+    pub low_count: i64,
+    pub items: Vec<AutomationSuggestionItem>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportDiagnosticsInput {
+    pub folder_id: Option<String>,
+    pub statuses: Option<Vec<String>>,
+    pub include_ok: Option<bool>,
+    pub limit: Option<i64>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportDiagnosticItem {
+    pub id: String,
+    pub folder_id: String,
+    pub folder_name: String,
+    pub folder_path: String,
+    pub file_id: String,
+    pub file_name: String,
+    pub path: String,
+    pub extension: Option<String>,
+    pub descriptor_kind: String,
+    pub read_status: String,
+    pub index_status: String,
+    pub severity: String,
+    pub issue_kind: String,
+    pub message: String,
+    pub recovery_action: String,
+    pub command_name: String,
+    pub wrapper_name: String,
+    pub input_json: String,
+    pub source_id: Option<String>,
+    pub indexed_at: String,
+    pub last_error: Option<String>,
+    pub metadata_json: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportFolderDiagnosticSummary {
+    pub folder_id: String,
+    pub folder_name: String,
+    pub folder_path: String,
+    pub last_scanned_at: Option<String>,
+    pub total_files: i64,
+    pub ok_count: i64,
+    pub metadata_only_count: i64,
+    pub partial_count: i64,
+    pub failed_count: i64,
+    pub missing_count: i64,
+    pub stale_count: i64,
+    pub warning_count: i64,
+    pub critical_count: i64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportDiagnosticsLedger {
+    pub generated_at: String,
+    pub item_count: i64,
+    pub folder_count: i64,
+    pub ok_count: i64,
+    pub warning_count: i64,
+    pub critical_count: i64,
+    pub folders: Vec<ImportFolderDiagnosticSummary>,
+    pub items: Vec<ImportDiagnosticItem>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct ReportClaimRecord {
     pub id: String,
     pub report_id: String,
@@ -304,6 +922,148 @@ pub struct ReportAuditRecord {
     pub claims: Vec<ReportClaimRecord>,
     pub citations: Vec<ReportCitationRecord>,
     pub coverage: ReportAuditCoverage,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct InvestigationQaEvalInput {
+    pub report_id: Option<String>,
+    pub limit: Option<i64>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct InvestigationQaEvalCheck {
+    pub name: String,
+    pub status: String,
+    pub score: f64,
+    pub message: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct InvestigationQaEvalCase {
+    pub case_id: String,
+    pub report_id: String,
+    pub title: String,
+    pub question: String,
+    pub expected_citation_kinds: Vec<String>,
+    pub unique_citation_targets: i64,
+    pub status: String,
+    pub score: f64,
+    pub checks: Vec<InvestigationQaEvalCheck>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct InvestigationQaEvalReport {
+    pub generated_at: String,
+    pub case_count: i64,
+    pub pass_count: i64,
+    pub warning_count: i64,
+    pub fail_count: i64,
+    pub average_score: f64,
+    pub cases: Vec<InvestigationQaEvalCase>,
+    pub warnings: Vec<String>,
+    pub source_inspiration: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct CapabilityScorecardItem {
+    pub round: i64,
+    pub source_inspiration: String,
+    pub capability: String,
+    pub status: String,
+    pub boundary: String,
+    pub impact_score: f64,
+    pub risk_score: f64,
+    pub readiness: String,
+    pub command_names: Vec<String>,
+    pub verification: String,
+    pub next_step: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct CapabilityScorecard {
+    pub generated_at: String,
+    pub item_count: i64,
+    pub completed_count: i64,
+    pub read_only_count: i64,
+    pub write_count: i64,
+    pub draft_count: i64,
+    pub model_call_count: i64,
+    pub average_impact_score: f64,
+    pub average_risk_score: f64,
+    pub items: Vec<CapabilityScorecardItem>,
+    pub recommendations: Vec<String>,
+    pub source_inspiration: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct CitationQualityDashboard {
+    pub generated_at: String,
+    pub report_count: i64,
+    pub audited_report_count: i64,
+    pub total_claims: i64,
+    pub cited_claims: i64,
+    pub inferred_claims: i64,
+    pub unsupported_claims: i64,
+    pub total_citations: i64,
+    pub located_citations: i64,
+    pub warning_citations: i64,
+    pub missing_citations: i64,
+    pub stale_citations: i64,
+    pub ambiguous_citations: i64,
+    pub not_found_citations: i64,
+    pub target_missing_citations: i64,
+    pub not_applicable_citations: i64,
+    pub coverage_ratio: f64,
+    pub quality_score: f64,
+    pub reports: Vec<CitationQualityReportRow>,
+    pub problem_citations: Vec<CitationQualityProblemCitation>,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct CitationQualityReportRow {
+    pub report_id: String,
+    pub title: String,
+    pub kind: String,
+    pub created_at: String,
+    pub total_claims: i64,
+    pub cited_claims: i64,
+    pub inferred_claims: i64,
+    pub unsupported_claims: i64,
+    pub total_citations: i64,
+    pub located_citations: i64,
+    pub warning_citations: i64,
+    pub missing_citations: i64,
+    pub coverage_ratio: f64,
+    pub quality_score: f64,
+    pub severity: String,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct CitationQualityProblemCitation {
+    pub report_id: String,
+    pub report_title: String,
+    pub citation_index: i64,
+    pub label: Option<String>,
+    pub title: Option<String>,
+    pub target_kind: String,
+    pub target_id: String,
+    pub locator_status: String,
+    pub reason: String,
+    pub source_id: Option<String>,
+    pub chunk_index: Option<i64>,
+    pub message: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -408,6 +1168,48 @@ pub struct SaveJournalEntryInput {
     pub report_ids: Vec<String>,
     pub created_report_id: Option<String>,
     pub source_kind: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveQuickCaptureInput {
+    pub content: String,
+    pub tags: Vec<String>,
+    pub source_kind: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ResolveQuickCaptureInput {
+    pub id: String,
+    pub target_kind: String,
+    pub title: Option<String>,
+    pub query: Option<String>,
+    pub parent_id: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct QuickCaptureItem {
+    pub id: String,
+    pub content: String,
+    pub tags: Vec<String>,
+    pub source_kind: String,
+    pub status: String,
+    pub resolved_kind: Option<String>,
+    pub resolved_id: Option<String>,
+    pub resolved_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct QuickCaptureResolution {
+    pub item: QuickCaptureItem,
+    pub journal: Option<JournalEntry>,
+    pub point: Option<StoredPoint>,
+    pub source: Option<SourceDocumentRecord>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -818,6 +1620,49 @@ pub fn init_db(conn: &Connection) -> Result<()> {
     migrate_reports_allow_investigation(conn)?;
 
     conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS saved_asset_searches (
+            id              TEXT PRIMARY KEY,
+            name            TEXT NOT NULL UNIQUE,
+            query           TEXT NOT NULL,
+            kinds_json      TEXT NOT NULL,
+            filter          TEXT,
+            limit_value     INTEGER NOT NULL,
+            created_at      TEXT NOT NULL,
+            updated_at      TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_saved_asset_searches_updated_at
+            ON saved_asset_searches(updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_saved_asset_searches_name
+            ON saved_asset_searches(name);",
+    )
+    .context("failed to create saved asset searches table")?;
+
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS retrieval_profiles (
+            id                  TEXT PRIMARY KEY,
+            name                TEXT NOT NULL UNIQUE,
+            description         TEXT,
+            query               TEXT NOT NULL,
+            kinds_json          TEXT NOT NULL,
+            filter              TEXT,
+            saved_search_id     TEXT,
+            limit_value         INTEGER NOT NULL,
+            max_chars_per_item  INTEGER NOT NULL,
+            min_score           REAL NOT NULL DEFAULT 0.0,
+            mode                TEXT NOT NULL CHECK (mode IN ('automatic', 'query', 'chat')),
+            created_at          TEXT NOT NULL,
+            updated_at          TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_retrieval_profiles_updated_at
+            ON retrieval_profiles(updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_retrieval_profiles_name
+            ON retrieval_profiles(name);
+        CREATE INDEX IF NOT EXISTS idx_retrieval_profiles_saved_search
+            ON retrieval_profiles(saved_search_id);",
+    )
+    .context("failed to create retrieval profiles table")?;
+
+    conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS report_citations (
             id                  TEXT PRIMARY KEY,
             report_id           TEXT NOT NULL,
@@ -925,6 +1770,26 @@ pub fn init_db(conn: &Connection) -> Result<()> {
             ON journal_entries(invalidated_at);",
     )
     .context("failed to create journal entries table")?;
+
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS quick_capture_items (
+            id              TEXT PRIMARY KEY,
+            content         TEXT NOT NULL,
+            tags_json       TEXT NOT NULL,
+            source_kind     TEXT NOT NULL,
+            status          TEXT NOT NULL CHECK (status IN ('inbox', 'resolved', 'dismissed')),
+            resolved_kind   TEXT,
+            resolved_id     TEXT,
+            resolved_at     TEXT,
+            created_at      TEXT NOT NULL,
+            updated_at      TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_quick_capture_items_status_updated
+            ON quick_capture_items(status, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_quick_capture_items_resolved
+            ON quick_capture_items(resolved_kind, resolved_id);",
+    )
+    .context("failed to create quick capture items table")?;
 
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS asset_relations (
@@ -1413,7 +2278,10 @@ pub fn search_workspace(
     Ok(results)
 }
 
-pub fn search_assets(conn: &Connection, input: SearchAssetsInput) -> Result<Vec<SearchAssetResult>> {
+pub fn search_assets(
+    conn: &Connection,
+    input: SearchAssetsInput,
+) -> Result<Vec<SearchAssetResult>> {
     let query = input.query.trim();
     if query.is_empty() {
         return Ok(Vec::new());
@@ -1478,7 +2346,8 @@ pub fn search_assets(conn: &Connection, input: SearchAssetsInput) -> Result<Vec<
 
     if allowed_kinds.contains("report") {
         for report in search_reports(conn, query, limit)? {
-            if matches!(filter, Some(SearchAssetFilter::ReportKind(ref kind)) if report.kind != *kind) {
+            if matches!(filter, Some(SearchAssetFilter::ReportKind(ref kind)) if report.kind != *kind)
+            {
                 continue;
             }
             results.push(SearchAssetResult {
@@ -1489,7 +2358,11 @@ pub fn search_assets(conn: &Connection, input: SearchAssetsInput) -> Result<Vec<
                 preview: Some(compact_preview(&report.body_md, 420)),
                 reason: "Matched Report title, kind, source name, body, summary, or citations"
                     .to_string(),
-                score: if report.kind == "investigation" { 0.86 } else { 0.8 },
+                score: if report.kind == "investigation" {
+                    0.86
+                } else {
+                    0.8
+                },
                 source_id: None,
                 chunk_index: None,
                 metadata_json: serde_json::json!({ "reportKind": report.kind }).to_string(),
@@ -1586,8 +2459,2431 @@ pub fn search_assets(conn: &Connection, input: SearchAssetsInput) -> Result<Vec<
     Ok(results)
 }
 
+pub fn explain_search_ranking(
+    conn: &Connection,
+    input: SearchRankingExplanationInput,
+) -> Result<SearchRankingExplanation> {
+    let query = input.query.trim().to_string();
+    let generated_at = chrono::Utc::now().to_rfc3339();
+    let ranker = "search_assets_coarse_score_v1".to_string();
+    let diagnostic_model = "marginalia_score_components_diagnostic_v1".to_string();
+    let mut warnings = Vec::new();
+    if query.is_empty() {
+        warnings.push("empty query".to_string());
+        return Ok(SearchRankingExplanation {
+            query,
+            query_terms: Vec::new(),
+            ranker,
+            diagnostic_model,
+            result_count: 0,
+            analyzed_count: 0,
+            max_score: None,
+            min_score: None,
+            items: Vec::new(),
+            warnings,
+            generated_at,
+        });
+    }
+
+    let limit = normalize_search_assets_limit(input.limit);
+    let query_terms = search_ranking_terms(&query);
+    if query_terms.is_empty() {
+        warnings.push("query produced no rankable terms".to_string());
+    }
+    let results = search_assets(
+        conn,
+        SearchAssetsInput {
+            query: query.clone(),
+            kinds: input.kinds,
+            filter: input.filter,
+            limit: Some(limit as i64),
+        },
+    )?;
+    if results.is_empty() {
+        warnings.push("no search matches".to_string());
+    } else if results.len() == limit {
+        warnings.push("search result set reached the configured limit".to_string());
+    }
+
+    let max_score = results
+        .iter()
+        .map(|item| item.score)
+        .fold(None, |acc: Option<f64>, value| {
+            Some(acc.map_or(value, |current| current.max(value)))
+        });
+    let min_score = results
+        .iter()
+        .map(|item| item.score)
+        .fold(None, |acc: Option<f64>, value| {
+            Some(acc.map_or(value, |current| current.min(value)))
+        });
+    let top_score = max_score.unwrap_or(0.0);
+    let items = results
+        .into_iter()
+        .enumerate()
+        .map(|(index, result)| {
+            explain_search_ranking_item(index as i64 + 1, result, &query_terms, top_score)
+        })
+        .collect::<Vec<_>>();
+
+    Ok(SearchRankingExplanation {
+        query,
+        query_terms,
+        ranker,
+        diagnostic_model,
+        result_count: items.len() as i64,
+        analyzed_count: items.len() as i64,
+        max_score,
+        min_score,
+        items,
+        warnings,
+        generated_at,
+    })
+}
+
+pub fn build_block_reference_manifest(
+    conn: &Connection,
+    input: BlockReferenceInput,
+) -> Result<BlockReferenceManifest> {
+    let root_kind = input.kind.trim().to_string();
+    let root_id = input.id.trim().to_string();
+    let generated_at = chrono::Utc::now().to_rfc3339();
+    let query = optional_trimmed(input.query.as_deref());
+    let include_related = input.include_related.unwrap_or(true);
+    let limit = normalize_block_reference_limit(input.limit);
+    let query_terms = query
+        .as_deref()
+        .map(search_ranking_terms)
+        .unwrap_or_default();
+    let mut warnings = Vec::new();
+
+    if root_kind.is_empty() || root_id.is_empty() {
+        warnings.push("missing block reference target".to_string());
+        return Ok(BlockReferenceManifest {
+            root_kind,
+            root_id,
+            root_title: None,
+            query,
+            block_count: 0,
+            cards: Vec::new(),
+            warnings,
+            generated_at,
+            source_inspiration:
+                "SiYuan block references refined into Thepoint Round 16".to_string(),
+        });
+    }
+    if !valid_search_asset_kind(&root_kind) {
+        anyhow::bail!("invalid block reference target kind: {root_kind}");
+    }
+
+    let mut drafts = Vec::new();
+    let root_title = collect_block_reference_drafts(
+        conn,
+        &root_kind,
+        &root_id,
+        include_related,
+        limit.saturating_mul(3),
+        &mut drafts,
+        &mut warnings,
+    )?;
+    if root_title.is_none() {
+        warnings.push(format!(
+            "block reference target not found: {root_kind}:{root_id}"
+        ));
+    }
+
+    let mut seen = HashSet::new();
+    drafts.retain(|draft| seen.insert(draft.block_id.clone()));
+    let mut scored = drafts
+        .into_iter()
+        .enumerate()
+        .map(|(order, draft)| {
+            let card = block_reference_card_from_draft(draft, &query_terms);
+            (order, card)
+        })
+        .collect::<Vec<_>>();
+    scored.sort_by(|left, right| {
+        right
+            .1
+            .score
+            .partial_cmp(&left.1.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| left.0.cmp(&right.0))
+    });
+    scored.truncate(limit);
+    let cards = scored
+        .into_iter()
+        .enumerate()
+        .map(|(index, (_, mut card))| {
+            card.index = index as i64 + 1;
+            card
+        })
+        .collect::<Vec<_>>();
+    if cards.is_empty() && root_title.is_some() {
+        warnings.push("target produced no block reference cards".to_string());
+    } else if cards.len() == limit {
+        warnings.push("block reference result set reached the configured limit".to_string());
+    }
+
+    Ok(BlockReferenceManifest {
+        root_kind,
+        root_id,
+        root_title,
+        query,
+        block_count: cards.len() as i64,
+        cards,
+        warnings,
+        generated_at,
+        source_inspiration: "SiYuan block references refined into Thepoint Round 16".to_string(),
+    })
+}
+
+pub fn build_board_snapshot_export(
+    conn: &Connection,
+    input: BoardSnapshotInput,
+) -> Result<BoardSnapshotExport> {
+    let manifest = build_block_reference_manifest(
+        conn,
+        BlockReferenceInput {
+            kind: input.kind,
+            id: input.id,
+            query: input.query,
+            limit: input.limit,
+            include_related: input.include_related,
+        },
+    )?;
+    let title = manifest.root_title.clone().unwrap_or_else(|| {
+        format!("{}:{}", manifest.root_kind.as_str(), manifest.root_id.as_str())
+    });
+    let nodes = manifest
+        .cards
+        .iter()
+        .enumerate()
+        .map(|(index, card)| board_snapshot_node_from_card(index as i64 + 1, card))
+        .collect::<Vec<_>>();
+    let edges = board_snapshot_edges(&manifest, &nodes);
+    let markdown = board_snapshot_markdown(&title, &manifest, &nodes, &edges);
+
+    Ok(BoardSnapshotExport {
+        root_kind: manifest.root_kind,
+        root_id: manifest.root_id,
+        title,
+        node_count: nodes.len() as i64,
+        edge_count: edges.len() as i64,
+        nodes,
+        edges,
+        markdown,
+        warnings: manifest.warnings,
+        generated_at: manifest.generated_at,
+        source_inspiration:
+            "AFFiNE canvas snapshots and AppFlowy board views refined into Thepoint Round 17"
+                .to_string(),
+    })
+}
+
+pub fn build_retrieval_context(
+    conn: &Connection,
+    input: RetrievalContextInput,
+) -> Result<RetrievalContext> {
+    let query = input.query.trim().to_string();
+    let limit = normalize_retrieval_context_limit(input.limit);
+    let max_chars = normalize_retrieval_context_item_chars(input.max_chars_per_item);
+    if query.is_empty() {
+        return Ok(RetrievalContext {
+            query,
+            item_count: 0,
+            total_chars: 0,
+            items: Vec::new(),
+            warnings: vec!["empty query".to_string()],
+        });
+    }
+
+    let results = search_assets(
+        conn,
+        SearchAssetsInput {
+            query: query.clone(),
+            kinds: input.kinds,
+            filter: input.filter,
+            limit: Some(limit as i64),
+        },
+    )?;
+    let mut total_chars = 0i64;
+    let items = results
+        .into_iter()
+        .enumerate()
+        .map(|(index, result)| {
+            let excerpt_source = result
+                .preview
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or(result.snippet.as_str());
+            let excerpt = compact_preview(excerpt_source, max_chars);
+            total_chars += excerpt.chars().count() as i64;
+            RetrievalContextItem {
+                index: index as i64 + 1,
+                kind: result.kind,
+                id: result.id,
+                title: result.title,
+                excerpt,
+                reason: result.reason,
+                score: result.score,
+                source_id: result.source_id,
+                chunk_index: result.chunk_index,
+                metadata_json: result.metadata_json,
+            }
+        })
+        .collect::<Vec<_>>();
+    let mut warnings = Vec::new();
+    if items.is_empty() {
+        warnings.push("no retrieval matches".to_string());
+    } else if items.len() == limit {
+        warnings.push("retrieval result set reached the configured limit".to_string());
+    }
+
+    Ok(RetrievalContext {
+        query,
+        item_count: items.len() as i64,
+        total_chars,
+        items,
+        warnings,
+    })
+}
+
+pub fn suggest_backlinks(
+    conn: &Connection,
+    input: BacklinkSuggestionInput,
+) -> Result<Vec<BacklinkSuggestion>> {
+    let target_kind = input.kind.trim().to_string();
+    let target_id = input.id.trim().to_string();
+    if target_kind.is_empty() || target_id.is_empty() {
+        return Ok(Vec::new());
+    }
+    if !valid_search_asset_kind(&target_kind) {
+        anyhow::bail!("invalid backlink target kind: {target_kind}");
+    }
+
+    let Some(target) = resolve_backlink_target(conn, &target_kind, &target_id)? else {
+        return Ok(Vec::new());
+    };
+    let queries = backlink_search_queries(&target);
+    if queries.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let limit = normalize_backlink_suggestion_limit(input.limit);
+    let search_limit = limit.saturating_mul(4).clamp(1, 100) as i64;
+    let target_terms = significant_backlink_terms(&format!("{} {}", target.title, target.text));
+    let mut seen = HashSet::new();
+    let mut suggestions = Vec::new();
+
+    for (query_index, query) in queries.iter().enumerate() {
+        let results = search_assets(
+            conn,
+            SearchAssetsInput {
+                query: query.clone(),
+                kinds: None,
+                filter: None,
+                limit: Some(search_limit),
+            },
+        )?;
+
+        for result in results {
+            if result.kind == target.kind && result.id == target.id {
+                continue;
+            }
+            if !seen.insert((result.kind.clone(), result.id.clone())) {
+                continue;
+            }
+
+            let candidate_text = format!(
+                "{}\n{}\n{}\n{}",
+                result.title,
+                result.snippet,
+                result.preview.as_deref().unwrap_or(""),
+                result.metadata_json
+            );
+            let exact_title_match = target.title.chars().count() >= 4
+                && contains_normalized(&candidate_text, &target.title);
+            let matched_terms = matched_backlink_terms(&candidate_text, &target_terms);
+            if !exact_title_match && matched_terms.len() < 2 {
+                continue;
+            }
+
+            let existing_relation =
+                asset_relation_exists(conn, &target.kind, &target.id, &result.kind, &result.id)?;
+            if existing_relation {
+                continue;
+            }
+
+            let term_bonus = matched_terms.len().min(5) as f64 * 0.03;
+            let exact_bonus = if exact_title_match { 0.14 } else { 0.0 };
+            let query_penalty = query_index as f64 * 0.02;
+            let score =
+                (result.score * 0.78 + exact_bonus + term_bonus - query_penalty).clamp(0.0, 1.0);
+            let excerpt_source = result
+                .preview
+                .as_deref()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or(result.snippet.as_str());
+
+            suggestions.push(BacklinkSuggestion {
+                target_kind: target.kind.clone(),
+                target_id: target.id.clone(),
+                candidate_kind: result.kind,
+                candidate_id: result.id,
+                candidate_title: result.title,
+                candidate_excerpt: compact_preview(excerpt_source, 320),
+                relation: "same_topic".to_string(),
+                reason: backlink_suggestion_reason(
+                    exact_title_match,
+                    &target.title,
+                    &matched_terms,
+                    query,
+                ),
+                score,
+                existing_relation: false,
+                source_id: result.source_id,
+                chunk_index: result.chunk_index,
+                metadata_json: result.metadata_json,
+            });
+        }
+    }
+
+    suggestions.sort_by(|left, right| {
+        right
+            .score
+            .partial_cmp(&left.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| left.candidate_kind.cmp(&right.candidate_kind))
+            .then_with(|| left.candidate_title.cmp(&right.candidate_title))
+    });
+    suggestions.truncate(limit);
+    Ok(suggestions)
+}
+
+pub fn save_asset_search(
+    conn: &Connection,
+    input: SaveAssetSearchInput,
+) -> Result<SavedAssetSearch> {
+    let (name, query, kinds, filter, limit) = normalize_saved_asset_search_input(input)?;
+    let now = chrono::Utc::now().to_rfc3339();
+    let existing_id = conn
+        .query_row(
+            "SELECT id FROM saved_asset_searches WHERE name = ?1",
+            params![name],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    let id = existing_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let kinds_json = json_string_array(kinds);
+
+    if get_saved_asset_search(conn, &id)?.is_some() {
+        conn.execute(
+            "UPDATE saved_asset_searches
+             SET query = ?1, kinds_json = ?2, filter = ?3, limit_value = ?4, updated_at = ?5
+             WHERE id = ?6",
+            params![query, kinds_json, filter, limit, now, id],
+        )?;
+    } else {
+        conn.execute(
+            "INSERT INTO saved_asset_searches
+                (id, name, query, kinds_json, filter, limit_value, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
+            params![id, name, query, kinds_json, filter, limit, now],
+        )?;
+    }
+
+    get_saved_asset_search(conn, &id)?
+        .ok_or_else(|| anyhow::anyhow!("saved asset search not found: {id}"))
+}
+
+pub fn list_saved_asset_searches(conn: &Connection) -> Result<Vec<SavedAssetSearch>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, name, query, kinds_json, filter, limit_value, created_at, updated_at
+         FROM saved_asset_searches
+         ORDER BY updated_at DESC, name ASC",
+    )?;
+    let rows = stmt.query_map([], map_saved_asset_search_row)?;
+    let mut searches = Vec::new();
+    for row in rows {
+        searches.push(row?);
+    }
+    Ok(searches)
+}
+
+pub fn preview_saved_asset_search(
+    conn: &Connection,
+    id: &str,
+    limit: Option<i64>,
+) -> Result<Option<SavedAssetSearchPreview>> {
+    let Some(search) = get_saved_asset_search(conn, id)? else {
+        return Ok(None);
+    };
+    let preview_limit = limit.unwrap_or(search.limit).clamp(1, 100);
+    let results = search_assets(
+        conn,
+        SearchAssetsInput {
+            query: search.query.clone(),
+            kinds: if search.kinds.is_empty() {
+                None
+            } else {
+                Some(search.kinds.clone())
+            },
+            filter: search.filter.clone(),
+            limit: Some(preview_limit),
+        },
+    )?;
+    let mut warnings = Vec::new();
+    if results.is_empty() {
+        warnings.push("saved search preview returned no matches".to_string());
+    } else if results.len() == preview_limit as usize {
+        warnings.push("saved search preview reached the configured limit".to_string());
+    }
+
+    Ok(Some(SavedAssetSearchPreview {
+        result_count: results.len().min(i64::MAX as usize) as i64,
+        search,
+        results,
+        warnings,
+    }))
+}
+
+pub fn delete_saved_asset_search(conn: &Connection, id: &str) -> Result<()> {
+    let id = id.trim();
+    if id.is_empty() {
+        return Ok(());
+    }
+    conn.execute(
+        "DELETE FROM saved_asset_searches WHERE id = ?1",
+        params![id],
+    )?;
+    Ok(())
+}
+
+fn get_saved_asset_search(conn: &Connection, id: &str) -> Result<Option<SavedAssetSearch>> {
+    let id = id.trim();
+    if id.is_empty() {
+        return Ok(None);
+    }
+    conn.query_row(
+        "SELECT id, name, query, kinds_json, filter, limit_value, created_at, updated_at
+         FROM saved_asset_searches
+         WHERE id = ?1",
+        params![id],
+        map_saved_asset_search_row,
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+pub fn save_retrieval_profile(
+    conn: &Connection,
+    input: SaveRetrievalProfileInput,
+) -> Result<RetrievalProfile> {
+    let normalized = normalize_retrieval_profile_input(conn, input)?;
+    let NormalizedRetrievalProfileInput {
+        name,
+        description,
+        query,
+        kinds,
+        filter,
+        saved_search_id,
+        limit,
+        max_chars_per_item,
+        min_score,
+        mode,
+    } = normalized;
+    let now = chrono::Utc::now().to_rfc3339();
+    let existing_id = conn
+        .query_row(
+            "SELECT id FROM retrieval_profiles WHERE name = ?1",
+            params![name],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()?;
+    let id = existing_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let kinds_json = json_string_array(kinds);
+
+    if get_retrieval_profile(conn, &id)?.is_some() {
+        conn.execute(
+            "UPDATE retrieval_profiles
+             SET description = ?1,
+                 query = ?2,
+                 kinds_json = ?3,
+                 filter = ?4,
+                 saved_search_id = ?5,
+                 limit_value = ?6,
+                 max_chars_per_item = ?7,
+                 min_score = ?8,
+                 mode = ?9,
+                 updated_at = ?10
+             WHERE id = ?11",
+            params![
+                description,
+                query,
+                kinds_json,
+                filter,
+                saved_search_id,
+                limit,
+                max_chars_per_item,
+                min_score,
+                mode,
+                now,
+                id
+            ],
+        )?;
+    } else {
+        conn.execute(
+            "INSERT INTO retrieval_profiles
+                (id, name, description, query, kinds_json, filter, saved_search_id,
+                 limit_value, max_chars_per_item, min_score, mode, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12)",
+            params![
+                id,
+                name,
+                description,
+                query,
+                kinds_json,
+                filter,
+                saved_search_id,
+                limit,
+                max_chars_per_item,
+                min_score,
+                mode,
+                now
+            ],
+        )?;
+    }
+
+    get_retrieval_profile(conn, &id)?
+        .ok_or_else(|| anyhow::anyhow!("retrieval profile not found: {id}"))
+}
+
+pub fn list_retrieval_profiles(conn: &Connection) -> Result<Vec<RetrievalProfile>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, name, description, query, kinds_json, filter, saved_search_id,
+                limit_value, max_chars_per_item, min_score, mode, created_at, updated_at
+         FROM retrieval_profiles
+         ORDER BY updated_at DESC, name ASC",
+    )?;
+    let rows = stmt.query_map([], map_retrieval_profile_row)?;
+    let mut profiles = Vec::new();
+    for row in rows {
+        profiles.push(row?);
+    }
+    Ok(profiles)
+}
+
+pub fn preview_retrieval_profile(
+    conn: &Connection,
+    input: PreviewRetrievalProfileInput,
+) -> Result<Option<RetrievalProfilePreview>> {
+    let Some(profile) = get_retrieval_profile(conn, &input.id)? else {
+        return Ok(None);
+    };
+
+    let mut warnings = Vec::new();
+    let saved_search = match profile.saved_search_id.as_deref() {
+        Some(id) => match get_saved_asset_search(conn, id)? {
+            Some(search) => Some(search),
+            None => {
+                warnings.push(format!(
+                    "retrieval profile references a missing saved search: {id}"
+                ));
+                None
+            }
+        },
+        None => None,
+    };
+
+    let effective_query = optional_trimmed(input.query_override.as_deref())
+        .or_else(|| optional_trimmed(Some(profile.query.as_str())))
+        .or_else(|| saved_search.as_ref().map(|search| search.query.clone()))
+        .unwrap_or_default();
+    let effective_kinds = if profile.kinds.is_empty() {
+        saved_search
+            .as_ref()
+            .map(|search| search.kinds.clone())
+            .unwrap_or_default()
+    } else {
+        profile.kinds.clone()
+    };
+    let effective_filter = profile.filter.clone().or_else(|| {
+        saved_search
+            .as_ref()
+            .and_then(|search| search.filter.clone())
+    });
+    let effective_limit = input.limit.unwrap_or(profile.limit);
+    let effective_max_chars = input
+        .max_chars_per_item
+        .unwrap_or(profile.max_chars_per_item);
+
+    let mut context = build_retrieval_context(
+        conn,
+        RetrievalContextInput {
+            query: effective_query.clone(),
+            kinds: if effective_kinds.is_empty() {
+                None
+            } else {
+                Some(effective_kinds.clone())
+            },
+            filter: effective_filter.clone(),
+            limit: Some(effective_limit),
+            max_chars_per_item: Some(effective_max_chars),
+        },
+    )?;
+
+    let min_score = profile.min_score;
+    if min_score > 0.0 {
+        let before = context.items.len();
+        context
+            .items
+            .retain(|item| item.score + f64::EPSILON >= min_score);
+        if context.items.len() != before {
+            warnings.push(format!(
+                "minScore filtered {} retrieval item(s).",
+                before.saturating_sub(context.items.len())
+            ));
+        }
+        refresh_retrieval_context_stats(&mut context);
+    }
+
+    if profile.mode == "query" && context.items.is_empty() {
+        warnings.push(
+            "query mode profile would refuse to answer without retrieval matches.".to_string(),
+        );
+    }
+    if saved_search.is_some() {
+        warnings.push("profile scope includes a saved search definition.".to_string());
+    }
+
+    Ok(Some(RetrievalProfilePreview {
+        profile,
+        saved_search,
+        effective_query,
+        effective_kinds,
+        effective_filter,
+        min_score,
+        context,
+        warnings,
+    }))
+}
+
+pub fn delete_retrieval_profile(conn: &Connection, id: &str) -> Result<()> {
+    let id = id.trim();
+    if id.is_empty() {
+        return Ok(());
+    }
+    conn.execute("DELETE FROM retrieval_profiles WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+fn get_retrieval_profile(conn: &Connection, id: &str) -> Result<Option<RetrievalProfile>> {
+    let id = id.trim();
+    if id.is_empty() {
+        return Ok(None);
+    }
+    conn.query_row(
+        "SELECT id, name, description, query, kinds_json, filter, saved_search_id,
+                limit_value, max_chars_per_item, min_score, mode, created_at, updated_at
+         FROM retrieval_profiles
+         WHERE id = ?1",
+        params![id],
+        map_retrieval_profile_row,
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+#[derive(Clone, Debug)]
+struct BacklinkTarget {
+    kind: String,
+    id: String,
+    title: String,
+    text: String,
+}
+
+#[derive(Clone, Debug)]
+struct BlockReferenceDraft {
+    block_kind: String,
+    asset_kind: String,
+    asset_id: String,
+    block_id: String,
+    title: String,
+    text: String,
+    locator: String,
+    source_id: Option<String>,
+    chunk_index: Option<i64>,
+    command_name: String,
+    wrapper_name: String,
+    input_json: String,
+    metadata_json: String,
+    base_score: f64,
+}
+
+fn resolve_backlink_target(
+    conn: &Connection,
+    kind: &str,
+    id: &str,
+) -> Result<Option<BacklinkTarget>> {
+    match kind {
+        "source" => {
+            let Some(workspace) = get_source_workspace(conn, id)? else {
+                return Ok(None);
+            };
+            let title = workspace
+                .source
+                .title
+                .clone()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| workspace.source.canonical_uri.clone());
+            let chunk_text = workspace
+                .chunks
+                .iter()
+                .map(|chunk| chunk.text.as_str())
+                .collect::<Vec<_>>()
+                .join("\n");
+            let text = [
+                title.as_str(),
+                workspace.source.canonical_uri.as_str(),
+                workspace.source.metadata_json.as_str(),
+                chunk_text.as_str(),
+            ]
+            .join("\n");
+            Ok(Some(BacklinkTarget {
+                kind: kind.to_string(),
+                id: id.to_string(),
+                title,
+                text,
+            }))
+        }
+        "point" => {
+            let Some(point) = get_point(conn, id)? else {
+                return Ok(None);
+            };
+            let title = first_non_empty([
+                point.tag_type.as_deref(),
+                point.source_doc_name.as_deref(),
+                Some(point.content.as_str()),
+            ])
+            .map(|value| compact_preview(value, 96))
+            .unwrap_or_else(|| id.to_string());
+            let text = [
+                point.content.as_str(),
+                point.tag_type.as_deref().unwrap_or(""),
+                point.source_doc_name.as_deref().unwrap_or(""),
+                point.source_excerpt.as_deref().unwrap_or(""),
+            ]
+            .join("\n");
+            Ok(Some(BacklinkTarget {
+                kind: kind.to_string(),
+                id: id.to_string(),
+                title,
+                text,
+            }))
+        }
+        "evidence" => {
+            let Some(evidence) = get_evidence(conn, id)? else {
+                return Ok(None);
+            };
+            let source_text = evidence
+                .sources
+                .iter()
+                .map(|source| {
+                    format!(
+                        "{} {} {} {}",
+                        source.title.as_deref().unwrap_or(""),
+                        source.url,
+                        source.snippet.as_deref().unwrap_or(""),
+                        source.stance
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            let text = [
+                evidence.claim.as_str(),
+                evidence.answer.as_str(),
+                evidence.reasoning.as_deref().unwrap_or(""),
+                evidence.context.as_deref().unwrap_or(""),
+                source_text.as_str(),
+            ]
+            .join("\n");
+            Ok(Some(BacklinkTarget {
+                kind: kind.to_string(),
+                id: id.to_string(),
+                title: evidence.claim,
+                text,
+            }))
+        }
+        "report" => {
+            let Some(report) = get_report(conn, id)? else {
+                return Ok(None);
+            };
+            let text = [
+                report.title.as_str(),
+                report.kind.as_str(),
+                report.source_name.as_deref().unwrap_or(""),
+                report.summary.as_str(),
+                report.body_md.as_str(),
+                report.citations_json.as_str(),
+            ]
+            .join("\n");
+            Ok(Some(BacklinkTarget {
+                kind: kind.to_string(),
+                id: id.to_string(),
+                title: report.title,
+                text,
+            }))
+        }
+        "journal" => {
+            let Some(entry) = get_journal_entry(conn, id)? else {
+                return Ok(None);
+            };
+            let text = [
+                entry.query.as_str(),
+                entry.note.as_str(),
+                entry.tags_json.as_str(),
+                entry.source_ids_json.as_str(),
+                entry.point_ids_json.as_str(),
+                entry.evidence_ids_json.as_str(),
+                entry.report_ids_json.as_str(),
+                entry.source_kind.as_str(),
+            ]
+            .join("\n");
+            Ok(Some(BacklinkTarget {
+                kind: kind.to_string(),
+                id: id.to_string(),
+                title: entry.query,
+                text,
+            }))
+        }
+        "gallery" => {
+            let Some(item) = get_gallery_item(conn, id)? else {
+                return Ok(None);
+            };
+            let linked_text = item
+                .source_points
+                .iter()
+                .map(|point| point.content.as_str())
+                .collect::<Vec<_>>()
+                .join("\n");
+            let text = [
+                item.prompt.as_str(),
+                item.file_path.as_str(),
+                item.thumbnail_path.as_str(),
+                item.download_status.as_str(),
+                linked_text.as_str(),
+            ]
+            .join("\n");
+            Ok(Some(BacklinkTarget {
+                kind: kind.to_string(),
+                id: id.to_string(),
+                title: compact_preview(&item.prompt, 96),
+                text,
+            }))
+        }
+        "indexed_file" => {
+            let Some(file) = get_indexed_file(conn, id)? else {
+                return Ok(None);
+            };
+            let text = [
+                file.name.as_str(),
+                file.path.as_str(),
+                file.canonical_path.as_deref().unwrap_or(""),
+                file.extension.as_deref().unwrap_or(""),
+                file.descriptor_kind.as_str(),
+                file.read_status.as_str(),
+                file.index_status.as_str(),
+                file.metadata_json.as_str(),
+                file.preview_text.as_deref().unwrap_or(""),
+            ]
+            .join("\n");
+            Ok(Some(BacklinkTarget {
+                kind: kind.to_string(),
+                id: id.to_string(),
+                title: file.name,
+                text,
+            }))
+        }
+        _ => Ok(None),
+    }
+}
+
+fn collect_block_reference_drafts(
+    conn: &Connection,
+    kind: &str,
+    id: &str,
+    include_related: bool,
+    budget: usize,
+    drafts: &mut Vec<BlockReferenceDraft>,
+    warnings: &mut Vec<String>,
+) -> Result<Option<String>> {
+    match kind {
+        "source" => {
+            let Some(workspace) = get_source_workspace(conn, id)? else {
+                return Ok(None);
+            };
+            let title = source_reference_title(&workspace.source);
+            for chunk in &workspace.chunks {
+                if drafts.len() >= budget {
+                    break;
+                }
+                push_source_chunk_reference(drafts, &workspace.source, chunk, 1.0);
+            }
+            if include_related && drafts.len() < budget {
+                for point in list_points_for_source(conn, id, budget.saturating_sub(drafts.len()))? {
+                    push_point_reference(drafts, &point, 0.74);
+                }
+            }
+            if include_related && drafts.len() < budget {
+                for evidence in list_evidence_for_source(conn, id)? {
+                    if drafts.len() >= budget {
+                        break;
+                    }
+                    push_evidence_reference(drafts, &evidence, 0.68);
+                }
+            }
+            Ok(Some(title))
+        }
+        "point" => {
+            let Some(point) = get_point(conn, id)? else {
+                return Ok(None);
+            };
+            let title = point_reference_title(&point);
+            push_point_reference(drafts, &point, 1.0);
+            if include_related {
+                if let Some(context) = get_point_source_context(conn, id)? {
+                    if let Some(chunk) = context
+                        .chunks
+                        .iter()
+                        .find(|chunk| chunk.chunk_index == context.chunk_index)
+                    {
+                        push_source_chunk_reference(drafts, &context.source, chunk, 0.95);
+                    }
+                }
+                for evidence in list_evidence_for_point(conn, id)? {
+                    if drafts.len() >= budget {
+                        break;
+                    }
+                    push_evidence_reference(drafts, &evidence, 0.72);
+                }
+            }
+            Ok(Some(title))
+        }
+        "evidence" => {
+            let Some(evidence) = get_evidence(conn, id)? else {
+                return Ok(None);
+            };
+            let title = evidence.claim.clone();
+            push_evidence_reference(drafts, &evidence, 1.0);
+            if include_related {
+                if let Some(source_id) = evidence.source_id.as_deref() {
+                    push_block_reference_asset_summary(
+                        conn,
+                        "source",
+                        source_id,
+                        0.82,
+                        drafts,
+                        budget,
+                        warnings,
+                    )?;
+                }
+                if let Some(point_id) = evidence.point_id.as_deref() {
+                    push_block_reference_asset_summary(
+                        conn,
+                        "point",
+                        point_id,
+                        0.78,
+                        drafts,
+                        budget,
+                        warnings,
+                    )?;
+                }
+            }
+            Ok(Some(title))
+        }
+        "report" => {
+            let Some(report) = get_report(conn, id)? else {
+                return Ok(None);
+            };
+            let title = report.title.clone();
+            push_report_reference(drafts, &report, 1.0);
+            if include_related {
+                for (target_kind, target_id) in report_citation_assets(&report) {
+                    if drafts.len() >= budget {
+                        break;
+                    }
+                    push_block_reference_asset_summary(
+                        conn,
+                        &target_kind,
+                        &target_id,
+                        0.76,
+                        drafts,
+                        budget,
+                        warnings,
+                    )?;
+                }
+            }
+            Ok(Some(title))
+        }
+        "journal" => {
+            let Some(entry) = get_journal_entry(conn, id)? else {
+                return Ok(None);
+            };
+            let title = entry.query.clone();
+            push_journal_reference(drafts, &entry, 1.0);
+            if include_related {
+                for source_id in json_array_strings(&entry.source_ids_json) {
+                    push_block_reference_asset_summary(
+                        conn, "source", &source_id, 0.72, drafts, budget, warnings,
+                    )?;
+                }
+                for point_id in json_array_strings(&entry.point_ids_json) {
+                    push_block_reference_asset_summary(
+                        conn, "point", &point_id, 0.70, drafts, budget, warnings,
+                    )?;
+                }
+                for evidence_id in json_array_strings(&entry.evidence_ids_json) {
+                    push_block_reference_asset_summary(
+                        conn, "evidence", &evidence_id, 0.68, drafts, budget, warnings,
+                    )?;
+                }
+                for report_id in json_array_strings(&entry.report_ids_json) {
+                    push_block_reference_asset_summary(
+                        conn, "report", &report_id, 0.66, drafts, budget, warnings,
+                    )?;
+                }
+            }
+            Ok(Some(title))
+        }
+        "gallery" => {
+            let Some(item) = get_gallery_item(conn, id)? else {
+                return Ok(None);
+            };
+            let title = compact_preview(&item.prompt, 96);
+            push_gallery_reference(drafts, &item, 1.0);
+            if include_related {
+                for point in &item.source_points {
+                    if drafts.len() >= budget {
+                        break;
+                    }
+                    if let Some(stored) = get_point(conn, &point.id)? {
+                        push_point_reference(drafts, &stored, 0.68);
+                    } else {
+                        push_gallery_source_point_reference(drafts, &item, point, 0.58);
+                    }
+                }
+            }
+            Ok(Some(title))
+        }
+        "indexed_file" => {
+            let Some(file) = get_indexed_file(conn, id)? else {
+                return Ok(None);
+            };
+            let title = file.name.clone();
+            push_indexed_file_reference(drafts, &file, 1.0);
+            if include_related {
+                if let Some(source_id) = file.source_id.as_deref() {
+                    push_block_reference_asset_summary(
+                        conn,
+                        "source",
+                        source_id,
+                        0.82,
+                        drafts,
+                        budget,
+                        warnings,
+                    )?;
+                }
+            }
+            Ok(Some(title))
+        }
+        _ => Ok(None),
+    }
+}
+
+fn push_block_reference_asset_summary(
+    conn: &Connection,
+    kind: &str,
+    id: &str,
+    base_score: f64,
+    drafts: &mut Vec<BlockReferenceDraft>,
+    budget: usize,
+    warnings: &mut Vec<String>,
+) -> Result<()> {
+    if drafts.len() >= budget {
+        return Ok(());
+    }
+    match kind {
+        "source" => {
+            if let Some(workspace) = get_source_workspace(conn, id)? {
+                if let Some(chunk) = workspace.chunks.first() {
+                    push_source_chunk_reference(drafts, &workspace.source, chunk, base_score);
+                } else {
+                    push_source_summary_reference(drafts, &workspace.source, base_score);
+                }
+            } else {
+                warnings.push(format!("referenced source not found: {id}"));
+            }
+        }
+        "point" => {
+            if let Some(point) = get_point(conn, id)? {
+                push_point_reference(drafts, &point, base_score);
+            } else {
+                warnings.push(format!("referenced point not found: {id}"));
+            }
+        }
+        "evidence" => {
+            if let Some(evidence) = get_evidence(conn, id)? {
+                push_evidence_reference(drafts, &evidence, base_score);
+            } else {
+                warnings.push(format!("referenced evidence not found: {id}"));
+            }
+        }
+        "report" => {
+            if let Some(report) = get_report(conn, id)? {
+                push_report_reference(drafts, &report, base_score);
+            } else {
+                warnings.push(format!("referenced report not found: {id}"));
+            }
+        }
+        _ => warnings.push(format!("unsupported block reference asset: {kind}:{id}")),
+    }
+    Ok(())
+}
+
+fn push_source_chunk_reference(
+    drafts: &mut Vec<BlockReferenceDraft>,
+    source: &SourceSummaryRecord,
+    chunk: &SourceChunkRecord,
+    base_score: f64,
+) {
+    let title = source_reference_title(source);
+    let locator = chunk
+        .heading_path
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .map(|heading| format!("source chunk {} · {heading}", chunk.chunk_index))
+        .unwrap_or_else(|| format!("source chunk {}", chunk.chunk_index));
+    drafts.push(BlockReferenceDraft {
+        block_kind: "source_chunk".to_string(),
+        asset_kind: "source".to_string(),
+        asset_id: source.id.clone(),
+        block_id: format!("source:{}:chunk:{}", source.id, chunk.chunk_index),
+        title: format!("{title} · chunk {}", chunk.chunk_index),
+        text: chunk.text.clone(),
+        locator,
+        source_id: Some(source.id.clone()),
+        chunk_index: Some(chunk.chunk_index),
+        command_name: "open_source_workspace".to_string(),
+        wrapper_name: "openSourceWorkspace".to_string(),
+        input_json: serde_json::json!({ "sourceId": source.id.as_str() }).to_string(),
+        metadata_json: serde_json::json!({
+            "sourceKind": source.kind.as_str(),
+            "headingPath": chunk.heading_path.as_deref(),
+            "canonicalUri": source.canonical_uri.as_str()
+        })
+        .to_string(),
+        base_score,
+    });
+}
+
+fn push_source_summary_reference(
+    drafts: &mut Vec<BlockReferenceDraft>,
+    source: &SourceSummaryRecord,
+    base_score: f64,
+) {
+    let title = source_reference_title(source);
+    drafts.push(BlockReferenceDraft {
+        block_kind: "source_summary".to_string(),
+        asset_kind: "source".to_string(),
+        asset_id: source.id.clone(),
+        block_id: format!("source:{}:summary", source.id),
+        title: title.clone(),
+        text: format!("{}\n{}", source.canonical_uri, source.metadata_json),
+        locator: "source metadata".to_string(),
+        source_id: Some(source.id.clone()),
+        chunk_index: None,
+        command_name: "open_source_workspace".to_string(),
+        wrapper_name: "openSourceWorkspace".to_string(),
+        input_json: serde_json::json!({ "sourceId": source.id.as_str() }).to_string(),
+        metadata_json: serde_json::json!({
+            "sourceKind": source.kind.as_str(),
+            "chunkCount": source.chunk_count,
+            "pointCount": source.point_count
+        })
+        .to_string(),
+        base_score,
+    });
+}
+
+fn push_point_reference(drafts: &mut Vec<BlockReferenceDraft>, point: &StoredPoint, base_score: f64) {
+    let title = point_reference_title(point);
+    let text = [
+        point.content.as_str(),
+        point.tag_type.as_deref().unwrap_or(""),
+        point.source_doc_name.as_deref().unwrap_or(""),
+        point.source_excerpt.as_deref().unwrap_or(""),
+    ]
+    .join("\n");
+    drafts.push(BlockReferenceDraft {
+        block_kind: "point_card".to_string(),
+        asset_kind: "point".to_string(),
+        asset_id: point.id.clone(),
+        block_id: format!("point:{}:card", point.id),
+        title,
+        text,
+        locator: "point card".to_string(),
+        source_id: None,
+        chunk_index: None,
+        command_name: "get_point_source_context".to_string(),
+        wrapper_name: "getPointSourceContext".to_string(),
+        input_json: serde_json::json!({ "pointId": point.id.as_str() }).to_string(),
+        metadata_json: serde_json::json!({
+            "tagType": point.tag_type.as_deref(),
+            "parentId": point.parent_id.as_deref(),
+            "sourceDocName": point.source_doc_name.as_deref(),
+            "archived": point.archived,
+            "starred": point.starred
+        })
+        .to_string(),
+        base_score,
+    });
+}
+
+fn push_evidence_reference(
+    drafts: &mut Vec<BlockReferenceDraft>,
+    evidence: &EvidenceRecord,
+    base_score: f64,
+) {
+    let source_text = evidence
+        .sources
+        .iter()
+        .map(|source| {
+            format!(
+                "{} {} {} {}",
+                source.title.as_deref().unwrap_or(""),
+                source.url,
+                source.snippet.as_deref().unwrap_or(""),
+                source.stance
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let text = [
+        evidence.claim.as_str(),
+        evidence.answer.as_str(),
+        evidence.reasoning.as_deref().unwrap_or(""),
+        evidence.context.as_deref().unwrap_or(""),
+        source_text.as_str(),
+    ]
+    .join("\n");
+    drafts.push(BlockReferenceDraft {
+        block_kind: "evidence_claim".to_string(),
+        asset_kind: "evidence".to_string(),
+        asset_id: evidence.id.clone(),
+        block_id: format!("evidence:{}:claim", evidence.id),
+        title: evidence.claim.clone(),
+        text,
+        locator: "evidence claim".to_string(),
+        source_id: evidence.source_id.clone(),
+        chunk_index: evidence.chunk_index,
+        command_name: "get_evidence".to_string(),
+        wrapper_name: "getEvidence".to_string(),
+        input_json: serde_json::json!({ "evidenceId": evidence.id.as_str() }).to_string(),
+        metadata_json: serde_json::json!({
+            "verdict": evidence.verdict.as_str(),
+            "pointId": evidence.point_id.as_deref(),
+            "sourceId": evidence.source_id.as_deref(),
+            "chunkIndex": evidence.chunk_index,
+            "sourceCount": evidence.sources.len()
+        })
+        .to_string(),
+        base_score,
+    });
+}
+
+fn push_report_reference(
+    drafts: &mut Vec<BlockReferenceDraft>,
+    report: &ReportRecord,
+    base_score: f64,
+) {
+    let text = if report.summary.trim().is_empty() {
+        report.body_md.clone()
+    } else {
+        format!("{}\n{}", report.summary, report.body_md)
+    };
+    drafts.push(BlockReferenceDraft {
+        block_kind: "report_section".to_string(),
+        asset_kind: "report".to_string(),
+        asset_id: report.id.clone(),
+        block_id: format!("report:{}:summary", report.id),
+        title: report.title.clone(),
+        text,
+        locator: format!("{} report summary/body", report.kind),
+        source_id: None,
+        chunk_index: None,
+        command_name: "get_report".to_string(),
+        wrapper_name: "getReport".to_string(),
+        input_json: serde_json::json!({ "reportId": report.id.as_str() }).to_string(),
+        metadata_json: serde_json::json!({
+            "reportKind": report.kind.as_str(),
+            "sourceName": report.source_name.as_deref()
+        })
+        .to_string(),
+        base_score,
+    });
+}
+
+fn push_journal_reference(
+    drafts: &mut Vec<BlockReferenceDraft>,
+    entry: &JournalEntry,
+    base_score: f64,
+) {
+    let text = [
+        entry.query.as_str(),
+        entry.note.as_str(),
+        entry.tags_json.as_str(),
+        entry.source_kind.as_str(),
+    ]
+    .join("\n");
+    drafts.push(BlockReferenceDraft {
+        block_kind: "journal_note".to_string(),
+        asset_kind: "journal".to_string(),
+        asset_id: entry.id.clone(),
+        block_id: format!("journal:{}:note", entry.id),
+        title: entry.query.clone(),
+        text,
+        locator: "journal note".to_string(),
+        source_id: None,
+        chunk_index: None,
+        command_name: "search_journal_entries".to_string(),
+        wrapper_name: "searchJournalEntries".to_string(),
+        input_json: serde_json::json!({ "query": entry.query.as_str() }).to_string(),
+        metadata_json: serde_json::json!({
+            "sourceKind": entry.source_kind.as_str(),
+            "createdReportId": entry.created_report_id.as_deref(),
+            "invalidatedAt": entry.invalidated_at.as_deref()
+        })
+        .to_string(),
+        base_score,
+    });
+}
+
+fn push_gallery_reference(
+    drafts: &mut Vec<BlockReferenceDraft>,
+    item: &GalleryItem,
+    base_score: f64,
+) {
+    let title = compact_preview(&item.prompt, 96);
+    drafts.push(BlockReferenceDraft {
+        block_kind: "gallery_prompt".to_string(),
+        asset_kind: "gallery".to_string(),
+        asset_id: item.id.clone(),
+        block_id: format!("gallery:{}:prompt", item.id),
+        title: title.clone(),
+        text: item.prompt.clone(),
+        locator: "gallery prompt".to_string(),
+        source_id: None,
+        chunk_index: None,
+        command_name: "search_gallery".to_string(),
+        wrapper_name: "searchGallery".to_string(),
+        input_json: serde_json::json!({ "query": title }).to_string(),
+        metadata_json: serde_json::json!({
+            "downloadStatus": item.download_status.as_str(),
+            "pointCount": item.point_ids.len(),
+            "sourcePointCount": item.source_points.len()
+        })
+        .to_string(),
+        base_score,
+    });
+}
+
+fn push_gallery_source_point_reference(
+    drafts: &mut Vec<BlockReferenceDraft>,
+    item: &GalleryItem,
+    point: &GallerySourcePoint,
+    base_score: f64,
+) {
+    drafts.push(BlockReferenceDraft {
+        block_kind: "gallery_source_point".to_string(),
+        asset_kind: "gallery".to_string(),
+        asset_id: item.id.clone(),
+        block_id: format!("gallery:{}:source-point:{}", item.id, point.id),
+        title: compact_preview(&point.content, 96),
+        text: point.content.clone(),
+        locator: "gallery source point".to_string(),
+        source_id: None,
+        chunk_index: None,
+        command_name: "search_gallery".to_string(),
+        wrapper_name: "searchGallery".to_string(),
+        input_json: serde_json::json!({ "query": compact_preview(&item.prompt, 96) }).to_string(),
+        metadata_json: serde_json::json!({
+            "pointId": point.id.as_str(),
+            "sourceDocName": point.source_doc_name.as_deref()
+        })
+        .to_string(),
+        base_score,
+    });
+}
+
+fn push_indexed_file_reference(
+    drafts: &mut Vec<BlockReferenceDraft>,
+    file: &IndexedFile,
+    base_score: f64,
+) {
+    let text = first_non_empty([file.preview_text.as_deref(), Some(file.path.as_str())])
+        .unwrap_or(file.name.as_str())
+        .to_string();
+    drafts.push(BlockReferenceDraft {
+        block_kind: "indexed_file_preview".to_string(),
+        asset_kind: "indexed_file".to_string(),
+        asset_id: file.id.clone(),
+        block_id: format!("indexed_file:{}:preview", file.id),
+        title: file.name.clone(),
+        text,
+        locator: "indexed file preview".to_string(),
+        source_id: file.source_id.clone(),
+        chunk_index: None,
+        command_name: "load_indexed_file_preview".to_string(),
+        wrapper_name: "loadIndexedFilePreview".to_string(),
+        input_json: serde_json::json!({ "fileId": file.id.as_str() }).to_string(),
+        metadata_json: serde_json::json!({
+            "folderId": file.folder_id.as_str(),
+            "extension": file.extension.as_deref(),
+            "descriptorKind": file.descriptor_kind.as_str(),
+            "readStatus": file.read_status.as_str(),
+            "indexStatus": file.index_status.as_str(),
+            "sourceId": file.source_id.as_deref()
+        })
+        .to_string(),
+        base_score,
+    });
+}
+
+fn normalize_backlink_suggestion_limit(limit: Option<i64>) -> usize {
+    limit.unwrap_or(12).clamp(1, 30) as usize
+}
+
+fn backlink_search_queries(target: &BacklinkTarget) -> Vec<String> {
+    let mut queries = Vec::new();
+    push_backlink_query(&mut queries, &target.title);
+
+    let title_terms = significant_backlink_terms(&target.title);
+    if title_terms.len() >= 2 {
+        push_backlink_query(
+            &mut queries,
+            &title_terms[..title_terms.len().min(3)].join(" "),
+        );
+    }
+
+    for term in significant_backlink_terms(&target.text) {
+        push_backlink_query(&mut queries, &term);
+        if queries.len() >= 6 {
+            break;
+        }
+    }
+
+    queries
+}
+
+fn push_backlink_query(queries: &mut Vec<String>, value: &str) {
+    let query = compact_search_query(value, 96);
+    if query.chars().count() < 4 || queries.iter().any(|existing| existing == &query) {
+        return;
+    }
+    queries.push(query);
+}
+
+fn compact_search_query(value: &str, max_chars: usize) -> String {
+    let normalized = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    if normalized.chars().count() <= max_chars {
+        normalized
+    } else {
+        normalized.chars().take(max_chars).collect()
+    }
+}
+
+fn contains_normalized(haystack: &str, needle: &str) -> bool {
+    haystack.to_lowercase().contains(&needle.to_lowercase())
+}
+
+fn matched_backlink_terms(candidate_text: &str, target_terms: &[String]) -> Vec<String> {
+    let haystack = candidate_text.to_lowercase();
+    target_terms
+        .iter()
+        .filter(|term| haystack.contains(term.as_str()))
+        .take(6)
+        .cloned()
+        .collect()
+}
+
+fn significant_backlink_terms(value: &str) -> Vec<String> {
+    let mut raw_terms = Vec::new();
+    let mut current = String::new();
+    for ch in value.chars() {
+        if ch.is_alphanumeric() {
+            current.push(ch);
+        } else if !current.is_empty() {
+            raw_terms.push(std::mem::take(&mut current));
+        }
+    }
+    if !current.is_empty() {
+        raw_terms.push(current);
+    }
+
+    let mut seen = HashSet::new();
+    let mut terms = Vec::new();
+    for raw in raw_terms {
+        let term = raw.to_lowercase();
+        if term.chars().count() < 4 || is_backlink_stopword(&term) {
+            continue;
+        }
+        if seen.insert(term.clone()) {
+            terms.push(term);
+        }
+    }
+    terms
+}
+
+fn is_backlink_stopword(term: &str) -> bool {
+    matches!(
+        term,
+        "about"
+            | "after"
+            | "analysis"
+            | "body"
+            | "context"
+            | "evidence"
+            | "from"
+            | "into"
+            | "journal"
+            | "note"
+            | "notes"
+            | "point"
+            | "report"
+            | "source"
+            | "that"
+            | "this"
+            | "with"
+            | "without"
+    )
+}
+
+fn backlink_suggestion_reason(
+    exact_title_match: bool,
+    target_title: &str,
+    matched_terms: &[String],
+    query: &str,
+) -> String {
+    if exact_title_match {
+        return format!(
+            "Unlinked mention candidate: matched target title \"{}\"",
+            compact_preview(target_title, 80)
+        );
+    }
+    if !matched_terms.is_empty() {
+        return format!(
+            "Unlinked mention candidate: matched target terms {}",
+            matched_terms
+                .iter()
+                .take(4)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
+    }
+    format!("Unlinked mention candidate: matched query \"{query}\"")
+}
+
+fn asset_relation_exists(
+    conn: &Connection,
+    left_kind: &str,
+    left_id: &str,
+    right_kind: &str,
+    right_id: &str,
+) -> Result<bool> {
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*)
+         FROM asset_relations
+         WHERE (from_kind = ?1 AND from_id = ?2 AND to_kind = ?3 AND to_id = ?4)
+            OR (from_kind = ?3 AND from_id = ?4 AND to_kind = ?1 AND to_id = ?2)",
+        params![left_kind, left_id, right_kind, right_id],
+        |row| row.get(0),
+    )?;
+    Ok(count > 0)
+}
+
 fn normalize_search_assets_limit(limit: Option<i64>) -> usize {
     limit.unwrap_or(40).clamp(1, 100) as usize
+}
+
+fn normalize_block_reference_limit(limit: Option<i64>) -> usize {
+    limit.unwrap_or(24).clamp(1, 50) as usize
+}
+
+fn normalize_retrieval_context_limit(limit: Option<i64>) -> usize {
+    limit.unwrap_or(8).clamp(1, 20) as usize
+}
+
+fn normalize_retrieval_context_item_chars(max_chars_per_item: Option<i64>) -> usize {
+    max_chars_per_item.unwrap_or(700).clamp(120, 2_000) as usize
+}
+
+fn source_reference_title(source: &SourceSummaryRecord) -> String {
+    first_non_empty([source.title.as_deref(), Some(source.canonical_uri.as_str())])
+        .unwrap_or(source.id.as_str())
+        .to_string()
+}
+
+fn point_reference_title(point: &StoredPoint) -> String {
+    first_non_empty([
+        point.tag_type.as_deref(),
+        point.source_doc_name.as_deref(),
+        Some(point.content.as_str()),
+    ])
+    .map(|value| compact_preview(value, 96))
+    .unwrap_or_else(|| point.id.clone())
+}
+
+fn block_reference_card_from_draft(
+    draft: BlockReferenceDraft,
+    query_terms: &[String],
+) -> BlockReferenceCard {
+    let (matched_terms, matched_fields, match_score) =
+        block_reference_match_signals(&draft, query_terms);
+    let excerpt_source = if draft.text.trim().is_empty() {
+        draft.title.clone()
+    } else {
+        draft.text.clone()
+    };
+    let excerpt = compact_preview(&excerpt_source, 700);
+    let block_hash = stable_text_hash(&excerpt_source);
+    let reason = if query_terms.is_empty() {
+        format!("Block-level reference from {}.", draft.locator)
+    } else if matched_terms.is_empty() {
+        format!(
+            "Related block from {}; no query terms matched directly.",
+            draft.locator
+        )
+    } else {
+        format!(
+            "Matched {} query term(s) in {}.",
+            matched_terms.len(),
+            matched_fields.join(", ")
+        )
+    };
+    let score = round_search_ranking_number(draft.base_score + match_score);
+    BlockReferenceCard {
+        index: 0,
+        block_kind: draft.block_kind,
+        asset_kind: draft.asset_kind,
+        asset_id: draft.asset_id,
+        block_id: draft.block_id,
+        title: draft.title,
+        excerpt,
+        locator: draft.locator,
+        source_id: draft.source_id,
+        chunk_index: draft.chunk_index,
+        matched_terms,
+        matched_fields,
+        reason,
+        score,
+        command_name: draft.command_name,
+        wrapper_name: draft.wrapper_name,
+        input_json: draft.input_json,
+        metadata_json: draft.metadata_json,
+        block_hash,
+    }
+}
+
+fn block_reference_match_signals(
+    draft: &BlockReferenceDraft,
+    query_terms: &[String],
+) -> (Vec<String>, Vec<String>, f64) {
+    let fields = [
+        ("title", draft.title.as_str(), 2.0),
+        ("text", draft.text.as_str(), 1.6),
+        ("locator", draft.locator.as_str(), 0.7),
+        ("metadata", draft.metadata_json.as_str(), 0.5),
+        ("blockKind", draft.block_kind.as_str(), 0.3),
+    ];
+    let mut matched_terms = Vec::new();
+    let mut matched_fields = Vec::new();
+    let mut score = 0.0;
+
+    for term in query_terms {
+        let mut term_score = 0.0;
+        for (field, value, weight) in fields {
+            let hits = search_ranking_term_hits(value, term);
+            if hits > 0 {
+                push_unique_string(&mut matched_fields, field);
+                term_score += weight * hits.min(3) as f64;
+            }
+        }
+        if term_score > 0.0 {
+            push_unique_string(&mut matched_terms, term);
+            score += term_score * search_ranking_term_weight(term);
+        }
+    }
+
+    (
+        matched_terms,
+        matched_fields,
+        round_search_ranking_number(score / 10.0),
+    )
+}
+
+fn board_snapshot_node_from_card(index: i64, card: &BlockReferenceCard) -> BoardSnapshotNode {
+    let lane = board_snapshot_lane(card);
+    let lane_index = match lane.as_str() {
+        "sources" => 0,
+        "claims" => 1,
+        "reports" => 2,
+        "memory" => 3,
+        _ => 4,
+    };
+    BoardSnapshotNode {
+        index,
+        node_id: format!("node_{index}"),
+        lane,
+        x: lane_index * 360,
+        y: ((index - 1) % 12) * 180,
+        asset_kind: card.asset_kind.clone(),
+        asset_id: card.asset_id.clone(),
+        block_kind: card.block_kind.clone(),
+        block_id: card.block_id.clone(),
+        title: card.title.clone(),
+        excerpt: card.excerpt.clone(),
+        locator: card.locator.clone(),
+        command_name: card.command_name.clone(),
+        wrapper_name: card.wrapper_name.clone(),
+        input_json: card.input_json.clone(),
+        block_hash: card.block_hash.clone(),
+    }
+}
+
+fn board_snapshot_lane(card: &BlockReferenceCard) -> String {
+    match card.asset_kind.as_str() {
+        "source" | "indexed_file" => "sources",
+        "point" | "evidence" => "claims",
+        "report" => "reports",
+        "journal" => "memory",
+        "gallery" => "media",
+        _ => "other",
+    }
+    .to_string()
+}
+
+fn board_snapshot_edges(
+    manifest: &BlockReferenceManifest,
+    nodes: &[BoardSnapshotNode],
+) -> Vec<BoardSnapshotEdge> {
+    let root_node = nodes
+        .iter()
+        .find(|node| node.asset_kind == manifest.root_kind && node.asset_id == manifest.root_id)
+        .or_else(|| nodes.first());
+    let Some(root_node) = root_node else {
+        return Vec::new();
+    };
+    nodes
+        .iter()
+        .filter(|node| node.node_id != root_node.node_id)
+        .map(|node| BoardSnapshotEdge {
+            from_node_id: root_node.node_id.clone(),
+            to_node_id: node.node_id.clone(),
+            relation: "references".to_string(),
+            reason: format!(
+                "{} is included in the board snapshot for {}:{}",
+                node.block_kind, manifest.root_kind, manifest.root_id
+            ),
+        })
+        .collect()
+}
+
+fn board_snapshot_markdown(
+    title: &str,
+    manifest: &BlockReferenceManifest,
+    nodes: &[BoardSnapshotNode],
+    edges: &[BoardSnapshotEdge],
+) -> String {
+    let mut lines = vec![
+        format!("# Board Snapshot: {title}"),
+        String::new(),
+        format!("- Root: `{}:{}`", manifest.root_kind, manifest.root_id),
+        format!("- Nodes: {}", nodes.len()),
+        format!("- Edges: {}", edges.len()),
+        "- Source inspiration: AFFiNE canvas snapshots + AppFlowy board views refined into Thepoint Round 17".to_string(),
+        String::new(),
+        "```mermaid".to_string(),
+        "flowchart LR".to_string(),
+    ];
+
+    for node in nodes {
+        let label = board_snapshot_mermaid_label(node);
+        lines.push(format!("  {}[\"{}\"]", node.node_id, label));
+    }
+    for edge in edges {
+        lines.push(format!(
+            "  {} -->|{}| {}",
+            edge.from_node_id,
+            edge.relation,
+            edge.to_node_id
+        ));
+    }
+    lines.push("```".to_string());
+    lines.push(String::new());
+    lines.push("## Cards".to_string());
+    for node in nodes {
+        lines.push(format!(
+            "{}. **{}** `{}`",
+            node.index, node.title, node.block_kind
+        ));
+        lines.push(format!("   - Lane: `{}`", node.lane));
+        lines.push(format!("   - Locator: {}", node.locator));
+        lines.push(format!(
+            "   - Action: `{}` via `{}`",
+            node.command_name, node.wrapper_name
+        ));
+        lines.push(format!("   - Excerpt: {}", node.excerpt));
+    }
+    if !manifest.warnings.is_empty() {
+        lines.push(String::new());
+        lines.push("## Warnings".to_string());
+        for warning in &manifest.warnings {
+            lines.push(format!("- {warning}"));
+        }
+    }
+    lines.join("\n")
+}
+
+fn board_snapshot_mermaid_label(node: &BoardSnapshotNode) -> String {
+    let title = node
+        .title
+        .replace('\\', "\\\\")
+        .replace('"', "'")
+        .replace('[', "(")
+        .replace(']', ")");
+    let kind = node.block_kind.replace('_', " ");
+    compact_preview(&format!("{kind}\\n{title}"), 80)
+}
+
+fn explain_search_ranking_item(
+    rank: i64,
+    result: SearchAssetResult,
+    query_terms: &[String],
+    top_score: f64,
+) -> SearchRankingItemExplanation {
+    let (matched_terms, missing_terms, matched_fields, field_match_score) =
+        search_ranking_field_match(&result, query_terms);
+    let term_coverage = if query_terms.is_empty() {
+        0.0
+    } else {
+        matched_terms.len() as f64 / query_terms.len() as f64
+    };
+    let (locator_value, locator_reason) = search_ranking_locator_signal(&result);
+    let (metadata_value, metadata_reason) = search_ranking_metadata_signal(&result);
+    let components = vec![
+        search_ranking_component(
+            "asset_kind_prior",
+            result.score,
+            1.0,
+            result.score,
+            true,
+            "Current search_assets ordering uses this coarse asset-kind score before kind/title tie-breaks.",
+        ),
+        search_ranking_component(
+            "term_coverage",
+            term_coverage,
+            0.15,
+            term_coverage * 0.15,
+            false,
+            "Diagnostic: share of normalized query terms visible in the returned title/snippet/preview/metadata.",
+        ),
+        search_ranking_component(
+            "field_match",
+            field_match_score,
+            0.10,
+            field_match_score * 0.10,
+            false,
+            "Diagnostic: weighted visible-field matches, inspired by marginalia metadata field scoring.",
+        ),
+        search_ranking_component(
+            "source_locator",
+            locator_value,
+            0.05,
+            locator_value * 0.05,
+            false,
+            &locator_reason,
+        ),
+        search_ranking_component(
+            "metadata_quality",
+            metadata_value,
+            0.05,
+            metadata_value * 0.05,
+            false,
+            &metadata_reason,
+        ),
+    ];
+
+    SearchRankingItemExplanation {
+        rank,
+        kind: result.kind,
+        id: result.id,
+        title: result.title,
+        score: round_search_ranking_number(result.score),
+        score_delta_from_top: round_search_ranking_number((top_score - result.score).max(0.0)),
+        reason: result.reason,
+        matched_terms,
+        missing_terms,
+        matched_fields,
+        components,
+        source_id: result.source_id,
+        chunk_index: result.chunk_index,
+        metadata_json: result.metadata_json,
+    }
+}
+
+fn search_ranking_component(
+    name: &str,
+    value: f64,
+    weight: f64,
+    contribution: f64,
+    used_for_ranking: bool,
+    reason: &str,
+) -> SearchRankingComponent {
+    SearchRankingComponent {
+        name: name.to_string(),
+        value: round_search_ranking_number(value),
+        weight: round_search_ranking_number(weight),
+        contribution: round_search_ranking_number(contribution),
+        used_for_ranking,
+        reason: reason.to_string(),
+    }
+}
+
+fn search_ranking_field_match(
+    result: &SearchAssetResult,
+    query_terms: &[String],
+) -> (Vec<String>, Vec<String>, Vec<String>, f64) {
+    let preview = result.preview.clone().unwrap_or_default();
+    let fields = [
+        ("title", result.title.as_str(), 2.4),
+        ("snippet", result.snippet.as_str(), 1.6),
+        ("preview", preview.as_str(), 1.2),
+        ("metadata", result.metadata_json.as_str(), 0.8),
+        ("reason", result.reason.as_str(), 0.4),
+        ("kind", result.kind.as_str(), 0.2),
+    ];
+    let mut matched_terms = Vec::new();
+    let mut missing_terms = Vec::new();
+    let mut matched_fields = Vec::new();
+    let mut score = 0.0;
+
+    for term in query_terms {
+        let mut term_score = 0.0;
+        for (field, value, weight) in fields {
+            let hits = search_ranking_term_hits(value, term);
+            if hits > 0 {
+                push_unique_string(&mut matched_fields, field);
+                term_score += weight * hits.min(3) as f64;
+            }
+        }
+        if term_score > 0.0 {
+            push_unique_string(&mut matched_terms, term);
+            score += term_score * search_ranking_term_weight(term);
+        } else {
+            push_unique_string(&mut missing_terms, term);
+        }
+    }
+
+    (
+        matched_terms,
+        missing_terms,
+        matched_fields,
+        score.min(12.0),
+    )
+}
+
+fn search_ranking_locator_signal(result: &SearchAssetResult) -> (f64, String) {
+    let mut value = 0.0;
+    let mut parts = Vec::new();
+    if result.source_id.is_some() {
+        value += 0.7;
+        parts.push("sourceId present");
+    }
+    if result.chunk_index.is_some() {
+        value += 0.3;
+        parts.push("chunkIndex present");
+    }
+    if parts.is_empty() {
+        (
+            0.0,
+            "Diagnostic: result has no source/chunk locator.".to_string(),
+        )
+    } else {
+        (
+            value,
+            format!(
+                "Diagnostic: result can navigate back to source context ({})",
+                parts.join(", ")
+            ),
+        )
+    }
+}
+
+fn search_ranking_metadata_signal(result: &SearchAssetResult) -> (f64, String) {
+    let parsed = serde_json::from_str::<serde_json::Value>(&result.metadata_json).ok();
+    match result.kind.as_str() {
+        "indexed_file" => {
+            let read_status = parsed
+                .as_ref()
+                .and_then(|value| value.get("readStatus"))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
+            let index_status = parsed
+                .as_ref()
+                .and_then(|value| value.get("indexStatus"))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
+            let descriptor_kind = parsed
+                .as_ref()
+                .and_then(|value| value.get("descriptorKind"))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
+            if read_status == "missing" || index_status == "stale" {
+                return (
+                    -1.0,
+                    "Diagnostic: indexed file appears missing or stale.".to_string(),
+                );
+            }
+            if read_status == "failed" || index_status == "failed" {
+                return (
+                    -0.8,
+                    "Diagnostic: indexed file has a failed scan state.".to_string(),
+                );
+            }
+            if descriptor_kind == "metadata_only" || index_status == "partial" {
+                return (
+                    -0.35,
+                    "Diagnostic: indexed file has partial or metadata-only coverage.".to_string(),
+                );
+            }
+            if result.source_id.is_some() {
+                return (
+                    0.4,
+                    "Diagnostic: indexed file has generated source context.".to_string(),
+                );
+            }
+            (
+                0.1,
+                "Diagnostic: indexed-file metadata is available.".to_string(),
+            )
+        }
+        "report" => {
+            let report_kind = parsed
+                .as_ref()
+                .and_then(|value| value.get("reportKind"))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
+            if report_kind == "investigation" {
+                (
+                    0.25,
+                    "Diagnostic: investigation reports are high-value retrieval context."
+                        .to_string(),
+                )
+            } else {
+                (
+                    0.1,
+                    "Diagnostic: report kind metadata is available.".to_string(),
+                )
+            }
+        }
+        "evidence" => (
+            parsed
+                .as_ref()
+                .and_then(|value| value.get("verdict"))
+                .and_then(serde_json::Value::as_str)
+                .map(|_| 0.2)
+                .unwrap_or(0.0),
+            "Diagnostic: Evidence verdict metadata helps downstream filtering.".to_string(),
+        ),
+        "gallery" => (
+            parsed
+                .as_ref()
+                .and_then(|value| value.get("pointCount"))
+                .and_then(serde_json::Value::as_i64)
+                .map(|count| if count > 0 { 0.2 } else { 0.0 })
+                .unwrap_or(0.0),
+            "Diagnostic: Gallery links to Points improve explainability.".to_string(),
+        ),
+        _ => (
+            0.0,
+            "Diagnostic: no extra metadata quality signal.".to_string(),
+        ),
+    }
+}
+
+fn search_ranking_terms(query: &str) -> Vec<String> {
+    let mut terms = Vec::new();
+    push_search_ranking_term(&mut terms, query);
+    let mut current = String::new();
+    for ch in query.chars() {
+        if ch.is_alphanumeric() || search_ranking_is_cjk_char(ch) {
+            current.push(ch);
+        } else if !current.is_empty() {
+            push_search_ranking_term(&mut terms, &current);
+            current.clear();
+        }
+    }
+    if !current.is_empty() {
+        push_search_ranking_term(&mut terms, &current);
+    }
+    terms
+}
+
+fn push_search_ranking_term(terms: &mut Vec<String>, raw: &str) {
+    let term = raw.trim().trim_matches(|ch: char| {
+        matches!(
+            ch,
+            '.' | ',' | ';' | ':' | '!' | '?' | '(' | ')' | '[' | ']' | '{' | '}' | '"' | '\''
+        )
+    });
+    if term.is_empty() {
+        return;
+    }
+    let key = term.to_lowercase();
+    if is_search_ranking_stopword(&key) {
+        return;
+    }
+    let has_digit = term.chars().any(|ch| ch.is_ascii_digit());
+    let has_upper = term.chars().any(|ch| ch.is_uppercase());
+    if term.chars().count() < 4 && !has_digit && !has_upper && !search_ranking_contains_cjk(term) {
+        return;
+    }
+    if !terms.iter().any(|existing| existing.to_lowercase() == key) {
+        terms.push(term.to_string());
+    }
+}
+
+fn is_search_ranking_stopword(term: &str) -> bool {
+    matches!(
+        term,
+        "about"
+            | "after"
+            | "and"
+            | "are"
+            | "does"
+            | "from"
+            | "have"
+            | "into"
+            | "than"
+            | "that"
+            | "the"
+            | "their"
+            | "this"
+            | "with"
+    )
+}
+
+fn search_ranking_term_hits(raw: &str, term: &str) -> usize {
+    let needle = term.to_lowercase();
+    if needle.is_empty() {
+        return 0;
+    }
+    raw.to_lowercase().matches(&needle).count()
+}
+
+fn search_ranking_term_weight(term: &str) -> f64 {
+    let mut weight = 1.0;
+    if term.chars().count() >= 7 {
+        weight += 0.35;
+    }
+    if term.chars().any(|ch| ch.is_ascii_digit()) {
+        weight += 0.6;
+    }
+    if term.chars().any(|ch| ch.is_uppercase()) {
+        weight += 0.4;
+    }
+    if term.chars().any(|ch| "/+-_.".contains(ch)) {
+        weight += 0.3;
+    }
+    weight
+}
+
+fn search_ranking_contains_cjk(term: &str) -> bool {
+    term.chars().any(search_ranking_is_cjk_char)
+}
+
+fn search_ranking_is_cjk_char(ch: char) -> bool {
+    ('\u{3040}'..='\u{30ff}').contains(&ch)
+        || ('\u{3400}'..='\u{4dbf}').contains(&ch)
+        || ('\u{4e00}'..='\u{9fff}').contains(&ch)
+        || ('\u{ac00}'..='\u{d7a3}').contains(&ch)
+        || ('\u{f900}'..='\u{faff}').contains(&ch)
+}
+
+fn push_unique_string(items: &mut Vec<String>, value: &str) {
+    if !items.iter().any(|item| item == value) {
+        items.push(value.to_string());
+    }
+}
+
+fn round_search_ranking_number(value: f64) -> f64 {
+    (value * 10_000.0).round() / 10_000.0
+}
+
+fn normalize_saved_asset_search_input(
+    input: SaveAssetSearchInput,
+) -> Result<(String, String, Vec<String>, Option<String>, i64)> {
+    let name = required_trimmed("saved search name", &input.name)?.to_string();
+    let query = required_trimmed("saved search query", &input.query)?.to_string();
+    let filter = optional_trimmed(input.filter.as_deref());
+    let parsed_filter = parse_search_asset_filter(filter.as_deref())?;
+    let kinds = normalize_saved_search_kinds(input.kinds)?;
+    if !kinds.is_empty()
+        && search_asset_allowed_kinds(Some(&kinds), parsed_filter.as_ref()).is_empty()
+    {
+        anyhow::bail!("saved search kinds conflict with the saved filter");
+    }
+    let limit = normalize_search_assets_limit(input.limit) as i64;
+    Ok((name, query, kinds, filter, limit))
+}
+
+fn normalize_saved_search_kinds(kinds: Option<Vec<String>>) -> Result<Vec<String>> {
+    let Some(values) = kinds else {
+        return Ok(Vec::new());
+    };
+    let mut saw_explicit_kind = false;
+    let mut seen = HashSet::new();
+    let mut normalized = Vec::new();
+    for value in values {
+        let kind = value.trim();
+        if kind.is_empty() {
+            continue;
+        }
+        saw_explicit_kind = true;
+        if valid_search_asset_kind(kind) && seen.insert(kind.to_string()) {
+            normalized.push(kind.to_string());
+        }
+    }
+    if saw_explicit_kind && normalized.is_empty() {
+        anyhow::bail!("saved search must include at least one valid asset kind");
+    }
+    Ok(normalized)
+}
+
+#[allow(clippy::type_complexity)]
+struct NormalizedRetrievalProfileInput {
+    name: String,
+    description: Option<String>,
+    query: String,
+    kinds: Vec<String>,
+    filter: Option<String>,
+    saved_search_id: Option<String>,
+    limit: i64,
+    max_chars_per_item: i64,
+    min_score: f64,
+    mode: String,
+}
+
+fn normalize_retrieval_profile_input(
+    conn: &Connection,
+    input: SaveRetrievalProfileInput,
+) -> Result<NormalizedRetrievalProfileInput> {
+    let name = required_trimmed("retrieval profile name", &input.name)?.to_string();
+    let description = optional_trimmed(input.description.as_deref());
+    let query = optional_trimmed(Some(input.query.as_str())).unwrap_or_default();
+    let filter = optional_trimmed(input.filter.as_deref());
+    let parsed_filter = parse_search_asset_filter(filter.as_deref())?;
+    let kinds = normalize_saved_search_kinds(input.kinds)?;
+    let saved_search_id = optional_trimmed(input.saved_search_id.as_deref());
+    let saved_search = match saved_search_id.as_deref() {
+        Some(id) => Some(get_saved_asset_search(conn, id)?.ok_or_else(|| {
+            anyhow::anyhow!("saved search not found for retrieval profile: {id}")
+        })?),
+        None => None,
+    };
+    let effective_query = query
+        .is_empty()
+        .then(|| saved_search.as_ref().map(|search| search.query.clone()))
+        .flatten()
+        .unwrap_or_else(|| query.clone());
+    if effective_query.trim().is_empty() {
+        anyhow::bail!("retrieval profile query is required unless savedSearchId supplies one");
+    }
+
+    let effective_kinds = if kinds.is_empty() {
+        saved_search
+            .as_ref()
+            .map(|search| search.kinds.clone())
+            .unwrap_or_default()
+    } else {
+        kinds.clone()
+    };
+    let effective_filter = filter.clone().or_else(|| {
+        saved_search
+            .as_ref()
+            .and_then(|search| search.filter.clone())
+    });
+    let effective_filter = parse_search_asset_filter(effective_filter.as_deref())?;
+    if !effective_kinds.is_empty()
+        && search_asset_allowed_kinds(Some(&effective_kinds), effective_filter.as_ref()).is_empty()
+    {
+        anyhow::bail!("retrieval profile kinds conflict with the effective filter");
+    }
+    if !kinds.is_empty()
+        && search_asset_allowed_kinds(Some(&kinds), parsed_filter.as_ref()).is_empty()
+    {
+        anyhow::bail!("retrieval profile kinds conflict with the profile filter");
+    }
+
+    let limit = normalize_retrieval_context_limit(input.limit) as i64;
+    let max_chars = normalize_retrieval_context_item_chars(input.max_chars_per_item) as i64;
+    let min_score = normalize_retrieval_profile_min_score(input.min_score);
+    let mode = normalize_retrieval_profile_mode(input.mode.as_deref());
+    Ok(NormalizedRetrievalProfileInput {
+        name,
+        description,
+        query,
+        kinds,
+        filter,
+        saved_search_id,
+        limit,
+        max_chars_per_item: max_chars,
+        min_score,
+        mode,
+    })
+}
+
+fn normalize_retrieval_profile_min_score(value: Option<f64>) -> f64 {
+    value.unwrap_or(0.0).clamp(0.0, 1.0)
+}
+
+fn normalize_retrieval_profile_mode(value: Option<&str>) -> String {
+    match optional_trimmed(value).as_deref() {
+        Some("automatic") => "automatic".to_string(),
+        Some("query") => "query".to_string(),
+        Some("chat") => "chat".to_string(),
+        _ => "automatic".to_string(),
+    }
+}
+
+fn refresh_retrieval_context_stats(context: &mut RetrievalContext) {
+    let mut total_chars = 0i64;
+    for (index, item) in context.items.iter_mut().enumerate() {
+        item.index = index as i64 + 1;
+        total_chars += item.excerpt.chars().count() as i64;
+    }
+    context.item_count = context.items.len() as i64;
+    context.total_chars = total_chars;
+    if context.items.is_empty()
+        && !context
+            .warnings
+            .iter()
+            .any(|warning| warning == "no retrieval matches")
+    {
+        context.warnings.push("no retrieval matches".to_string());
+    }
 }
 
 fn parse_search_asset_filter(filter: Option<&str>) -> Result<Option<SearchAssetFilter>> {
@@ -1608,7 +4904,9 @@ fn parse_search_asset_filter(filter: Option<&str>) -> Result<Option<SearchAssetF
     }
 
     match field {
-        "kind" if valid_search_asset_kind(value) => Ok(Some(SearchAssetFilter::Kind(value.to_string()))),
+        "kind" if valid_search_asset_kind(value) => {
+            Ok(Some(SearchAssetFilter::Kind(value.to_string())))
+        }
         "kind" => anyhow::bail!("unsupported search filter kind: {value}"),
         "reportKind" if value == "investigation" => {
             Ok(Some(SearchAssetFilter::ReportKind(value.to_string())))
@@ -1633,7 +4931,10 @@ fn search_asset_allowed_kinds(
             .filter(|value| valid_search_asset_kind(value))
             .map(str::to_string)
             .collect(),
-        None => SEARCH_ASSET_KINDS.iter().map(|value| (*value).to_string()).collect(),
+        None => SEARCH_ASSET_KINDS
+            .iter()
+            .map(|value| (*value).to_string())
+            .collect(),
     };
 
     match filter {
@@ -1989,6 +5290,305 @@ pub fn load_report_audit(conn: &Connection, report_id: &str) -> Result<Option<Re
     }))
 }
 
+pub fn run_investigation_qa_eval(
+    conn: &Connection,
+    input: InvestigationQaEvalInput,
+) -> Result<InvestigationQaEvalReport> {
+    let generated_at = chrono::Utc::now().to_rfc3339();
+    let limit = normalize_investigation_qa_eval_limit(input.limit);
+    let reports = if let Some(report_id) = optional_trimmed(input.report_id.as_deref()) {
+        get_report(conn, &report_id)?.into_iter().collect::<Vec<_>>()
+    } else {
+        list_recent_reports(conn, limit.saturating_mul(4).min(200))?
+    };
+    let mut cases = Vec::new();
+    for report in reports
+        .into_iter()
+        .filter(|report| report.kind == "investigation")
+        .take(limit)
+    {
+        let Some(audit) = load_report_audit(conn, &report.id)? else {
+            continue;
+        };
+        cases.push(investigation_qa_eval_case(&report, &audit));
+    }
+
+    let pass_count = cases.iter().filter(|case| case.status == "pass").count() as i64;
+    let warning_count = cases
+        .iter()
+        .filter(|case| case.status == "warning")
+        .count() as i64;
+    let fail_count = cases.iter().filter(|case| case.status == "fail").count() as i64;
+    let average_score = if cases.is_empty() {
+        0.0
+    } else {
+        cases.iter().map(|case| case.score).sum::<f64>() / cases.len() as f64
+    };
+    let mut warnings = Vec::new();
+    if cases.is_empty() {
+        warnings.push("no investigation reports available for QA eval".to_string());
+    }
+
+    Ok(InvestigationQaEvalReport {
+        generated_at,
+        case_count: cases.len() as i64,
+        pass_count,
+        warning_count,
+        fail_count,
+        average_score: round_search_ranking_number(average_score),
+        cases,
+        warnings,
+        source_inspiration:
+            "Kotaemon multi-document QA evaluation fixtures refined into Thepoint Round 19"
+                .to_string(),
+    })
+}
+
+pub fn build_capability_scorecard() -> CapabilityScorecard {
+    let generated_at = chrono::Utc::now().to_rfc3339();
+    let items = vec![
+        scorecard_item(1, "marginalia / Zotero", "Search Evaluation Harness", "read_only", 0.82, 0.08, &["search_assets"], "Rust eval fixture tracks hit@1/hit@k.", "Extend with MRR/NDCG before ranking changes."),
+        scorecard_item(2, "Khoj / Quivr / Kotaemon", "Read-only Agent Retrieval Context", "read_only", 0.86, 0.10, &["build_retrieval_context"], "Rust read-only manifest test plus frontend boundary checks.", "Use as future agent/RAG context contract."),
+        scorecard_item(3, "Foam / Logseq", "Backlink & Unlinked Mention Suggestions", "read_only", 0.84, 0.12, &["suggest_backlinks"], "Rust suggestion test verifies no relation writes.", "Add UI review before creating relations."),
+        scorecard_item(4, "Zotero", "Citation Quality Dashboard", "read_only", 0.88, 0.12, &["load_citation_quality_dashboard"], "Rust aggregation test covers locator states.", "Surface dashboard in report maintenance UI."),
+        scorecard_item(5, "Joplin / SiYuan", "Saved Search / Smart Collections", "write", 0.78, 0.22, &["save_asset_search", "list_saved_asset_searches", "preview_saved_asset_search"], "Rust dynamic preview test covers safe filter semantics.", "Expose saved searches as Library collections."),
+        scorecard_item(6, "Memos", "Quick Capture Inbox", "write", 0.80, 0.25, &["save_quick_capture", "resolve_quick_capture", "dismiss_quick_capture"], "Rust transaction test covers resolve targets.", "Add compact inbox UI and review queue handoff."),
+        scorecard_item(7, "AFFiNE / AppFlowy", "Template-based Report/Investigation Starters", "draft_only", 0.76, 0.14, &["build_report_starter", "list_report_starter_templates"], "Rust read-only draft test covers context citations.", "Let UI launch Investigation from templates."),
+        scorecard_item(8, "marginalia", "Low-quality Asset Reprocess Queue", "read_only", 0.79, 0.10, &["load_reprocess_queue"], "Rust diagnostic test verifies no mutations.", "Connect queue items to explicit reprocess actions."),
+        scorecard_item(9, "Zotero", "Duplicate/near-duplicate Asset Detection", "read_only", 0.78, 0.14, &["detect_duplicate_assets"], "Rust duplicate grouping test is read-only.", "Add merge/dismiss workflow only with confirmation."),
+        scorecard_item(10, "Logseq / Foam", "Graph Neighborhood Preview", "read_only", 0.83, 0.13, &["build_graph_neighborhood_preview"], "Rust graph preview test covers suggestions and relations.", "Render graph neighborhood panel."),
+        scorecard_item(11, "SilverBullet", "Command Palette Manifest", "read_only", 0.74, 0.08, &["list_command_palette_items"], "Rust manifest filter test covers categories/query/limit.", "Build real palette UI from manifest."),
+        scorecard_item(12, "AnythingLLM", "Workspace-scoped Retrieval Profiles", "write", 0.82, 0.22, &["save_retrieval_profile", "preview_retrieval_profile"], "Rust profile preview test covers saved-search scope.", "Let Investigation generation select retrieval profiles."),
+        scorecard_item(13, "Khoj", "Automation Suggestions", "read_only", 0.85, 0.15, &["load_automation_suggestions"], "Rust aggregation test covers seven categories.", "Add user-confirmed action execution log."),
+        scorecard_item(14, "Zotero / Joplin", "Import Diagnostics Ledger", "read_only", 0.81, 0.10, &["load_import_diagnostics_ledger"], "Rust ledger test covers warning/critical scan outcomes.", "Expose import diagnostics beside indexed folders."),
+        scorecard_item(15, "marginalia", "Ranking Explainability", "read_only", 0.86, 0.12, &["explain_search_ranking"], "Rust test verifies order is unchanged and components are diagnostic.", "Only tune ranking after extending eval metrics."),
+        scorecard_item(16, "SiYuan", "Block-level References", "read_only", 0.88, 0.12, &["build_block_reference_manifest"], "Rust test covers point/source/evidence cards and hashes.", "Render block reference cards in Library/Report UI."),
+        scorecard_item(17, "AFFiNE / AppFlowy", "Canvas/Board Snapshot Export", "draft_only", 0.80, 0.13, &["build_board_snapshot_export"], "Rust test covers nodes/edges and Mermaid Markdown.", "Use nodes/edges for a future board snapshot UI."),
+        scorecard_item(18, "AppFlowy", "Local-first Sync/Export Audit", "read_only", 0.82, 0.11, &["build_export_sync_audit"], "Rust command test covers needs_config/missing/in_sync/stale.", "Show audit before mirror export/prune."),
+        scorecard_item(19, "Kotaemon", "Multi-document QA Eval Fixtures", "read_only", 0.87, 0.14, &["run_investigation_qa_eval"], "Rust eval test covers pass/fail Investigation cases.", "Use eval result as Investigation regression gate."),
+        scorecard_item(20, "Cross-project", "Capability Scorecard", "read_only", 0.77, 0.07, &["build_capability_scorecard"], "Rust scorecard test validates all 20 rounds are represented.", "Use this scorecard to choose the next roadmap tranche."),
+    ];
+    let completed_count = items.iter().filter(|item| item.status == "completed").count() as i64;
+    let read_only_count = items
+        .iter()
+        .filter(|item| item.boundary == "read_only")
+        .count() as i64;
+    let write_count = items.iter().filter(|item| item.boundary == "write").count() as i64;
+    let draft_count = items
+        .iter()
+        .filter(|item| item.boundary == "draft_only")
+        .count() as i64;
+    let model_call_count = items
+        .iter()
+        .filter(|item| item.boundary == "model_call")
+        .count() as i64;
+    let average_impact_score =
+        round_search_ranking_number(items.iter().map(|item| item.impact_score).sum::<f64>() / items.len() as f64);
+    let average_risk_score =
+        round_search_ranking_number(items.iter().map(|item| item.risk_score).sum::<f64>() / items.len() as f64);
+
+    CapabilityScorecard {
+        generated_at,
+        item_count: items.len() as i64,
+        completed_count,
+        read_only_count,
+        write_count,
+        draft_count,
+        model_call_count,
+        average_impact_score,
+        average_risk_score,
+        items,
+        recommendations: vec![
+            "Promote the read-only diagnostics into UI panels before adding more write workflows.".to_string(),
+            "Use Round 01 and Round 19 evals as gates before changing ranking or Investigation generation.".to_string(),
+            "Keep write-capable slices behind explicit confirmation and audit logs.".to_string(),
+            "Next tranche should focus on UI integration: command palette, diagnostics panels, and block reference cards.".to_string(),
+        ],
+        source_inspiration:
+            "Cross-project capability refinement scorecard for Thepoint Round 20".to_string(),
+    }
+}
+
+pub fn build_citation_quality_dashboard(
+    conn: &Connection,
+    limit: Option<i64>,
+) -> Result<CitationQualityDashboard> {
+    let limit = normalize_citation_quality_dashboard_limit(limit);
+    let reports = list_recent_reports(conn, limit)?;
+    let report_count = reports.len().min(i64::MAX as usize) as i64;
+    let mut audited_report_count = 0i64;
+    let mut total_claims = 0i64;
+    let mut cited_claims = 0i64;
+    let mut inferred_claims = 0i64;
+    let mut unsupported_claims = 0i64;
+    let mut total_citations = 0i64;
+    let mut located_citations = 0i64;
+    let mut warning_citations = 0i64;
+    let mut missing_citations = 0i64;
+    let mut stale_citations = 0i64;
+    let mut ambiguous_citations = 0i64;
+    let mut not_found_citations = 0i64;
+    let mut target_missing_citations = 0i64;
+    let mut not_applicable_citations = 0i64;
+    let mut rows = Vec::new();
+    let mut problem_citations = Vec::new();
+
+    for report in reports {
+        let Some(audit) = load_report_audit(conn, &report.id)? else {
+            continue;
+        };
+        let has_audit_rows = !audit.claims.is_empty() || !audit.citations.is_empty();
+        if has_audit_rows {
+            audited_report_count += 1;
+        }
+
+        let coverage = audit.coverage.clone();
+        total_claims += coverage.total_claims;
+        cited_claims += coverage.cited_claims;
+        inferred_claims += coverage.inferred_claims;
+        unsupported_claims += coverage.unsupported_claims;
+        total_citations += coverage.total_citations;
+        located_citations += coverage.located_citations;
+        warning_citations += coverage.warning_citations;
+        missing_citations += coverage.missing_citations;
+        stale_citations += citation_quality_status_count(&audit.citations, "stale");
+        ambiguous_citations += citation_quality_status_count(&audit.citations, "multiple_matches");
+        not_found_citations += citation_quality_status_count(&audit.citations, "not_found");
+        target_missing_citations +=
+            citation_quality_status_count(&audit.citations, "target_missing");
+        not_applicable_citations +=
+            citation_quality_status_count(&audit.citations, "not_applicable");
+
+        for citation in audit
+            .citations
+            .iter()
+            .filter(|citation| citation_quality_problem_status(&citation.locator_status))
+        {
+            let message = citation_quality_problem_message(citation);
+            let reason = optional_trimmed(citation.reason.as_deref()).unwrap_or_else(|| {
+                citation
+                    .quote
+                    .as_deref()
+                    .or(citation.excerpt.as_deref())
+                    .map(|value| compact_preview(value, 180))
+                    .unwrap_or_else(|| message.clone())
+            });
+            problem_citations.push(CitationQualityProblemCitation {
+                report_id: report.id.clone(),
+                report_title: report.title.clone(),
+                citation_index: citation.citation_index,
+                label: citation.label.clone(),
+                title: citation.title.clone(),
+                target_kind: citation.target_kind.clone(),
+                target_id: citation.target_id.clone(),
+                locator_status: citation.locator_status.clone(),
+                reason,
+                source_id: citation.source_id.clone(),
+                chunk_index: citation.chunk_index,
+                message,
+            });
+        }
+
+        let mut row_warnings = coverage.warnings.clone();
+        if !has_audit_rows {
+            row_warnings.insert(
+                0,
+                "No durable audit rows are available for this report.".to_string(),
+            );
+        }
+        rows.push(CitationQualityReportRow {
+            report_id: report.id,
+            title: report.title,
+            kind: report.kind,
+            created_at: report.created_at,
+            total_claims: coverage.total_claims,
+            cited_claims: coverage.cited_claims,
+            inferred_claims: coverage.inferred_claims,
+            unsupported_claims: coverage.unsupported_claims,
+            total_citations: coverage.total_citations,
+            located_citations: coverage.located_citations,
+            warning_citations: coverage.warning_citations,
+            missing_citations: coverage.missing_citations,
+            coverage_ratio: coverage.coverage_ratio,
+            quality_score: citation_quality_score(&coverage),
+            severity: citation_quality_severity(&coverage, has_audit_rows).to_string(),
+            warnings: row_warnings,
+        });
+    }
+
+    let coverage_ratio = if total_claims == 0 {
+        0.0
+    } else {
+        cited_claims as f64 / total_claims as f64
+    };
+    let aggregate_coverage = ReportAuditCoverage {
+        total_claims,
+        cited_claims,
+        inferred_claims,
+        unsupported_claims,
+        total_citations,
+        located_citations,
+        warning_citations,
+        missing_citations,
+        coverage_ratio,
+        warnings: Vec::new(),
+    };
+    let mut warnings = Vec::new();
+    if report_count == 0 {
+        warnings.push("No reports were found for citation quality analysis.".to_string());
+    }
+    let unaudited = report_count - audited_report_count;
+    if unaudited > 0 {
+        warnings.push(format!(
+            "{unaudited} report(s) do not have durable audit rows yet."
+        ));
+    }
+    if missing_citations > 0 {
+        warnings.push(format!(
+            "{missing_citations} citation(s) are not found or target missing assets."
+        ));
+    }
+    if warning_citations > 0 {
+        warnings.push(format!(
+            "{warning_citations} citation(s) are stale, ambiguous, or not directly locatable."
+        ));
+    }
+    if unsupported_claims > 0 {
+        warnings.push(format!(
+            "{unsupported_claims} claim shell(s) are marked unsupported."
+        ));
+    }
+    if rows.len() == limit {
+        warnings.push(format!(
+            "Citation quality dashboard reached the report inspection limit of {limit}."
+        ));
+    }
+
+    Ok(CitationQualityDashboard {
+        generated_at: chrono::Utc::now().to_rfc3339(),
+        report_count,
+        audited_report_count,
+        total_claims,
+        cited_claims,
+        inferred_claims,
+        unsupported_claims,
+        total_citations,
+        located_citations,
+        warning_citations,
+        missing_citations,
+        stale_citations,
+        ambiguous_citations,
+        not_found_citations,
+        target_missing_citations,
+        not_applicable_citations,
+        coverage_ratio,
+        quality_score: citation_quality_score(&aggregate_coverage),
+        reports: rows,
+        problem_citations,
+        warnings,
+    })
+}
+
 pub fn extract_report_claims_for_report(report: &ReportRecord) -> Vec<SaveReportClaimInput> {
     let labels = report_citation_labels(&report.citations_json);
     extract_report_claims(&report.body_md, &labels)
@@ -2135,6 +5735,243 @@ fn report_audit_coverage(
         missing_citations,
         coverage_ratio,
         warnings,
+    }
+}
+
+fn investigation_qa_eval_case(
+    report: &ReportRecord,
+    audit: &ReportAuditRecord,
+) -> InvestigationQaEvalCase {
+    let mut unique_targets = HashSet::new();
+    let mut citation_kinds = Vec::new();
+    for citation in &audit.citations {
+        unique_targets.insert(format!("{}:{}", citation.target_kind, citation.target_id));
+        push_unique_string(&mut citation_kinds, &citation.target_kind);
+    }
+    citation_kinds.sort();
+
+    let mut checks = vec![
+        investigation_qa_eval_check(
+            "multi_document_context",
+            unique_targets.len() >= 2,
+            unique_targets.len() == 1,
+            &format!("{} unique citation target(s) found.", unique_targets.len()),
+        ),
+        investigation_qa_eval_check(
+            "citation_health",
+            audit.coverage.total_citations > 0
+                && audit.coverage.missing_citations == 0
+                && audit.coverage.warning_citations == 0,
+            audit.coverage.total_citations > 0 && audit.coverage.missing_citations == 0,
+            &format!(
+                "{} citation(s), {} warning, {} missing.",
+                audit.coverage.total_citations,
+                audit.coverage.warning_citations,
+                audit.coverage.missing_citations
+            ),
+        ),
+        investigation_qa_eval_check(
+            "claim_coverage",
+            audit.coverage.coverage_ratio >= 0.8,
+            audit.coverage.coverage_ratio >= 0.5,
+            &format!(
+                "claim citation coverage ratio is {:.2}.",
+                audit.coverage.coverage_ratio
+            ),
+        ),
+        investigation_qa_eval_check(
+            "answer_structure",
+            report.summary.trim().chars().count() >= 20
+                && report.body_md.trim().chars().count() >= 160,
+            !report.summary.trim().is_empty() && report.body_md.trim().chars().count() >= 80,
+            "summary and body length provide enough answer surface for regression QA.",
+        ),
+    ];
+    if citation_kinds.iter().any(|kind| kind == "source")
+        && citation_kinds
+            .iter()
+            .any(|kind| kind == "point" || kind == "evidence")
+    {
+        checks.push(investigation_qa_eval_check(
+            "citation_kind_mix",
+            true,
+            false,
+            "citations include Source plus Point/Evidence context.",
+        ));
+    } else {
+        checks.push(investigation_qa_eval_check(
+            "citation_kind_mix",
+            false,
+            !citation_kinds.is_empty(),
+            "expected Source plus Point/Evidence citation mix for multi-document QA.",
+        ));
+    }
+
+    let status = if checks.iter().any(|check| check.status == "fail") {
+        "fail"
+    } else if checks.iter().any(|check| check.status == "warning") {
+        "warning"
+    } else {
+        "pass"
+    };
+    let score = if checks.is_empty() {
+        0.0
+    } else {
+        checks.iter().map(|check| check.score).sum::<f64>() / checks.len() as f64
+    };
+    let warnings = checks
+        .iter()
+        .filter(|check| check.status != "pass")
+        .map(|check| format!("{}: {}", check.name, check.message))
+        .collect::<Vec<_>>();
+
+    InvestigationQaEvalCase {
+        case_id: format!("investigation-qa:{}", report.id),
+        report_id: report.id.clone(),
+        title: report.title.clone(),
+        question: first_non_empty([Some(report.title.as_str()), Some(report.summary.as_str())])
+            .unwrap_or(report.id.as_str())
+            .to_string(),
+        expected_citation_kinds: citation_kinds,
+        unique_citation_targets: unique_targets.len().min(i64::MAX as usize) as i64,
+        status: status.to_string(),
+        score: round_search_ranking_number(score),
+        checks,
+        warnings,
+    }
+}
+
+fn investigation_qa_eval_check(
+    name: &str,
+    pass: bool,
+    warning: bool,
+    message: &str,
+) -> InvestigationQaEvalCheck {
+    let (status, score) = if pass {
+        ("pass", 1.0)
+    } else if warning {
+        ("warning", 0.5)
+    } else {
+        ("fail", 0.0)
+    };
+    InvestigationQaEvalCheck {
+        name: name.to_string(),
+        status: status.to_string(),
+        score,
+        message: message.to_string(),
+    }
+}
+
+fn normalize_investigation_qa_eval_limit(limit: Option<i64>) -> usize {
+    limit.unwrap_or(20).clamp(1, 50) as usize
+}
+
+fn scorecard_item(
+    round: i64,
+    source_inspiration: &str,
+    capability: &str,
+    boundary: &str,
+    impact_score: f64,
+    risk_score: f64,
+    command_names: &[&str],
+    verification: &str,
+    next_step: &str,
+) -> CapabilityScorecardItem {
+    CapabilityScorecardItem {
+        round,
+        source_inspiration: source_inspiration.to_string(),
+        capability: capability.to_string(),
+        status: "completed".to_string(),
+        boundary: boundary.to_string(),
+        impact_score,
+        risk_score,
+        readiness: if boundary == "read_only" {
+            "ready_for_ui"
+        } else if boundary == "draft_only" {
+            "ready_for_preview_ui"
+        } else {
+            "needs_confirmation_ui"
+        }
+        .to_string(),
+        command_names: command_names.iter().map(|value| (*value).to_string()).collect(),
+        verification: verification.to_string(),
+        next_step: next_step.to_string(),
+    }
+}
+
+fn normalize_citation_quality_dashboard_limit(limit: Option<i64>) -> usize {
+    limit.unwrap_or(120).clamp(1, 200) as usize
+}
+
+fn citation_quality_status_count(citations: &[ReportCitationRecord], status: &str) -> i64 {
+    citations
+        .iter()
+        .filter(|citation| citation.locator_status == status)
+        .count()
+        .min(i64::MAX as usize) as i64
+}
+
+fn citation_quality_problem_status(status: &str) -> bool {
+    matches!(
+        status,
+        "multiple_matches" | "stale" | "not_found" | "target_missing" | "not_applicable"
+    )
+}
+
+fn citation_quality_score(coverage: &ReportAuditCoverage) -> f64 {
+    if coverage.total_claims == 0 && coverage.total_citations == 0 {
+        return 0.0;
+    }
+    let claim_score = if coverage.total_claims > 0 {
+        coverage.coverage_ratio
+    } else {
+        1.0
+    };
+    let citation_score = if coverage.total_citations > 0 {
+        let reviewable =
+            coverage.located_citations as f64 + coverage.warning_citations as f64 * 0.4;
+        reviewable / coverage.total_citations as f64
+    } else {
+        0.0
+    };
+    let unsupported_penalty = if coverage.total_claims > 0 {
+        coverage.unsupported_claims as f64 / coverage.total_claims as f64 * 0.5
+    } else {
+        0.0
+    };
+    (claim_score * citation_score - unsupported_penalty).clamp(0.0, 1.0)
+}
+
+fn citation_quality_severity(coverage: &ReportAuditCoverage, has_audit_rows: bool) -> &'static str {
+    if coverage.missing_citations > 0 || coverage.unsupported_claims > 0 {
+        "critical"
+    } else if !has_audit_rows
+        || coverage.warning_citations > 0
+        || coverage.inferred_claims > 0
+        || coverage.total_claims == 0
+        || coverage.total_citations == 0
+    {
+        "warning"
+    } else {
+        "ok"
+    }
+}
+
+fn citation_quality_problem_message(citation: &ReportCitationRecord) -> String {
+    match citation.locator_status.as_str() {
+        "multiple_matches" => format!(
+            "Citation matched {} location(s); choose a more precise quote.",
+            citation.match_count
+        ),
+        "stale" => "Saved citation text hash differs from the current target text.".to_string(),
+        "not_found" => {
+            "Citation quote or excerpt no longer appears in the target text.".to_string()
+        }
+        "target_missing" => "Citation target asset is missing or unsupported.".to_string(),
+        "not_applicable" => {
+            "Citation has no quote or excerpt, so it cannot be located precisely.".to_string()
+        }
+        other => format!("Citation locator status needs review: {other}."),
     }
 }
 
@@ -2932,6 +6769,3388 @@ pub fn invalidate_journal_entry(conn: &Connection, id: &str, reason: &str) -> Re
         params![now, reason, trimmed],
     )?;
     Ok(())
+}
+
+pub fn save_quick_capture(
+    conn: &Connection,
+    input: SaveQuickCaptureInput,
+) -> Result<QuickCaptureItem> {
+    let id = uuid::Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().to_rfc3339();
+    let content = required_trimmed("quick capture content", &input.content)?.to_string();
+    let tags_json = json_string_array(input.tags);
+    let source_kind =
+        optional_trimmed(input.source_kind.as_deref()).unwrap_or_else(|| "manual".to_string());
+
+    conn.execute(
+        "INSERT INTO quick_capture_items
+            (id, content, tags_json, source_kind, status, resolved_kind, resolved_id, resolved_at, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, 'inbox', NULL, NULL, NULL, ?5, ?5)",
+        params![
+            id.as_str(),
+            content.as_str(),
+            tags_json.as_str(),
+            source_kind.as_str(),
+            now.as_str()
+        ],
+    )?;
+
+    get_quick_capture_item(conn, &id)?
+        .ok_or_else(|| anyhow::anyhow!("saved quick capture not found: {id}"))
+}
+
+pub fn list_quick_captures(
+    conn: &Connection,
+    status: Option<&str>,
+    limit: Option<i64>,
+) -> Result<Vec<QuickCaptureItem>> {
+    let limit = limit.unwrap_or(120).clamp(1, 200);
+    let status = optional_trimmed(status);
+    if let Some(status) = status.as_deref() {
+        validate_quick_capture_status(status)?;
+        let mut stmt = conn.prepare(
+            "SELECT id, content, tags_json, source_kind, status, resolved_kind, resolved_id, resolved_at, created_at, updated_at
+             FROM quick_capture_items
+             WHERE status = ?1
+             ORDER BY updated_at DESC, created_at DESC
+             LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(params![status, limit], map_quick_capture_row)?;
+        let mut items = Vec::new();
+        for row in rows {
+            items.push(row?);
+        }
+        return Ok(items);
+    }
+
+    let mut stmt = conn.prepare(
+        "SELECT id, content, tags_json, source_kind, status, resolved_kind, resolved_id, resolved_at, created_at, updated_at
+         FROM quick_capture_items
+         ORDER BY updated_at DESC, created_at DESC
+         LIMIT ?1",
+    )?;
+    let rows = stmt.query_map(params![limit], map_quick_capture_row)?;
+    let mut items = Vec::new();
+    for row in rows {
+        items.push(row?);
+    }
+    Ok(items)
+}
+
+pub fn resolve_quick_capture(
+    conn: &mut Connection,
+    input: ResolveQuickCaptureInput,
+) -> Result<Option<QuickCaptureResolution>> {
+    let capture_id = input.id.trim().to_string();
+    if capture_id.is_empty() {
+        return Ok(None);
+    }
+    let Some(capture) = get_quick_capture_item(conn, &capture_id)? else {
+        return Ok(None);
+    };
+    if capture.status != "inbox" {
+        anyhow::bail!("quick capture is not in inbox");
+    }
+    let target_kind = input.target_kind.trim().to_string();
+    validate_quick_capture_target_kind(&target_kind)?;
+
+    let now = chrono::Utc::now().to_rfc3339();
+    let tags_json = json_string_array(capture.tags.clone());
+    let title = optional_trimmed(input.title.as_deref())
+        .or_else(|| first_non_empty(capture.content.lines().map(Some)).map(str::to_string))
+        .map(|value| compact_preview(&value, 96))
+        .unwrap_or_else(|| "Quick Capture".to_string());
+    let mut journal = None;
+    let mut point = None;
+    let mut source = None;
+    let resolved_id;
+
+    let tx = conn.transaction()?;
+    match target_kind.as_str() {
+        "journal" => {
+            let id = uuid::Uuid::new_v4().to_string();
+            let query = optional_trimmed(input.query.as_deref()).unwrap_or_else(|| title.clone());
+            tx.execute(
+                "INSERT INTO journal_entries
+                    (id, query, note, tags_json, source_ids_json, point_ids_json, evidence_ids_json,
+                     report_ids_json, created_report_id, source_kind, created_at, invalidated_at, invalidated_reason)
+                 VALUES (?1, ?2, ?3, ?4, '[]', '[]', '[]', '[]', NULL, 'quick_capture', ?5, NULL, NULL)",
+                params![
+                    id.as_str(),
+                    query.as_str(),
+                    capture.content.as_str(),
+                    tags_json.as_str(),
+                    now.as_str()
+                ],
+            )?;
+            journal = Some(JournalEntry {
+                id: id.clone(),
+                query,
+                note: capture.content.clone(),
+                tags_json: tags_json.clone(),
+                source_ids_json: "[]".to_string(),
+                point_ids_json: "[]".to_string(),
+                evidence_ids_json: "[]".to_string(),
+                report_ids_json: "[]".to_string(),
+                created_report_id: None,
+                source_kind: "quick_capture".to_string(),
+                created_at: now.clone(),
+                invalidated_at: None,
+                invalidated_reason: None,
+            });
+            resolved_id = id;
+        }
+        "point" => {
+            let id = uuid::Uuid::new_v4().to_string();
+            let parent_id = optional_trimmed(input.parent_id.as_deref());
+            tx.execute(
+                "INSERT INTO points
+                    (id, content, tag_type, parent_id, source_doc_name, source_excerpt, created_at, archived, starred)
+                 VALUES (?1, ?2, 'quick_capture', ?3, 'Quick Capture Inbox', NULL, ?4, 0, 0)",
+                params![
+                    id.as_str(),
+                    capture.content.as_str(),
+                    parent_id.as_deref(),
+                    now.as_str()
+                ],
+            )?;
+            point = Some(StoredPoint {
+                id: id.clone(),
+                content: capture.content.clone(),
+                tag_type: Some("quick_capture".to_string()),
+                parent_id,
+                source_doc_name: Some("Quick Capture Inbox".to_string()),
+                source_excerpt: None,
+                created_at: now.clone(),
+                archived: false,
+                starred: false,
+            });
+            resolved_id = id;
+        }
+        "source" => {
+            let id = uuid::Uuid::new_v4().to_string();
+            let canonical_uri = format!("quick-capture://{}", capture.id);
+            let metadata_json = serde_json::json!({
+                "captureId": capture.id.clone(),
+                "captureSourceKind": capture.source_kind.clone(),
+                "tags": capture.tags.clone(),
+            })
+            .to_string();
+            tx.execute(
+                "INSERT INTO source_documents
+                    (id, kind, title, canonical_uri, metadata_json, created_at, updated_at)
+                 VALUES (?1, 'quick_capture', ?2, ?3, ?4, ?5, ?5)",
+                params![
+                    id.as_str(),
+                    title.as_str(),
+                    canonical_uri.as_str(),
+                    metadata_json.as_str(),
+                    now.as_str()
+                ],
+            )?;
+            tx.execute(
+                "INSERT INTO source_chunks
+                    (id, source_id, chunk_index, heading_path, text, created_at)
+                 VALUES (?1, ?2, 0, NULL, ?3, ?4)",
+                params![
+                    uuid::Uuid::new_v4().to_string(),
+                    id.as_str(),
+                    capture.content.as_str(),
+                    now.as_str()
+                ],
+            )?;
+            source = Some(SourceDocumentRecord {
+                id: id.clone(),
+                kind: "quick_capture".to_string(),
+                title: Some(title),
+                canonical_uri,
+                metadata_json,
+                created_at: now.clone(),
+                updated_at: now.clone(),
+            });
+            resolved_id = id;
+        }
+        _ => unreachable!("validated quick capture target kind"),
+    }
+
+    tx.execute(
+        "UPDATE quick_capture_items
+         SET status = 'resolved', resolved_kind = ?1, resolved_id = ?2, resolved_at = ?3, updated_at = ?3
+         WHERE id = ?4",
+        params![
+            target_kind.as_str(),
+            resolved_id.as_str(),
+            now.as_str(),
+            capture.id.as_str()
+        ],
+    )?;
+    tx.commit()?;
+
+    let item = get_quick_capture_item(conn, &capture_id)?
+        .ok_or_else(|| anyhow::anyhow!("resolved quick capture not found: {capture_id}"))?;
+    Ok(Some(QuickCaptureResolution {
+        item,
+        journal,
+        point,
+        source,
+    }))
+}
+
+pub fn dismiss_quick_capture(conn: &Connection, id: &str) -> Result<Option<QuickCaptureItem>> {
+    let id = id.trim();
+    if id.is_empty() {
+        return Ok(None);
+    }
+    let Some(capture) = get_quick_capture_item(conn, id)? else {
+        return Ok(None);
+    };
+    if capture.status != "inbox" {
+        anyhow::bail!("quick capture is not in inbox");
+    }
+    let now = chrono::Utc::now().to_rfc3339();
+    conn.execute(
+        "UPDATE quick_capture_items
+         SET status = 'dismissed', resolved_kind = NULL, resolved_id = NULL, resolved_at = ?1, updated_at = ?1
+         WHERE id = ?2",
+        params![now.as_str(), id],
+    )?;
+    get_quick_capture_item(conn, id)
+}
+
+fn get_quick_capture_item(conn: &Connection, id: &str) -> Result<Option<QuickCaptureItem>> {
+    let id = id.trim();
+    if id.is_empty() {
+        return Ok(None);
+    }
+    conn.query_row(
+        "SELECT id, content, tags_json, source_kind, status, resolved_kind, resolved_id, resolved_at, created_at, updated_at
+         FROM quick_capture_items
+         WHERE id = ?1",
+        params![id],
+        map_quick_capture_row,
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
+struct ReportStarterTemplateSpec {
+    id: &'static str,
+    name: &'static str,
+    category: &'static str,
+    kind: &'static str,
+    description: &'static str,
+    sections: &'static [&'static str],
+    source_inspiration: &'static str,
+}
+
+struct CommandPaletteItemSpec {
+    id: &'static str,
+    title: &'static str,
+    category: &'static str,
+    description: &'static str,
+    keywords: &'static [&'static str],
+    command_name: &'static str,
+    wrapper_name: &'static str,
+    execution_kind: &'static str,
+    required_input: &'static [&'static str],
+    input_hint: &'static str,
+    risk: &'static str,
+    shortcut_hint: Option<&'static str>,
+    source_inspiration: &'static str,
+    priority: i64,
+}
+
+const COMMAND_PALETTE_ITEMS: &[CommandPaletteItemSpec] = &[
+    CommandPaletteItemSpec {
+        id: "system.command_palette_manifest",
+        title: "System: List Command Palette Items",
+        category: "system",
+        description: "Return the searchable command manifest that a future palette UI can render.",
+        keywords: &["command", "palette", "manifest", "silverbullet", "list commands"],
+        command_name: "list_command_palette_items",
+        wrapper_name: "listCommandPaletteItems",
+        execution_kind: "read",
+        required_input: &[],
+        input_hint: "Optional query, category, and limit filters.",
+        risk: "read_only",
+        shortcut_hint: Some("Mod+/"),
+        source_inspiration: "SilverBullet command hook + system.listCommands API",
+        priority: 120,
+    },
+    CommandPaletteItemSpec {
+        id: "system.capability_scorecard",
+        title: "System: Build Capability Scorecard",
+        category: "system",
+        description: "Summarize all 20 capability refinement rounds with impact, risk, boundaries, commands, and next steps.",
+        keywords: &[
+            "capability",
+            "scorecard",
+            "round 20",
+            "roadmap",
+            "risk",
+            "impact",
+            "炼化",
+        ],
+        command_name: "build_capability_scorecard",
+        wrapper_name: "buildCapabilityScorecard",
+        execution_kind: "read",
+        required_input: &[],
+        input_hint: "No input required.",
+        risk: "read_only",
+        shortcut_hint: None,
+        source_inspiration: "Cross-project capability refinement scorecard for Thepoint Round 20",
+        priority: 119,
+    },
+    CommandPaletteItemSpec {
+        id: "search.unified_assets",
+        title: "Search: Unified Assets",
+        category: "search",
+        description: "Search Source, Point, Evidence, Report, Journal, Gallery, and indexed files through one typed entry point.",
+        keywords: &["search", "asset", "library", "source", "point", "report", "indexed file"],
+        command_name: "search_assets",
+        wrapper_name: "searchAssets",
+        execution_kind: "read",
+        required_input: &["query"],
+        input_hint: "query plus optional kinds, filter, and limit.",
+        risk: "read_only",
+        shortcut_hint: None,
+        source_inspiration: "marginalia/Zotero search evaluation and Thepoint Round 01",
+        priority: 110,
+    },
+    CommandPaletteItemSpec {
+        id: "search.ranking_explainability",
+        title: "Search: Explain Ranking",
+        category: "search",
+        description: "Explain unified search result ordering with query terms, matched fields, score deltas, and diagnostic score components.",
+        keywords: &["search", "ranking", "explain", "score", "components", "marginalia", "eval"],
+        command_name: "explain_search_ranking",
+        wrapper_name: "explainSearchRanking",
+        execution_kind: "diagnostic",
+        required_input: &["query"],
+        input_hint: "query plus optional kinds, filter, and limit.",
+        risk: "read_only",
+        shortcut_hint: None,
+        source_inspiration: "marginalia recall_knowledge score_components and eval ablation reporting refined into Thepoint Round 15",
+        priority: 109,
+    },
+    CommandPaletteItemSpec {
+        id: "references.block_manifest",
+        title: "References: Build Block Reference Manifest",
+        category: "references",
+        description: "Return source chunk, point, evidence, report, journal, gallery, and indexed-file block cards for a target asset.",
+        keywords: &[
+            "reference",
+            "block",
+            "chunk",
+            "point",
+            "siyuan",
+            "citation card",
+            "locator",
+        ],
+        command_name: "build_block_reference_manifest",
+        wrapper_name: "buildBlockReferenceManifest",
+        execution_kind: "read",
+        required_input: &["kind", "id"],
+        input_hint: "target kind/id plus optional query, limit, and includeRelated.",
+        risk: "read_only",
+        shortcut_hint: None,
+        source_inspiration: "SiYuan block-level references refined into Thepoint Round 16",
+        priority: 108,
+    },
+    CommandPaletteItemSpec {
+        id: "board.snapshot_export",
+        title: "Board: Build Snapshot Export",
+        category: "board",
+        description: "Convert block reference cards into a portable board node/edge manifest plus Markdown map.",
+        keywords: &[
+            "board",
+            "canvas",
+            "snapshot",
+            "markdown map",
+            "affine",
+            "appflowy",
+            "export",
+        ],
+        command_name: "build_board_snapshot_export",
+        wrapper_name: "buildBoardSnapshotExport",
+        execution_kind: "draft",
+        required_input: &["kind", "id"],
+        input_hint: "target kind/id plus optional query, limit, and includeRelated.",
+        risk: "draft_only",
+        shortcut_hint: None,
+        source_inspiration: "AFFiNE canvas snapshots and AppFlowy board views refined into Thepoint Round 17",
+        priority: 107,
+    },
+    CommandPaletteItemSpec {
+        id: "automation.suggestions",
+        title: "Automation: Load Action Suggestions",
+        category: "automation",
+        description: "Aggregate due reviews, citation issues, reprocess items, duplicate groups, inbox captures, new Sources, and retrieval profiles into actionable suggestions.",
+        keywords: &["automation", "suggestion", "action", "maintenance", "khoj", "scheduler", "next step"],
+        command_name: "load_automation_suggestions",
+        wrapper_name: "loadAutomationSuggestions",
+        execution_kind: "diagnostic",
+        required_input: &[],
+        input_hint: "Optional categories and limit.",
+        risk: "read_only",
+        shortcut_hint: None,
+        source_inspiration: "Khoj automation metadata, trigger preview, and preset cards refined into Thepoint Round 13",
+        priority: 106,
+    },
+    CommandPaletteItemSpec {
+        id: "agent.retrieval_context",
+        title: "Agent: Build Retrieval Context",
+        category: "agent",
+        description: "Package unified search results into a bounded, auditable context manifest for future agent/RAG use.",
+        keywords: &["agent", "retrieval", "rag", "context", "khoj", "quivr", "kotaemon"],
+        command_name: "build_retrieval_context",
+        wrapper_name: "buildRetrievalContext",
+        execution_kind: "read",
+        required_input: &["query"],
+        input_hint: "query plus optional kinds, filter, limit, and maxCharsPerItem.",
+        risk: "read_only",
+        shortcut_hint: None,
+        source_inspiration: "Khoj/Quivr/Kotaemon read-only retrieval manifests and Thepoint Round 02",
+        priority: 104,
+    },
+    CommandPaletteItemSpec {
+        id: "retrieval.profiles.preview",
+        title: "Retrieval: Preview Workspace Profile",
+        category: "retrieval",
+        description: "Apply a saved retrieval profile to build a scoped, bounded context preview without writing assets.",
+        keywords: &["retrieval", "profile", "workspace", "scope", "preview", "anythingllm"],
+        command_name: "preview_retrieval_profile",
+        wrapper_name: "previewRetrievalProfile",
+        execution_kind: "read",
+        required_input: &["id"],
+        input_hint: "profile id plus optional queryOverride, limit, and maxCharsPerItem.",
+        risk: "read_only",
+        shortcut_hint: None,
+        source_inspiration: "AnythingLLM workspace similarityThreshold/topN/chatMode retrieval settings and Thepoint Round 12",
+        priority: 103,
+    },
+    CommandPaletteItemSpec {
+        id: "retrieval.profiles.save",
+        title: "Retrieval: Save Workspace Profile",
+        category: "retrieval",
+        description: "Persist a reusable retrieval scope with query defaults, asset kinds, filters, context budget, and mode.",
+        keywords: &["retrieval", "profile", "workspace", "scope", "save", "anythingllm"],
+        command_name: "save_retrieval_profile",
+        wrapper_name: "saveRetrievalProfile",
+        execution_kind: "write",
+        required_input: &["name"],
+        input_hint: "name plus query or savedSearchId; optional kinds, filter, limits, minScore, and mode.",
+        risk: "creates_or_updates_local_records",
+        shortcut_hint: None,
+        source_inspiration: "AnythingLLM workspace-scoped retrieval defaults refined into Thepoint Round 12",
+        priority: 102,
+    },
+    CommandPaletteItemSpec {
+        id: "retrieval.profiles.list",
+        title: "Retrieval: List Workspace Profiles",
+        category: "retrieval",
+        description: "List reusable workspace retrieval profiles for search, investigation, and future agent scopes.",
+        keywords: &["retrieval", "profile", "workspace", "list", "scope", "anythingllm"],
+        command_name: "list_retrieval_profiles",
+        wrapper_name: "listRetrievalProfiles",
+        execution_kind: "read",
+        required_input: &[],
+        input_hint: "No input required.",
+        risk: "read_only",
+        shortcut_hint: None,
+        source_inspiration: "AnythingLLM per-workspace retrieval settings and Thepoint Round 12",
+        priority: 101,
+    },
+    CommandPaletteItemSpec {
+        id: "capture.quick_capture.save",
+        title: "Capture: Save Quick Capture",
+        category: "capture",
+        description: "Save raw user text into the local quick-capture inbox for later triage.",
+        keywords: &["capture", "memo", "inbox", "quick", "memos", "note"],
+        command_name: "save_quick_capture",
+        wrapper_name: "saveQuickCapture",
+        execution_kind: "write",
+        required_input: &["content"],
+        input_hint: "content plus optional tags and sourceKind.",
+        risk: "creates_or_updates_local_records",
+        shortcut_hint: None,
+        source_inspiration: "Memos low-friction capture and Thepoint Round 06",
+        priority: 100,
+    },
+    CommandPaletteItemSpec {
+        id: "reports.starter.build",
+        title: "Reports: Build Starter Draft",
+        category: "reports",
+        description: "Create a report or investigation draft from a template and selected local assets without saving it.",
+        keywords: &["report", "starter", "template", "investigation", "draft", "affine", "appflowy"],
+        command_name: "build_report_starter",
+        wrapper_name: "buildReportStarter",
+        execution_kind: "draft",
+        required_input: &["templateId", "query"],
+        input_hint: "templateId, query, and optional sourceIds, pointIds, evidenceIds.",
+        risk: "draft_only",
+        shortcut_hint: None,
+        source_inspiration: "AFFiNE/AppFlowy template workflows and Thepoint Round 07",
+        priority: 98,
+    },
+    CommandPaletteItemSpec {
+        id: "reports.starter.templates",
+        title: "Reports: List Starter Templates",
+        category: "reports",
+        description: "List searchable built-in starter templates for reports and investigations.",
+        keywords: &["template", "starter", "report", "investigation", "list"],
+        command_name: "list_report_starter_templates",
+        wrapper_name: "listReportStarterTemplates",
+        execution_kind: "read",
+        required_input: &[],
+        input_hint: "Optional category and query filters.",
+        risk: "read_only",
+        shortcut_hint: None,
+        source_inspiration: "AFFiNE searchable templates and Thepoint Round 07",
+        priority: 94,
+    },
+    CommandPaletteItemSpec {
+        id: "diagnostics.reprocess_queue",
+        title: "Diagnostics: Review Reprocess Queue",
+        category: "diagnostics",
+        description: "Find low-quality indexed files, chunkless Sources, and report audit gaps that may need reprocessing.",
+        keywords: &["diagnostic", "reprocess", "queue", "low quality", "indexed file", "marginalia"],
+        command_name: "load_reprocess_queue",
+        wrapper_name: "loadReprocessQueue",
+        execution_kind: "diagnostic",
+        required_input: &[],
+        input_hint: "Optional kinds and limit.",
+        risk: "read_only",
+        shortcut_hint: None,
+        source_inspiration: "marginalia ingest lifecycle and Thepoint Round 08",
+        priority: 92,
+    },
+    CommandPaletteItemSpec {
+        id: "diagnostics.import_ledger",
+        title: "Diagnostics: Import Diagnostics Ledger",
+        category: "diagnostics",
+        description: "Review indexed-folder import and scan outcomes by file, format, status, error, and recovery action.",
+        keywords: &[
+            "diagnostic",
+            "import",
+            "ledger",
+            "scan",
+            "indexed file",
+            "zotero",
+            "joplin",
+            "warnings",
+        ],
+        command_name: "load_import_diagnostics_ledger",
+        wrapper_name: "loadImportDiagnosticsLedger",
+        execution_kind: "diagnostic",
+        required_input: &[],
+        input_hint: "Optional folderId, statuses, includeOk, and limit.",
+        risk: "read_only",
+        shortcut_hint: None,
+        source_inspiration: "Zotero import progress queue + Joplin InteropService warnings refined into Thepoint Round 14",
+        priority: 93,
+    },
+    CommandPaletteItemSpec {
+        id: "diagnostics.duplicate_assets",
+        title: "Diagnostics: Review Duplicate Assets",
+        category: "diagnostics",
+        description: "Detect exact and near-duplicate Sources, Points, and Reports without merging or deleting anything.",
+        keywords: &["diagnostic", "duplicate", "dedupe", "near duplicate", "zotero", "review"],
+        command_name: "detect_duplicate_assets",
+        wrapper_name: "detectDuplicateAssets",
+        execution_kind: "diagnostic",
+        required_input: &[],
+        input_hint: "Optional kinds and limit.",
+        risk: "read_only",
+        shortcut_hint: None,
+        source_inspiration: "Zotero duplicate item detection and Thepoint Round 09",
+        priority: 90,
+    },
+    CommandPaletteItemSpec {
+        id: "graph.neighborhood_preview",
+        title: "Graph: Preview Asset Neighborhood",
+        category: "graph",
+        description: "Preview one-hop or two-hop relation context plus suggested backlinks and duplicates.",
+        keywords: &["graph", "neighborhood", "preview", "relations", "foam", "logseq"],
+        command_name: "build_graph_neighborhood_preview",
+        wrapper_name: "buildGraphNeighborhoodPreview",
+        execution_kind: "read",
+        required_input: &["kind", "id"],
+        input_hint: "kind, id, optional depth, includeSuggestions, and limit.",
+        risk: "read_only",
+        shortcut_hint: None,
+        source_inspiration: "Foam graph focus subsets + Logseq page graph and Thepoint Round 10",
+        priority: 88,
+    },
+    CommandPaletteItemSpec {
+        id: "graph.backlink_suggestions",
+        title: "Graph: Suggest Backlinks",
+        category: "graph",
+        description: "Find assets that mention the current target but are not yet linked by asset_relations.",
+        keywords: &["graph", "backlink", "unlinked mention", "same topic", "foam", "logseq"],
+        command_name: "suggest_backlinks",
+        wrapper_name: "suggestBacklinks",
+        execution_kind: "read",
+        required_input: &["kind", "id"],
+        input_hint: "target kind and id plus optional limit.",
+        risk: "read_only",
+        shortcut_hint: None,
+        source_inspiration: "Foam/Logseq backlink workflows and Thepoint Round 03",
+        priority: 86,
+    },
+    CommandPaletteItemSpec {
+        id: "diagnostics.citation_quality",
+        title: "Diagnostics: Citation Quality Dashboard",
+        category: "diagnostics",
+        description: "Aggregate report claim/citation coverage, stale locators, missing targets, and severity.",
+        keywords: &["citation", "quality", "dashboard", "report", "zotero", "audit"],
+        command_name: "load_citation_quality_dashboard",
+        wrapper_name: "loadCitationQualityDashboard",
+        execution_kind: "diagnostic",
+        required_input: &[],
+        input_hint: "Optional limit.",
+        risk: "read_only",
+        shortcut_hint: None,
+        source_inspiration: "Zotero citation workflows and Thepoint Round 04",
+        priority: 84,
+    },
+    CommandPaletteItemSpec {
+        id: "evaluations.investigation_qa",
+        title: "Evaluations: Run Investigation QA Fixtures",
+        category: "evaluations",
+        description: "Evaluate saved Investigation reports for multi-document citation coverage, citation health, and answer structure.",
+        keywords: &[
+            "evaluation",
+            "qa",
+            "fixture",
+            "investigation",
+            "multi document",
+            "kotaemon",
+            "regression",
+        ],
+        command_name: "run_investigation_qa_eval",
+        wrapper_name: "runInvestigationQaEval",
+        execution_kind: "diagnostic",
+        required_input: &[],
+        input_hint: "Optional reportId and limit.",
+        risk: "read_only",
+        shortcut_hint: None,
+        source_inspiration: "Kotaemon multi-document QA evaluation fixtures refined into Thepoint Round 19",
+        priority: 83,
+    },
+    CommandPaletteItemSpec {
+        id: "collections.saved_searches.list",
+        title: "Collections: List Saved Searches",
+        category: "collections",
+        description: "List saved smart collection definitions for reusable dynamic Library searches.",
+        keywords: &["saved search", "smart collection", "joplin", "siyuan", "collection"],
+        command_name: "list_saved_asset_searches",
+        wrapper_name: "listSavedAssetSearches",
+        execution_kind: "read",
+        required_input: &[],
+        input_hint: "No input required.",
+        risk: "read_only",
+        shortcut_hint: None,
+        source_inspiration: "Joplin reusable search + SiYuan attribute views and Thepoint Round 05",
+        priority: 82,
+    },
+    CommandPaletteItemSpec {
+        id: "collections.saved_searches.save",
+        title: "Collections: Save Smart Search",
+        category: "collections",
+        description: "Persist a unified-search definition as a dynamic smart collection.",
+        keywords: &["saved search", "smart collection", "filter", "library", "save"],
+        command_name: "save_asset_search",
+        wrapper_name: "saveAssetSearch",
+        execution_kind: "write",
+        required_input: &["name", "query"],
+        input_hint: "name, query, optional kinds, filter, and limit.",
+        risk: "creates_or_updates_local_records",
+        shortcut_hint: None,
+        source_inspiration: "Joplin/SiYuan saved search methodology and Thepoint Round 05",
+        priority: 80,
+    },
+    CommandPaletteItemSpec {
+        id: "capture.quick_capture.list",
+        title: "Capture: List Quick Captures",
+        category: "capture",
+        description: "Load inbox, resolved, or dismissed quick-capture items for triage.",
+        keywords: &["capture", "memo", "inbox", "triage", "list"],
+        command_name: "list_quick_captures",
+        wrapper_name: "listQuickCaptures",
+        execution_kind: "read",
+        required_input: &[],
+        input_hint: "Optional status and limit.",
+        risk: "read_only",
+        shortcut_hint: None,
+        source_inspiration: "Memos inbox state model and Thepoint Round 06",
+        priority: 78,
+    },
+    CommandPaletteItemSpec {
+        id: "capture.quick_capture.resolve",
+        title: "Capture: Resolve Quick Capture",
+        category: "capture",
+        description: "Archive a capture into Journal, Point, or Source in one local transaction.",
+        keywords: &["capture", "resolve", "journal", "point", "source", "triage"],
+        command_name: "resolve_quick_capture",
+        wrapper_name: "resolveQuickCapture",
+        execution_kind: "write",
+        required_input: &["id", "targetKind"],
+        input_hint: "capture id, targetKind, and optional title, query, parentId.",
+        risk: "creates_or_updates_local_records",
+        shortcut_hint: None,
+        source_inspiration: "Memos memo lifecycle refined into Thepoint Round 06",
+        priority: 76,
+    },
+    CommandPaletteItemSpec {
+        id: "review.queue_plan",
+        title: "Review: Build Queue Plan",
+        category: "review",
+        description: "Build a read-only plan for due or catch-up review items.",
+        keywords: &["review", "queue", "spaced", "due", "plan"],
+        command_name: "build_review_queue_plan",
+        wrapper_name: "buildReviewQueuePlan",
+        execution_kind: "read",
+        required_input: &[],
+        input_hint: "Optional mode and limit.",
+        risk: "read_only",
+        shortcut_hint: None,
+        source_inspiration: "Local research workspace review queue",
+        priority: 74,
+    },
+    CommandPaletteItemSpec {
+        id: "review.due_items",
+        title: "Review: List Due Items",
+        category: "review",
+        description: "Load currently due review items ordered by due time and priority.",
+        keywords: &["review", "due", "items", "spaced repetition"],
+        command_name: "list_due_review_items",
+        wrapper_name: "listDueReviewItems",
+        execution_kind: "read",
+        required_input: &[],
+        input_hint: "No input required.",
+        risk: "read_only",
+        shortcut_hint: None,
+        source_inspiration: "Thepoint local Review Queue",
+        priority: 72,
+    },
+    CommandPaletteItemSpec {
+        id: "mirror.plan",
+        title: "Export: Build Open Data Mirror Plan",
+        category: "export",
+        description: "Preview which Markdown mirror files would be written, skipped, overwritten, or pruned.",
+        keywords: &["export", "mirror", "open data", "plan", "markdown"],
+        command_name: "build_open_data_mirror_plan",
+        wrapper_name: "buildOpenDataMirrorPlan",
+        execution_kind: "read",
+        required_input: &[],
+        input_hint: "Mirror config must already be set.",
+        risk: "read_only",
+        shortcut_hint: None,
+        source_inspiration: "Thepoint Open Data Mirror plan-first export",
+        priority: 70,
+    },
+    CommandPaletteItemSpec {
+        id: "mirror.sync_audit",
+        title: "Export: Audit Mirror Sync",
+        category: "export",
+        description: "Audit whether local assets, mirror files, and manifest entries are in sync without exporting or pruning.",
+        keywords: &[
+            "export",
+            "mirror",
+            "sync",
+            "audit",
+            "local first",
+            "appflowy",
+            "consistency",
+        ],
+        command_name: "build_export_sync_audit",
+        wrapper_name: "buildExportSyncAudit",
+        execution_kind: "diagnostic",
+        required_input: &[],
+        input_hint: "No input required; uses the current Open Data Mirror config.",
+        risk: "read_only",
+        shortcut_hint: None,
+        source_inspiration: "AppFlowy local-first workspace consistency checks refined into Thepoint Round 18",
+        priority: 69,
+    },
+    CommandPaletteItemSpec {
+        id: "mirror.export",
+        title: "Export: Run Open Data Mirror",
+        category: "export",
+        description: "Write portable Markdown mirror files for configured local assets.",
+        keywords: &["export", "mirror", "markdown", "manifest", "write files"],
+        command_name: "export_open_data_mirror",
+        wrapper_name: "exportOpenDataMirror",
+        execution_kind: "export",
+        required_input: &[],
+        input_hint: "Mirror config must be enabled and point to a root path.",
+        risk: "writes_export_files",
+        shortcut_hint: None,
+        source_inspiration: "Thepoint Open Data Mirror export workflow",
+        priority: 68,
+    },
+    CommandPaletteItemSpec {
+        id: "ai.generate_investigation",
+        title: "AI: Generate Investigation",
+        category: "ai",
+        description: "Generate a bounded investigation from explicit local scope, optional Journal recall, and library search.",
+        keywords: &["ai", "investigation", "report", "generate", "scope", "journal"],
+        command_name: "generate_investigation",
+        wrapper_name: "generateInvestigation",
+        execution_kind: "model",
+        required_input: &["query", "scope"],
+        input_hint: "query, scope asset ids, include flags, and mode.",
+        risk: "model_call",
+        shortcut_hint: None,
+        source_inspiration: "Thepoint Investigation audit and context manifest",
+        priority: 66,
+    },
+    CommandPaletteItemSpec {
+        id: "ai.generate_digest",
+        title: "AI: Generate Digest",
+        category: "ai",
+        description: "Generate a citation-aware digest from current starred Points and optional Evidence selections.",
+        keywords: &["ai", "digest", "generate", "evidence", "starred points"],
+        command_name: "generate_digest",
+        wrapper_name: "generateDigest",
+        execution_kind: "model",
+        required_input: &[],
+        input_hint: "Optional evidenceIds; starred Points are read from local state.",
+        risk: "model_call",
+        shortcut_hint: None,
+        source_inspiration: "Thepoint Evidence/Digest citation workflow",
+        priority: 64,
+    },
+    CommandPaletteItemSpec {
+        id: "ai.generate_synthesis",
+        title: "AI: Generate Synthesis",
+        category: "ai",
+        description: "Generate a bounded multi-source synthesis from selected Sources and optional starred Points.",
+        keywords: &["ai", "synthesis", "source", "generate", "multi document"],
+        command_name: "generate_synthesis",
+        wrapper_name: "generateSynthesis",
+        execution_kind: "model",
+        required_input: &["sourceIds"],
+        input_hint: "sourceIds and includeStarred.",
+        risk: "model_call",
+        shortcut_hint: None,
+        source_inspiration: "Thepoint multi-source synthesis command",
+        priority: 62,
+    },
+    CommandPaletteItemSpec {
+        id: "analytics.overview",
+        title: "Analytics: Open Workbench Overview",
+        category: "analytics",
+        description: "Load local analytics for sources, points, reports, evidence, review, and mirror state.",
+        keywords: &["analytics", "overview", "stats", "workspace"],
+        command_name: "get_analytics",
+        wrapper_name: "getAnalytics",
+        execution_kind: "read",
+        required_input: &[],
+        input_hint: "No input required.",
+        risk: "read_only",
+        shortcut_hint: None,
+        source_inspiration: "Thepoint analytics dashboard",
+        priority: 58,
+    },
+];
+
+const REPORT_STARTER_TEMPLATES: &[ReportStarterTemplateSpec] = &[
+    ReportStarterTemplateSpec {
+        id: "investigation-brief",
+        name: "Investigation Brief",
+        category: "investigation",
+        kind: "investigation",
+        description: "A question-first investigation scaffold with evidence map, findings, risks, and next actions.",
+        sections: &[
+            "Question",
+            "Context Pack",
+            "Evidence Map",
+            "Findings",
+            "Risks And Unknowns",
+            "Next Actions",
+        ],
+        source_inspiration: "AFFiNE built-in template manager + AppFlowy default workspace templates",
+    },
+    ReportStarterTemplateSpec {
+        id: "evidence-review",
+        name: "Evidence Review Matrix",
+        category: "investigation",
+        kind: "investigation",
+        description: "A source/point/evidence review scaffold for checking support, contradiction, gaps, and follow-up work.",
+        sections: &[
+            "Review Scope",
+            "Evidence Table",
+            "Agreement And Conflict",
+            "Missing Evidence",
+            "Decision Notes",
+        ],
+        source_inspiration: "AFFiNE searchable template categories + AppFlowy structured default database fields",
+    },
+    ReportStarterTemplateSpec {
+        id: "synthesis-note",
+        name: "Synthesis Note",
+        category: "synthesis",
+        kind: "synthesis",
+        description: "A compact synthesis scaffold for combining selected assets into a reusable narrative report.",
+        sections: &[
+            "Synthesis Thesis",
+            "Supporting Signals",
+            "Counterpoints",
+            "Reusable Summary",
+            "Follow-up Questions",
+        ],
+        source_inspiration: "AFFiNE template content insertion + AppFlowy template library entrypoint",
+    },
+];
+
+pub fn list_command_palette_items(input: CommandPaletteInput) -> CommandPaletteManifest {
+    let query = optional_trimmed(input.query.as_deref()).map(|value| value.to_lowercase());
+    let category = optional_trimmed(input.category.as_deref()).map(|value| value.to_lowercase());
+    let limit = input.limit.unwrap_or(60).clamp(1, 100) as usize;
+    let mut items = COMMAND_PALETTE_ITEMS
+        .iter()
+        .filter(|spec| {
+            category.as_ref().map_or(true, |category| {
+                spec.category.eq_ignore_ascii_case(category)
+            })
+        })
+        .filter(|spec| {
+            query.as_ref().map_or(true, |query| {
+                command_palette_item_matches_query(spec, query)
+            })
+        })
+        .map(command_palette_item_from_spec)
+        .collect::<Vec<_>>();
+
+    items.sort_by(|left, right| {
+        right
+            .priority
+            .cmp(&left.priority)
+            .then_with(|| left.category.cmp(&right.category))
+            .then_with(|| left.title.cmp(&right.title))
+    });
+
+    let total_matches = items.len();
+    items.truncate(limit);
+    let mut warnings = Vec::new();
+    if total_matches == 0 {
+        warnings.push("No command palette items matched the filters.".to_string());
+    }
+    if total_matches > items.len() {
+        warnings.push(format!(
+            "Command palette manifest truncated from {total_matches} item(s) to {limit} item(s)."
+        ));
+    }
+
+    CommandPaletteManifest {
+        generated_at: chrono::Utc::now().to_rfc3339(),
+        item_count: items.len() as i64,
+        categories: command_palette_categories(),
+        items,
+        warnings,
+    }
+}
+
+pub fn load_import_diagnostics_ledger(
+    conn: &Connection,
+    input: ImportDiagnosticsInput,
+) -> Result<ImportDiagnosticsLedger> {
+    let limit = input.limit.unwrap_or(80).clamp(1, 200) as usize;
+    let include_ok = input.include_ok.unwrap_or(false);
+    let statuses = normalize_import_diagnostic_statuses(input.statuses);
+    let rows = load_indexed_file_diagnostic_rows(conn, input.folder_id.as_deref())?;
+    let total_rows = rows.len();
+    let mut folder_summaries: HashMap<String, ImportFolderDiagnosticSummary> = HashMap::new();
+    let mut items = Vec::new();
+
+    for row in rows {
+        let classification = classify_import_diagnostic(&row.file);
+        update_import_folder_summary(&mut folder_summaries, &row, &classification);
+        let item = import_diagnostic_item(row, classification);
+        if !include_ok && item.severity == "ok" {
+            continue;
+        }
+        if !import_diagnostic_matches_status(&item, &statuses) {
+            continue;
+        }
+        items.push(item);
+    }
+
+    items.sort_by(|left, right| {
+        import_severity_rank(&right.severity)
+            .cmp(&import_severity_rank(&left.severity))
+            .then_with(|| right.indexed_at.cmp(&left.indexed_at))
+            .then_with(|| left.folder_name.cmp(&right.folder_name))
+            .then_with(|| left.file_name.cmp(&right.file_name))
+            .then_with(|| left.file_id.cmp(&right.file_id))
+    });
+
+    let total_candidates = items.len();
+    items.truncate(limit);
+
+    let mut folders = folder_summaries.into_values().collect::<Vec<_>>();
+    folders.sort_by(|left, right| {
+        right
+            .critical_count
+            .cmp(&left.critical_count)
+            .then_with(|| right.warning_count.cmp(&left.warning_count))
+            .then_with(|| left.folder_name.cmp(&right.folder_name))
+            .then_with(|| left.folder_id.cmp(&right.folder_id))
+    });
+
+    let ok_count = folders.iter().map(|folder| folder.ok_count).sum();
+    let warning_count = folders.iter().map(|folder| folder.warning_count).sum();
+    let critical_count = folders.iter().map(|folder| folder.critical_count).sum();
+
+    let mut warnings = Vec::new();
+    if total_rows == 0 {
+        warnings.push("No indexed-folder import records matched the selected scope.".to_string());
+    } else if total_candidates == 0 {
+        warnings.push("No import diagnostics matched the selected filters.".to_string());
+    }
+    if total_candidates > items.len() {
+        warnings.push(format!(
+            "Import diagnostics ledger truncated from {total_candidates} candidate(s) to {limit} item(s)."
+        ));
+    }
+
+    Ok(ImportDiagnosticsLedger {
+        generated_at: chrono::Utc::now().to_rfc3339(),
+        item_count: items.len() as i64,
+        folder_count: folders.len() as i64,
+        ok_count,
+        warning_count,
+        critical_count,
+        folders,
+        items,
+        warnings,
+    })
+}
+
+struct IndexedFileDiagnosticRow {
+    file: IndexedFile,
+    folder_name: String,
+    folder_path: String,
+    folder_last_scanned_at: Option<String>,
+}
+
+fn load_indexed_file_diagnostic_rows(
+    conn: &Connection,
+    folder_id: Option<&str>,
+) -> Result<Vec<IndexedFileDiagnosticRow>> {
+    let folder_filter = optional_trimmed(folder_id);
+    let mut stmt = conn.prepare(
+        "SELECT f.id, f.folder_id, f.path, f.canonical_path, f.name, f.extension, f.size_bytes, f.modified_at, f.source_id, f.indexed_at,
+                f.descriptor_kind, f.read_status, f.index_status, f.metadata_json, f.preview_text, f.text_hash, f.extracted_chars, f.total_chars, f.last_error,
+                COALESCE(folder.name, f.folder_id) AS folder_name,
+                COALESCE(folder.path, f.folder_id) AS folder_path,
+                folder.last_scanned_at
+         FROM indexed_files f
+         LEFT JOIN indexed_folders folder ON folder.id = f.folder_id
+         WHERE (?1 IS NULL OR f.folder_id = ?1)
+         ORDER BY f.indexed_at DESC",
+    )?;
+    let rows = stmt.query_map(params![folder_filter.as_deref()], |row| {
+        Ok(IndexedFileDiagnosticRow {
+            file: map_indexed_file_row(row)?,
+            folder_name: row.get(19)?,
+            folder_path: row.get(20)?,
+            folder_last_scanned_at: row.get(21)?,
+        })
+    })?;
+    let mut output = Vec::new();
+    for row in rows {
+        output.push(row?);
+    }
+    Ok(output)
+}
+
+struct ImportDiagnosticClassification {
+    severity: &'static str,
+    issue_kind: &'static str,
+    message: String,
+    recovery_action: &'static str,
+    command_name: &'static str,
+    wrapper_name: &'static str,
+}
+
+fn classify_import_diagnostic(file: &IndexedFile) -> ImportDiagnosticClassification {
+    let error = optional_trimmed(file.last_error.as_deref())
+        .map(|value| compact_preview(&value, 180))
+        .unwrap_or_default();
+    if file.read_status == "missing" || file.index_status == "stale" {
+        return ImportDiagnosticClassification {
+            severity: "critical",
+            issue_kind: "missing_or_stale_file",
+            message: first_non_empty([
+                Some(error.as_str()),
+                Some("File was missing or stale during the last indexed-folder scan."),
+            ])
+            .unwrap()
+            .to_string(),
+            recovery_action: "Restore the file at its original path or rescan the indexed folder.",
+            command_name: "scan_indexed_folder",
+            wrapper_name: "scanIndexedFolder",
+        };
+    }
+    if file.read_status == "failed" || file.index_status == "failed" {
+        return ImportDiagnosticClassification {
+            severity: "critical",
+            issue_kind: "file_read_failed",
+            message: first_non_empty([
+                Some(error.as_str()),
+                Some("The file could not be read or indexed."),
+            ])
+            .unwrap()
+            .to_string(),
+            recovery_action:
+                "Check file permissions, encoding, and path validity, then rescan the folder.",
+            command_name: "scan_indexed_folder",
+            wrapper_name: "scanIndexedFolder",
+        };
+    }
+    if file.index_status == "partial" {
+        return ImportDiagnosticClassification {
+            severity: "warning",
+            issue_kind: "partial_index",
+            message: first_non_empty([
+                Some(error.as_str()),
+                Some("The file was discovered but only partially indexed."),
+            ])
+            .unwrap()
+            .to_string(),
+            recovery_action:
+                "Inspect the source file and rescan after fixing parser or encoding issues.",
+            command_name: "scan_indexed_folder",
+            wrapper_name: "scanIndexedFolder",
+        };
+    }
+    if file.read_status == "too_large" {
+        return ImportDiagnosticClassification {
+            severity: "warning",
+            issue_kind: "file_too_large",
+            message: first_non_empty([
+                Some(error.as_str()),
+                Some("The file exceeded the local text indexing size budget."),
+            ])
+            .unwrap()
+            .to_string(),
+            recovery_action:
+                "Split or summarize the file before rescanning, or import a smaller derivative.",
+            command_name: "load_indexed_file_preview",
+            wrapper_name: "loadIndexedFilePreview",
+        };
+    }
+    if file.read_status == "unsupported" || file.index_status == "metadata_only" {
+        return ImportDiagnosticClassification {
+            severity: "warning",
+            issue_kind: "metadata_only_file",
+            message: "File was recorded as metadata only; no searchable text was extracted."
+                .to_string(),
+            recovery_action:
+                "Inspect parser support or convert the file to a supported text format.",
+            command_name: "load_indexed_file_preview",
+            wrapper_name: "loadIndexedFilePreview",
+        };
+    }
+    if !error.is_empty() {
+        return ImportDiagnosticClassification {
+            severity: "warning",
+            issue_kind: "import_warning",
+            message: error,
+            recovery_action: "Inspect the file warning and rescan if the source changed.",
+            command_name: "load_indexed_file_preview",
+            wrapper_name: "loadIndexedFilePreview",
+        };
+    }
+    ImportDiagnosticClassification {
+        severity: "ok",
+        issue_kind: "import_ok",
+        message: "File is indexed and has no recorded import warning.".to_string(),
+        recovery_action: "No recovery action required.",
+        command_name: "load_indexed_file_preview",
+        wrapper_name: "loadIndexedFilePreview",
+    }
+}
+
+fn import_diagnostic_item(
+    row: IndexedFileDiagnosticRow,
+    classification: ImportDiagnosticClassification,
+) -> ImportDiagnosticItem {
+    let input = if classification.command_name == "scan_indexed_folder" {
+        serde_json::json!({ "folderId": row.file.folder_id.clone() })
+    } else {
+        serde_json::json!({ "fileId": row.file.id.clone() })
+    };
+    ImportDiagnosticItem {
+        id: format!("import:{}:{}", row.file.folder_id, row.file.id),
+        folder_id: row.file.folder_id.clone(),
+        folder_name: row.folder_name,
+        folder_path: row.folder_path,
+        file_id: row.file.id.clone(),
+        file_name: row.file.name.clone(),
+        path: row.file.path.clone(),
+        extension: row.file.extension.clone(),
+        descriptor_kind: row.file.descriptor_kind.clone(),
+        read_status: row.file.read_status.clone(),
+        index_status: row.file.index_status.clone(),
+        severity: classification.severity.to_string(),
+        issue_kind: classification.issue_kind.to_string(),
+        message: classification.message,
+        recovery_action: classification.recovery_action.to_string(),
+        command_name: classification.command_name.to_string(),
+        wrapper_name: classification.wrapper_name.to_string(),
+        input_json: input.to_string(),
+        source_id: row.file.source_id,
+        indexed_at: row.file.indexed_at,
+        last_error: row.file.last_error,
+        metadata_json: row.file.metadata_json,
+    }
+}
+
+fn update_import_folder_summary(
+    summaries: &mut HashMap<String, ImportFolderDiagnosticSummary>,
+    row: &IndexedFileDiagnosticRow,
+    classification: &ImportDiagnosticClassification,
+) {
+    let summary = summaries
+        .entry(row.file.folder_id.clone())
+        .or_insert_with(|| ImportFolderDiagnosticSummary {
+            folder_id: row.file.folder_id.clone(),
+            folder_name: row.folder_name.clone(),
+            folder_path: row.folder_path.clone(),
+            last_scanned_at: row.folder_last_scanned_at.clone(),
+            total_files: 0,
+            ok_count: 0,
+            metadata_only_count: 0,
+            partial_count: 0,
+            failed_count: 0,
+            missing_count: 0,
+            stale_count: 0,
+            warning_count: 0,
+            critical_count: 0,
+        });
+    summary.total_files += 1;
+    if row.file.index_status == "metadata_only" {
+        summary.metadata_only_count += 1;
+    }
+    if row.file.index_status == "partial" {
+        summary.partial_count += 1;
+    }
+    if row.file.read_status == "failed" || row.file.index_status == "failed" {
+        summary.failed_count += 1;
+    }
+    if row.file.read_status == "missing" {
+        summary.missing_count += 1;
+    }
+    if row.file.index_status == "stale" {
+        summary.stale_count += 1;
+    }
+    match classification.severity {
+        "critical" => summary.critical_count += 1,
+        "warning" => summary.warning_count += 1,
+        "ok" => summary.ok_count += 1,
+        _ => {}
+    }
+}
+
+fn normalize_import_diagnostic_statuses(statuses: Option<Vec<String>>) -> HashSet<String> {
+    let allowed = [
+        "ok",
+        "warning",
+        "critical",
+        "indexed",
+        "metadata_only",
+        "partial",
+        "failed",
+        "missing",
+        "stale",
+        "unsupported",
+        "too_large",
+        "import_ok",
+        "metadata_only_file",
+        "partial_index",
+        "file_read_failed",
+        "missing_or_stale_file",
+        "file_too_large",
+        "import_warning",
+    ];
+    statuses
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|status| optional_trimmed(Some(&status)))
+        .map(|status| status.to_lowercase())
+        .filter(|status| allowed.contains(&status.as_str()))
+        .collect()
+}
+
+fn import_diagnostic_matches_status(
+    item: &ImportDiagnosticItem,
+    statuses: &HashSet<String>,
+) -> bool {
+    statuses.is_empty()
+        || statuses.contains(item.severity.as_str())
+        || statuses.contains(item.issue_kind.as_str())
+        || statuses.contains(item.read_status.as_str())
+        || statuses.contains(item.index_status.as_str())
+}
+
+fn import_severity_rank(severity: &str) -> i64 {
+    match severity {
+        "critical" => 3,
+        "warning" => 2,
+        "ok" => 1,
+        _ => 0,
+    }
+}
+
+pub fn load_automation_suggestions(
+    conn: &Connection,
+    input: AutomationSuggestionInput,
+) -> Result<AutomationSuggestionReport> {
+    let limit = input.limit.unwrap_or(40).clamp(1, 100) as usize;
+    let categories = normalize_automation_suggestion_categories(input.categories);
+    let mut items = Vec::new();
+
+    if categories.contains("review") {
+        collect_review_automation_suggestions(conn, &mut items, limit)?;
+    }
+    if categories.contains("citations") {
+        collect_citation_automation_suggestions(conn, &mut items, limit)?;
+    }
+    if categories.contains("reprocess") {
+        collect_reprocess_automation_suggestions(conn, &mut items, limit)?;
+    }
+    if categories.contains("import") {
+        collect_import_automation_suggestions(conn, &mut items, limit)?;
+    }
+    if categories.contains("duplicates") {
+        collect_duplicate_automation_suggestions(conn, &mut items, limit)?;
+    }
+    if categories.contains("capture") {
+        collect_capture_automation_suggestions(conn, &mut items, limit)?;
+    }
+    if categories.contains("sources") {
+        collect_source_automation_suggestions(conn, &mut items, limit)?;
+    }
+    if categories.contains("retrieval") {
+        collect_retrieval_profile_automation_suggestions(conn, &mut items, limit)?;
+    }
+
+    items.sort_by(|left, right| {
+        right
+            .priority_score
+            .cmp(&left.priority_score)
+            .then_with(|| left.category.cmp(&right.category))
+            .then_with(|| left.subject.cmp(&right.subject))
+            .then_with(|| left.id.cmp(&right.id))
+    });
+
+    let total_candidates = items.len();
+    items.truncate(limit);
+    let critical_count = automation_priority_count(&items, "critical");
+    let high_count = automation_priority_count(&items, "high");
+    let normal_count = automation_priority_count(&items, "normal");
+    let low_count = automation_priority_count(&items, "low");
+    let mut warnings = Vec::new();
+    if total_candidates == 0 {
+        warnings.push("No automation suggestions matched the selected categories.".to_string());
+    }
+    if total_candidates > items.len() {
+        warnings.push(format!(
+            "Automation suggestions truncated from {total_candidates} candidate(s) to {limit} item(s)."
+        ));
+    }
+
+    Ok(AutomationSuggestionReport {
+        generated_at: chrono::Utc::now().to_rfc3339(),
+        item_count: items.len() as i64,
+        critical_count,
+        high_count,
+        normal_count,
+        low_count,
+        items,
+        warnings,
+    })
+}
+
+fn normalize_automation_suggestion_categories(categories: Option<Vec<String>>) -> HashSet<String> {
+    let allowed = [
+        "review",
+        "citations",
+        "reprocess",
+        "import",
+        "duplicates",
+        "capture",
+        "retrieval",
+        "sources",
+    ];
+    let mut normalized = categories
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|category| optional_trimmed(Some(&category)))
+        .map(|category| match category.to_lowercase().as_str() {
+            "citation" => "citations".to_string(),
+            "duplicate" => "duplicates".to_string(),
+            "source" => "sources".to_string(),
+            value => value.to_string(),
+        })
+        .filter(|category| allowed.contains(&category.as_str()))
+        .collect::<HashSet<_>>();
+    if normalized.is_empty() {
+        normalized.extend(allowed.iter().map(|category| (*category).to_string()));
+    }
+    normalized
+}
+
+fn collect_review_automation_suggestions(
+    conn: &Connection,
+    items: &mut Vec<AutomationSuggestionItem>,
+    limit: usize,
+) -> Result<()> {
+    let plan = build_review_queue_plan(
+        conn,
+        ReviewQueuePlanInput {
+            mode: Some("due".to_string()),
+            limit: Some(limit.min(REVIEW_QUEUE_MAX_LIMIT as usize) as i64),
+        },
+    )?;
+    for plan_item in plan.items {
+        let priority = if plan_item.days_overdue > 0 || plan_item.priority_rank >= 3 {
+            "high"
+        } else if plan_item.priority_rank <= 1 {
+            "low"
+        } else {
+            "normal"
+        };
+        let target_kind = plan_item.item.target_kind.clone();
+        let target_id = plan_item.item.target_id.clone();
+        let title = plan_item.item.title.clone();
+        items.push(automation_suggestion_item(
+            format!("review:{}", plan_item.item.id),
+            "review",
+            priority,
+            format!("Review due item: {title}"),
+            format!(
+                "{} review target is in the due queue at position {}.",
+                target_kind, plan_item.position
+            ),
+            plan_item.reason,
+            "Open review queue plan",
+            "build_review_queue_plan",
+            "buildReviewQueuePlan",
+            serde_json::json!({ "mode": "due", "limit": REVIEW_QUEUE_DEFAULT_LIMIT }),
+            Some(target_kind),
+            Some(target_id),
+            "Review queue sweep: daily or when starting a research session.",
+            "Khoj scheduled jobs + Thepoint Review Queue planner",
+        ));
+    }
+    Ok(())
+}
+
+fn collect_citation_automation_suggestions(
+    conn: &Connection,
+    items: &mut Vec<AutomationSuggestionItem>,
+    limit: usize,
+) -> Result<()> {
+    let dashboard = build_citation_quality_dashboard(conn, Some(limit.min(50) as i64))?;
+    for citation in dashboard.problem_citations {
+        let priority = match citation.locator_status.as_str() {
+            "target_missing" | "not_found" => "critical",
+            "stale" => "high",
+            _ => "normal",
+        };
+        let label = citation
+            .label
+            .as_deref()
+            .or(citation.title.as_deref())
+            .unwrap_or("citation");
+        items.push(automation_suggestion_item(
+            format!(
+                "citation:{}:{}:{}",
+                citation.report_id, citation.citation_index, citation.locator_status
+            ),
+            "citations",
+            priority,
+            format!("Check {label} in {}", citation.report_title),
+            citation.message,
+            citation.reason,
+            "Open citation quality dashboard",
+            "load_citation_quality_dashboard",
+            "loadCitationQualityDashboard",
+            serde_json::json!({ "limit": 50 }),
+            Some("report".to_string()),
+            Some(citation.report_id),
+            "Citation audit sweep: daily or before exporting reports.",
+            "Khoj automation reports + Zotero-style stale citation diagnostics",
+        ));
+    }
+    Ok(())
+}
+
+fn collect_reprocess_automation_suggestions(
+    conn: &Connection,
+    items: &mut Vec<AutomationSuggestionItem>,
+    limit: usize,
+) -> Result<()> {
+    let queue = build_reprocess_queue(
+        conn,
+        ReprocessQueueInput {
+            kinds: None,
+            limit: Some(limit.min(50) as i64),
+        },
+    )?;
+    for queue_item in queue.items {
+        let priority = if queue_item.severity == "critical" {
+            "critical"
+        } else {
+            "normal"
+        };
+        let action_label = queue_item.suggested_action.replace('_', " ");
+        items.push(automation_suggestion_item(
+            format!(
+                "reprocess:{}:{}",
+                queue_item.target_kind, queue_item.target_id
+            ),
+            "reprocess",
+            priority,
+            format!("Reprocess candidate: {}", queue_item.title),
+            format!(
+                "{} has `{}` quality issue.",
+                queue_item.target_kind, queue_item.issue_kind
+            ),
+            queue_item.reason,
+            action_label,
+            "load_reprocess_queue",
+            "loadReprocessQueue",
+            serde_json::json!({ "kinds": [queue_item.target_kind.clone()], "limit": 50 }),
+            Some(queue_item.target_kind),
+            Some(queue_item.target_id),
+            "Maintenance sweep: daily or after indexed-folder scans.",
+            "Khoj recurring jobs + marginalia ingest lifecycle queue",
+        ));
+    }
+    Ok(())
+}
+
+fn collect_import_automation_suggestions(
+    conn: &Connection,
+    items: &mut Vec<AutomationSuggestionItem>,
+    limit: usize,
+) -> Result<()> {
+    let ledger = load_import_diagnostics_ledger(
+        conn,
+        ImportDiagnosticsInput {
+            folder_id: None,
+            statuses: None,
+            include_ok: Some(false),
+            limit: Some(limit.min(50) as i64),
+        },
+    )?;
+    for item in ledger.items {
+        let priority = if item.severity == "critical" {
+            "critical"
+        } else {
+            "normal"
+        };
+        items.push(automation_suggestion_item(
+            format!("import:{}:{}", item.folder_id, item.file_id),
+            "import",
+            priority,
+            format!("Inspect import diagnostic: {}", item.file_name),
+            format!(
+                "{} scan item has `{}` import issue.",
+                item.descriptor_kind, item.issue_kind
+            ),
+            format!(
+                "{} | read_status={} | index_status={}",
+                item.message, item.read_status, item.index_status
+            ),
+            "Open import diagnostics ledger",
+            "load_import_diagnostics_ledger",
+            "loadImportDiagnosticsLedger",
+            serde_json::json!({
+                "folderId": item.folder_id.clone(),
+                "statuses": [item.severity.clone()],
+                "includeOk": false,
+                "limit": 50
+            }),
+            Some("indexed_file".to_string()),
+            Some(item.file_id),
+            "Import diagnostics sweep: after indexed-folder scans or failed imports.",
+            "Khoj action suggestions + Zotero/Joplin import warning ledgers",
+        ));
+    }
+    Ok(())
+}
+
+fn collect_duplicate_automation_suggestions(
+    conn: &Connection,
+    items: &mut Vec<AutomationSuggestionItem>,
+    limit: usize,
+) -> Result<()> {
+    let report = detect_duplicate_assets(
+        conn,
+        DuplicateAssetInput {
+            kinds: None,
+            limit: Some(limit.min(30) as i64),
+        },
+    )?;
+    for group in report.groups {
+        let Some(first) = group.candidates.first() else {
+            continue;
+        };
+        let priority = if group.match_kind == "exact_fingerprint" {
+            "high"
+        } else {
+            "normal"
+        };
+        items.push(automation_suggestion_item(
+            format!("duplicate:{}:{}", group.group_id, group.duplicate_key),
+            "duplicates",
+            priority,
+            format!("Review duplicate {}: {}", first.kind, first.title),
+            format!(
+                "{} candidate(s) share a {} duplicate fingerprint.",
+                group.candidates.len(),
+                group.match_kind
+            ),
+            group.reason,
+            "Open duplicate asset report",
+            "detect_duplicate_assets",
+            "detectDuplicateAssets",
+            serde_json::json!({ "kinds": [first.kind.clone()], "limit": 30 }),
+            Some(first.kind.clone()),
+            Some(first.id.clone()),
+            "Duplicate review sweep: weekly or before report cleanup.",
+            "Khoj preset automation cards + Zotero duplicate review workflow",
+        ));
+    }
+    Ok(())
+}
+
+fn collect_capture_automation_suggestions(
+    conn: &Connection,
+    items: &mut Vec<AutomationSuggestionItem>,
+    limit: usize,
+) -> Result<()> {
+    for capture in list_quick_captures(conn, Some("inbox"), Some(limit.min(50) as i64))? {
+        let preview = compact_preview(&capture.content, 80);
+        items.push(automation_suggestion_item(
+            format!("capture:{}", capture.id),
+            "capture",
+            "normal",
+            format!("Triage quick capture: {preview}"),
+            "Quick capture is still in the inbox and should be resolved or dismissed.",
+            format!(
+                "source_kind={} | tags={}",
+                capture.source_kind,
+                capture.tags.join(", ")
+            ),
+            "Resolve quick capture",
+            "resolve_quick_capture",
+            "resolveQuickCapture",
+            serde_json::json!({
+                "id": capture.id.clone(),
+                "targetKind": "journal",
+                "title": null,
+                "query": null,
+                "parentId": null
+            }),
+            Some("quick_capture".to_string()),
+            Some(capture.id),
+            "Capture inbox sweep: daily or after research sessions.",
+            "Khoj automation preset cards + Memos inbox triage lifecycle",
+        ));
+    }
+    Ok(())
+}
+
+fn collect_source_automation_suggestions(
+    conn: &Connection,
+    items: &mut Vec<AutomationSuggestionItem>,
+    limit: usize,
+) -> Result<()> {
+    for source in list_recent_sources(conn, limit.min(30))? {
+        if has_review_item_for_target(conn, "source", &source.id)? {
+            continue;
+        }
+        let title = first_non_empty([source.title.as_deref(), Some(source.canonical_uri.as_str())])
+            .unwrap_or("Untitled Source")
+            .to_string();
+        items.push(automation_suggestion_item(
+            format!("source:{}:review", source.id),
+            "sources",
+            "normal",
+            format!("Add new Source to review: {title}"),
+            "Recent Source has no review queue item yet.",
+            format!(
+                "source_kind={} | chunks={} | points={} | updated_at={}",
+                source.kind, source.chunk_count, source.point_count, source.updated_at
+            ),
+            "Create review item",
+            "add_review_item",
+            "addReviewItem",
+            serde_json::json!({
+                "targetKind": "source",
+                "targetId": source.id.clone(),
+                "title": title,
+                "note": "Automation suggestion: review recent Source",
+                "priority": "normal",
+                "dueAt": null
+            }),
+            Some("source".to_string()),
+            Some(source.id),
+            "New source review: after imports or indexed-folder scans.",
+            "Khoj recurring knowledge tasks refined into Thepoint Review Queue",
+        ));
+    }
+    Ok(())
+}
+
+fn collect_retrieval_profile_automation_suggestions(
+    conn: &Connection,
+    items: &mut Vec<AutomationSuggestionItem>,
+    limit: usize,
+) -> Result<()> {
+    for profile in list_retrieval_profiles(conn)?
+        .into_iter()
+        .take(limit.min(20))
+    {
+        let priority = if profile.mode == "query" {
+            "normal"
+        } else {
+            "low"
+        };
+        let scope = if let Some(saved_search_id) = profile.saved_search_id.as_deref() {
+            format!("saved_search_id={saved_search_id}")
+        } else {
+            format!(
+                "query={} | kinds={}",
+                compact_preview(&profile.query, 80),
+                profile.kinds.join(", ")
+            )
+        };
+        items.push(automation_suggestion_item(
+            format!("retrieval_profile:{}:preview", profile.id),
+            "retrieval",
+            priority,
+            format!("Preview retrieval profile: {}", profile.name),
+            "Retrieval profile can provide a scoped context pack for the next investigation.",
+            scope,
+            "Preview retrieval profile",
+            "preview_retrieval_profile",
+            "previewRetrievalProfile",
+            serde_json::json!({
+                "id": profile.id.clone(),
+                "queryOverride": null,
+                "limit": null,
+                "maxCharsPerItem": null
+            }),
+            Some("retrieval_profile".to_string()),
+            Some(profile.id),
+            "Retrieval profile sweep: before drafting investigations or reports.",
+            "Khoj automation queries + AnythingLLM workspace retrieval profiles",
+        ));
+    }
+    Ok(())
+}
+
+fn has_review_item_for_target(conn: &Connection, kind: &str, id: &str) -> Result<bool> {
+    conn.query_row(
+        "SELECT 1 FROM review_items WHERE target_kind = ?1 AND target_id = ?2 LIMIT 1",
+        params![kind, id],
+        |_| Ok(()),
+    )
+    .optional()
+    .map(|value| value.is_some())
+    .map_err(Into::into)
+}
+
+fn automation_suggestion_item(
+    id: String,
+    category: &str,
+    priority: &str,
+    subject: String,
+    summary: impl Into<String>,
+    reason: impl Into<String>,
+    action_label: impl Into<String>,
+    command_name: &str,
+    wrapper_name: &str,
+    input: serde_json::Value,
+    target_kind: Option<String>,
+    target_id: Option<String>,
+    schedule_hint: &str,
+    source_inspiration: &str,
+) -> AutomationSuggestionItem {
+    AutomationSuggestionItem {
+        id,
+        category: category.to_string(),
+        priority: priority.to_string(),
+        priority_score: automation_priority_score(priority),
+        subject,
+        summary: summary.into(),
+        reason: reason.into(),
+        action_label: action_label.into(),
+        command_name: command_name.to_string(),
+        wrapper_name: wrapper_name.to_string(),
+        input_json: input.to_string(),
+        target_kind,
+        target_id,
+        schedule_hint: schedule_hint.to_string(),
+        source_inspiration: source_inspiration.to_string(),
+    }
+}
+
+fn automation_priority_score(priority: &str) -> i64 {
+    match priority {
+        "critical" => 400,
+        "high" => 300,
+        "normal" => 200,
+        "low" => 100,
+        _ => 0,
+    }
+}
+
+fn automation_priority_count(items: &[AutomationSuggestionItem], priority: &str) -> i64 {
+    items
+        .iter()
+        .filter(|item| item.priority == priority)
+        .count() as i64
+}
+
+fn command_palette_categories() -> Vec<String> {
+    let mut categories = COMMAND_PALETTE_ITEMS
+        .iter()
+        .map(|spec| spec.category.to_string())
+        .collect::<Vec<_>>();
+    categories.sort();
+    categories.dedup();
+    categories
+}
+
+fn command_palette_item_from_spec(spec: &CommandPaletteItemSpec) -> CommandPaletteItem {
+    CommandPaletteItem {
+        id: spec.id.to_string(),
+        title: spec.title.to_string(),
+        category: spec.category.to_string(),
+        description: spec.description.to_string(),
+        keywords: spec
+            .keywords
+            .iter()
+            .map(|keyword| (*keyword).to_string())
+            .collect(),
+        command_name: spec.command_name.to_string(),
+        wrapper_name: spec.wrapper_name.to_string(),
+        execution_kind: spec.execution_kind.to_string(),
+        required_input: spec
+            .required_input
+            .iter()
+            .map(|field| (*field).to_string())
+            .collect(),
+        input_hint: spec.input_hint.to_string(),
+        risk: spec.risk.to_string(),
+        shortcut_hint: spec.shortcut_hint.map(str::to_string),
+        source_inspiration: spec.source_inspiration.to_string(),
+        priority: spec.priority,
+    }
+}
+
+fn command_palette_item_matches_query(spec: &CommandPaletteItemSpec, query: &str) -> bool {
+    let haystack = format!(
+        "{} {} {} {} {} {} {} {} {} {}",
+        spec.id,
+        spec.title,
+        spec.category,
+        spec.description,
+        spec.keywords.join(" "),
+        spec.command_name,
+        spec.wrapper_name,
+        spec.execution_kind,
+        spec.input_hint,
+        spec.source_inspiration,
+    )
+    .to_lowercase();
+    query
+        .split_whitespace()
+        .all(|term| haystack.contains(term) || command_palette_subsequence_match(term, &haystack))
+}
+
+fn command_palette_subsequence_match(query: &str, value: &str) -> bool {
+    if query.is_empty() {
+        return true;
+    }
+    let mut query_chars = query.chars();
+    let mut current = query_chars.next();
+    for ch in value.chars() {
+        if Some(ch) == current {
+            current = query_chars.next();
+            if current.is_none() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+pub fn list_report_starter_templates(
+    category: Option<&str>,
+    query: Option<&str>,
+) -> Vec<ReportStarterTemplate> {
+    let category = optional_trimmed(category).map(|value| value.to_lowercase());
+    let query = optional_trimmed(query).map(|value| value.to_lowercase());
+    REPORT_STARTER_TEMPLATES
+        .iter()
+        .filter(|spec| {
+            category.as_ref().map_or(true, |category| {
+                spec.category.eq_ignore_ascii_case(category)
+            })
+        })
+        .filter(|spec| {
+            query.as_ref().map_or(true, |query| {
+                let haystack = format!(
+                    "{} {} {} {}",
+                    spec.id, spec.name, spec.category, spec.description
+                )
+                .to_lowercase();
+                haystack.contains(query) || report_starter_subsequence_match(query, &haystack)
+            })
+        })
+        .map(report_starter_template_from_spec)
+        .collect()
+}
+
+pub fn build_report_starter(
+    conn: &Connection,
+    input: BuildReportStarterInput,
+) -> Result<ReportStarterDraft> {
+    let template_id = required_trimmed("report starter template id", &input.template_id)?;
+    let query = required_trimmed("report starter query", &input.query)?;
+    let spec = REPORT_STARTER_TEMPLATES
+        .iter()
+        .find(|spec| spec.id == template_id)
+        .ok_or_else(|| anyhow::anyhow!("unknown report starter template: {template_id}"))?;
+    validate_report_kind(spec.kind)?;
+
+    let template = report_starter_template_from_spec(spec);
+    let mut context_items = Vec::new();
+    let mut warnings = Vec::new();
+    collect_report_starter_sources(conn, input.source_ids, &mut context_items, &mut warnings)?;
+    collect_report_starter_points(conn, input.point_ids, &mut context_items, &mut warnings)?;
+    collect_report_starter_evidence(conn, input.evidence_ids, &mut context_items, &mut warnings)?;
+    relabel_report_starter_context(&mut context_items);
+
+    if context_items.is_empty() {
+        warnings.push("report starter has no selected context assets".to_string());
+    }
+
+    let title = compact_preview(&format!("{} - {}", query, template.name), 120);
+    let body_md = render_report_starter_body(&template, query, &context_items, &warnings);
+    let summary = compact_preview(
+        &format!(
+            "{} starter for `{}` with {} selected context item(s).",
+            template.name,
+            query,
+            context_items.len()
+        ),
+        240,
+    );
+    let citations_json = render_report_starter_citations(&context_items)?;
+
+    Ok(ReportStarterDraft {
+        template,
+        save_input: SaveReportInput {
+            title,
+            kind: spec.kind.to_string(),
+            source_name: Some("Report Starter".to_string()),
+            body_md,
+            summary,
+            citations_json,
+        },
+        context_items,
+        warnings,
+    })
+}
+
+fn report_starter_template_from_spec(spec: &ReportStarterTemplateSpec) -> ReportStarterTemplate {
+    ReportStarterTemplate {
+        id: spec.id.to_string(),
+        name: spec.name.to_string(),
+        category: spec.category.to_string(),
+        kind: spec.kind.to_string(),
+        description: spec.description.to_string(),
+        sections: spec
+            .sections
+            .iter()
+            .map(|section| (*section).to_string())
+            .collect(),
+        source_inspiration: spec.source_inspiration.to_string(),
+    }
+}
+
+fn report_starter_subsequence_match(query: &str, value: &str) -> bool {
+    if query.is_empty() {
+        return true;
+    }
+    let mut query_chars = query.chars();
+    let mut current = query_chars.next();
+    for ch in value.chars() {
+        if Some(ch) == current {
+            current = query_chars.next();
+            if current.is_none() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn collect_report_starter_sources(
+    conn: &Connection,
+    source_ids: Vec<String>,
+    context_items: &mut Vec<ReportStarterContextItem>,
+    warnings: &mut Vec<String>,
+) -> Result<()> {
+    let mut seen = HashSet::new();
+    for source_id in source_ids {
+        let Some(source_id) = optional_trimmed(Some(&source_id)) else {
+            continue;
+        };
+        if !seen.insert(source_id.clone()) {
+            continue;
+        }
+        let Some(source) = get_source_workspace_summary(conn, &source_id)? else {
+            warnings.push(format!("source not found: {source_id}"));
+            continue;
+        };
+        let chunks = list_source_chunks(conn, &source_id)?;
+        let excerpt = chunks
+            .first()
+            .map(|chunk| compact_preview(&chunk.text, 260))
+            .unwrap_or_else(|| "No source chunk text available yet.".to_string());
+        context_items.push(ReportStarterContextItem {
+            kind: "source".to_string(),
+            id: source.id,
+            label: String::new(),
+            title: first_non_empty([source.title.as_deref(), Some(source.canonical_uri.as_str())])
+                .unwrap_or("Untitled Source")
+                .to_string(),
+            excerpt,
+            reason: "selected source context".to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn collect_report_starter_points(
+    conn: &Connection,
+    point_ids: Vec<String>,
+    context_items: &mut Vec<ReportStarterContextItem>,
+    warnings: &mut Vec<String>,
+) -> Result<()> {
+    let mut seen = HashSet::new();
+    for point_id in point_ids {
+        let Some(point_id) = optional_trimmed(Some(&point_id)) else {
+            continue;
+        };
+        if !seen.insert(point_id.clone()) {
+            continue;
+        }
+        let Some(point) = get_point(conn, &point_id)? else {
+            warnings.push(format!("point not found: {point_id}"));
+            continue;
+        };
+        let title = compact_preview(&point.content, 80);
+        context_items.push(ReportStarterContextItem {
+            kind: "point".to_string(),
+            id: point.id,
+            label: String::new(),
+            title,
+            excerpt: compact_preview(&point.content, 260),
+            reason: "selected point context".to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn collect_report_starter_evidence(
+    conn: &Connection,
+    evidence_ids: Vec<String>,
+    context_items: &mut Vec<ReportStarterContextItem>,
+    warnings: &mut Vec<String>,
+) -> Result<()> {
+    let mut seen = HashSet::new();
+    for evidence_id in evidence_ids {
+        let Some(evidence_id) = optional_trimmed(Some(&evidence_id)) else {
+            continue;
+        };
+        if !seen.insert(evidence_id.clone()) {
+            continue;
+        }
+        let Some(evidence) = get_evidence(conn, &evidence_id)? else {
+            warnings.push(format!("evidence not found: {evidence_id}"));
+            continue;
+        };
+        let excerpt = first_non_empty([
+            Some(evidence.answer.as_str()),
+            evidence.reasoning.as_deref(),
+            evidence.context.as_deref(),
+        ])
+        .map(|value| compact_preview(value, 260))
+        .unwrap_or_else(|| compact_preview(&evidence.claim, 260));
+        context_items.push(ReportStarterContextItem {
+            kind: "evidence".to_string(),
+            id: evidence.id,
+            label: String::new(),
+            title: compact_preview(&evidence.claim, 80),
+            excerpt,
+            reason: format!("selected evidence context ({})", evidence.verdict),
+        });
+    }
+    Ok(())
+}
+
+fn relabel_report_starter_context(context_items: &mut [ReportStarterContextItem]) {
+    let mut source_count = 0;
+    let mut point_count = 0;
+    let mut evidence_count = 0;
+    for item in context_items {
+        let label = match item.kind.as_str() {
+            "source" => {
+                source_count += 1;
+                format!("S{source_count}")
+            }
+            "point" => {
+                point_count += 1;
+                format!("P{point_count}")
+            }
+            "evidence" => {
+                evidence_count += 1;
+                format!("E{evidence_count}")
+            }
+            _ => String::new(),
+        };
+        item.label = label;
+    }
+}
+
+fn render_report_starter_body(
+    template: &ReportStarterTemplate,
+    query: &str,
+    context_items: &[ReportStarterContextItem],
+    warnings: &[String],
+) -> String {
+    let mut lines = vec![
+        format!("# {} - {}", query, template.name),
+        String::new(),
+        format!("> Template: {}", template.name),
+        format!("> Category: {}", template.category),
+        format!("> Source inspiration: {}", template.source_inspiration),
+        String::new(),
+        "## Question".to_string(),
+        format!("- Primary question: {query}"),
+        "- Decision or research outcome needed: ".to_string(),
+        "- Success criteria: ".to_string(),
+        String::new(),
+        "## Context Pack".to_string(),
+    ];
+
+    if context_items.is_empty() {
+        lines.push(
+            "- No context selected yet. Add Source, Point, or Evidence assets before finalizing."
+                .to_string(),
+        );
+    } else {
+        for item in context_items {
+            lines.push(format!(
+                "- [{}] {} `{}`: {}",
+                item.label, item.kind, item.id, item.title
+            ));
+            lines.push(format!("  - Why included: {}", item.reason));
+            lines.push(format!("  - Excerpt: {}", item.excerpt));
+        }
+    }
+
+    for section in &template.sections {
+        if section == "Question" || section == "Context Pack" {
+            continue;
+        }
+        lines.push(String::new());
+        lines.push(format!("## {section}"));
+        lines.extend(report_starter_section_prompts(section, context_items));
+    }
+
+    if !warnings.is_empty() {
+        lines.push(String::new());
+        lines.push("## Starter Warnings".to_string());
+        for warning in warnings {
+            lines.push(format!("- {warning}"));
+        }
+    }
+
+    lines.join("\n")
+}
+
+fn report_starter_section_prompts(
+    section: &str,
+    context_items: &[ReportStarterContextItem],
+) -> Vec<String> {
+    let labels = context_items
+        .iter()
+        .map(|item| format!("[{}]", item.label))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let citation_hint = if labels.is_empty() {
+        "Add citations after selecting context assets.".to_string()
+    } else {
+        format!("Use these starter citation labels where relevant: {labels}.")
+    };
+
+    match section {
+        "Evidence Map" | "Evidence Table" => vec![
+            "| Claim | Support | Tension | Citation |".to_string(),
+            "|---|---|---|---|".to_string(),
+            format!("|  |  |  | {citation_hint} |"),
+        ],
+        "Findings" => vec![
+            "- Finding 1: ".to_string(),
+            "- Finding 2: ".to_string(),
+            format!("- Citation guidance: {citation_hint}"),
+        ],
+        "Risks And Unknowns" | "Missing Evidence" => vec![
+            "- Unknown: ".to_string(),
+            "- Risk if wrong: ".to_string(),
+            "- What would reduce uncertainty: ".to_string(),
+        ],
+        "Next Actions" | "Follow-up Questions" => vec![
+            "- Next action: ".to_string(),
+            "- Owner / trigger: ".to_string(),
+            "- Review date or condition: ".to_string(),
+        ],
+        "Agreement And Conflict" | "Counterpoints" => vec![
+            "- Agreement signal: ".to_string(),
+            "- Contradiction or weak signal: ".to_string(),
+            format!("- Citation guidance: {citation_hint}"),
+        ],
+        "Decision Notes" | "Reusable Summary" | "Synthesis Thesis" | "Supporting Signals" => vec![
+            "- Draft note: ".to_string(),
+            format!("- Citation guidance: {citation_hint}"),
+        ],
+        "Review Scope" => vec![
+            "- Included assets: ".to_string(),
+            "- Excluded assets: ".to_string(),
+            "- Review rule: ".to_string(),
+        ],
+        _ => vec![
+            "- Draft: ".to_string(),
+            format!("- Citation guidance: {citation_hint}"),
+        ],
+    }
+}
+
+fn render_report_starter_citations(context_items: &[ReportStarterContextItem]) -> Result<String> {
+    let citations = context_items
+        .iter()
+        .map(|item| {
+            serde_json::json!({
+                "kind": item.kind,
+                "label": item.label,
+                "id": item.id,
+                "title": item.title,
+                "excerpt": item.excerpt,
+                "reason": item.reason,
+                "sourceId": if item.kind == "source" { Some(item.id.as_str()) } else { None },
+                "chunkIndex": if item.kind == "source" { Some(0_i64) } else { None },
+                "url": serde_json::Value::Null,
+            })
+        })
+        .collect::<Vec<_>>();
+    serde_json::to_string(&citations).map_err(Into::into)
+}
+
+pub fn build_reprocess_queue(
+    conn: &Connection,
+    input: ReprocessQueueInput,
+) -> Result<ReprocessQueue> {
+    let limit = input.limit.unwrap_or(50).clamp(1, 200) as usize;
+    let kinds = normalize_reprocess_queue_kinds(input.kinds);
+    let mut items = Vec::new();
+
+    if kinds.contains("indexed_file") {
+        collect_indexed_file_reprocess_items(conn, &mut items)?;
+    }
+    if kinds.contains("source") {
+        collect_source_reprocess_items(conn, &mut items)?;
+    }
+    if kinds.contains("report") {
+        collect_report_reprocess_items(conn, &mut items, limit)?;
+    }
+
+    items.sort_by(|left, right| {
+        reprocess_severity_rank(&right.severity)
+            .cmp(&reprocess_severity_rank(&left.severity))
+            .then_with(|| left.target_kind.cmp(&right.target_kind))
+            .then_with(|| left.title.cmp(&right.title))
+    });
+
+    let total_candidates = items.len();
+    items.truncate(limit);
+    let critical_count = items
+        .iter()
+        .filter(|item| item.severity == "critical")
+        .count() as i64;
+    let warning_count = items
+        .iter()
+        .filter(|item| item.severity == "warning")
+        .count() as i64;
+    let mut warnings = Vec::new();
+    if total_candidates == 0 {
+        warnings.push("No low-quality assets matched the reprocess queue criteria.".to_string());
+    }
+    if total_candidates > items.len() {
+        warnings.push(format!(
+            "Reprocess queue truncated from {total_candidates} candidate(s) to {limit} item(s)."
+        ));
+    }
+
+    Ok(ReprocessQueue {
+        generated_at: chrono::Utc::now().to_rfc3339(),
+        item_count: items.len() as i64,
+        critical_count,
+        warning_count,
+        items,
+        warnings,
+    })
+}
+
+fn normalize_reprocess_queue_kinds(kinds: Option<Vec<String>>) -> HashSet<String> {
+    let allowed = ["indexed_file", "source", "report"];
+    let mut normalized = kinds
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|kind| optional_trimmed(Some(&kind)))
+        .map(|kind| kind.to_lowercase())
+        .filter(|kind| allowed.contains(&kind.as_str()))
+        .collect::<HashSet<_>>();
+    if normalized.is_empty() {
+        normalized.extend(allowed.iter().map(|kind| (*kind).to_string()));
+    }
+    normalized
+}
+
+fn collect_indexed_file_reprocess_items(
+    conn: &Connection,
+    items: &mut Vec<ReprocessQueueItem>,
+) -> Result<()> {
+    let mut stmt = conn.prepare(
+        "SELECT id, folder_id, path, canonical_path, name, extension, size_bytes, modified_at, source_id, indexed_at,
+                descriptor_kind, read_status, index_status, metadata_json, preview_text, text_hash, extracted_chars, total_chars, last_error
+         FROM indexed_files
+         WHERE read_status <> 'ok'
+            OR index_status <> 'indexed'
+            OR (last_error IS NOT NULL AND TRIM(last_error) <> '')
+         ORDER BY indexed_at DESC",
+    )?;
+    let rows = stmt.query_map([], map_indexed_file_row)?;
+    for row in rows {
+        let file = row?;
+        let (severity, issue_kind, suggested_action) = indexed_file_reprocess_classification(&file);
+        let reason = indexed_file_reprocess_reason(&file);
+        items.push(ReprocessQueueItem {
+            target_kind: "indexed_file".to_string(),
+            target_id: file.id,
+            title: file.name,
+            severity: severity.to_string(),
+            issue_kind: issue_kind.to_string(),
+            reason,
+            suggested_action: suggested_action.to_string(),
+            source_id: file.source_id,
+            folder_id: Some(file.folder_id),
+            metadata_json: serde_json::json!({
+                "path": file.path,
+                "canonicalPath": file.canonical_path,
+                "descriptorKind": file.descriptor_kind,
+                "readStatus": file.read_status,
+                "indexStatus": file.index_status,
+                "extractedChars": file.extracted_chars,
+                "totalChars": file.total_chars,
+                "lastError": file.last_error,
+            })
+            .to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn indexed_file_reprocess_classification(
+    file: &IndexedFile,
+) -> (&'static str, &'static str, &'static str) {
+    if file.read_status == "missing" || file.index_status == "stale" {
+        return ("critical", "missing_or_stale_file", "scan_indexed_folder");
+    }
+    if file.read_status != "ok" {
+        return ("critical", "file_read_failed", "scan_indexed_folder");
+    }
+    if file.index_status == "partial" {
+        return ("warning", "partial_index", "rescan_or_reimport_file");
+    }
+    if file.index_status == "metadata_only" {
+        return ("warning", "metadata_only_file", "inspect_parser_support");
+    }
+    if optional_trimmed(file.last_error.as_deref()).is_some() {
+        return ("warning", "indexed_file_warning", "inspect_last_error");
+    }
+    (
+        "warning",
+        "indexed_file_quality_unknown",
+        "inspect_indexed_file",
+    )
+}
+
+fn indexed_file_reprocess_reason(file: &IndexedFile) -> String {
+    let mut parts = vec![
+        format!("read_status={}", file.read_status),
+        format!("index_status={}", file.index_status),
+        format!("descriptor_kind={}", file.descriptor_kind),
+    ];
+    if let Some(error) = optional_trimmed(file.last_error.as_deref()) {
+        parts.push(format!("last_error={}", compact_preview(&error, 160)));
+    }
+    if let (Some(extracted), Some(total)) = (file.extracted_chars, file.total_chars) {
+        parts.push(format!("coverage={extracted}/{total} chars"));
+    }
+    parts.join("; ")
+}
+
+fn collect_source_reprocess_items(
+    conn: &Connection,
+    items: &mut Vec<ReprocessQueueItem>,
+) -> Result<()> {
+    let mut stmt = conn.prepare(
+        "SELECT s.id, s.kind, s.title, s.canonical_uri, s.metadata_json, s.created_at, s.updated_at,
+                (SELECT COUNT(*) FROM source_chunks c WHERE c.source_id = s.id) AS chunk_count,
+                (SELECT COUNT(*) FROM point_source_links l WHERE l.source_id = s.id) AS point_count,
+                (SELECT COUNT(*)
+                 FROM point_source_links l
+                 JOIN points p ON p.id = l.point_id
+                 WHERE l.source_id = s.id AND p.starred = 1) AS star_count
+         FROM source_documents s
+         WHERE (SELECT COUNT(*) FROM source_chunks c WHERE c.source_id = s.id) = 0
+         ORDER BY s.updated_at DESC",
+    )?;
+    let rows = stmt.query_map([], map_source_summary_row)?;
+    for row in rows {
+        let source = row?;
+        let title = first_non_empty([source.title.as_deref(), Some(source.canonical_uri.as_str())])
+            .unwrap_or("Untitled Source")
+            .to_string();
+        items.push(ReprocessQueueItem {
+            target_kind: "source".to_string(),
+            target_id: source.id.clone(),
+            title,
+            severity: "warning".to_string(),
+            issue_kind: "source_has_no_chunks".to_string(),
+            reason: "Source document has no indexed chunks, so retrieval and citation lookup will be weak.".to_string(),
+            suggested_action: "reimport_or_replace_source_chunks".to_string(),
+            source_id: Some(source.id),
+            folder_id: None,
+            metadata_json: serde_json::json!({
+                "sourceKind": source.kind,
+                "canonicalUri": source.canonical_uri,
+                "chunkCount": source.chunk_count,
+                "pointCount": source.point_count,
+                "starCount": source.star_count,
+            })
+            .to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn collect_report_reprocess_items(
+    conn: &Connection,
+    items: &mut Vec<ReprocessQueueItem>,
+    limit: usize,
+) -> Result<()> {
+    for report in list_recent_reports(conn, limit.max(50))? {
+        let Some(audit) = load_report_audit(conn, &report.id)? else {
+            continue;
+        };
+        let has_audit_rows = !audit.claims.is_empty() || !audit.citations.is_empty();
+        let coverage = audit.coverage;
+        if has_audit_rows
+            && coverage.warning_citations == 0
+            && coverage.missing_citations == 0
+            && coverage.unsupported_claims == 0
+            && coverage.inferred_claims == 0
+            && !coverage.warnings.iter().any(|warning| {
+                warning.contains("No durable claim") || warning.contains("No persistent citations")
+            })
+        {
+            continue;
+        }
+
+        let severity = if coverage.missing_citations > 0 || coverage.unsupported_claims > 0 {
+            "critical"
+        } else {
+            "warning"
+        };
+        let issue_kind = if !has_audit_rows {
+            "report_missing_audit_rows"
+        } else if coverage.missing_citations > 0 {
+            "report_missing_citations"
+        } else if coverage.warning_citations > 0 {
+            "report_warning_citations"
+        } else if coverage.inferred_claims > 0 {
+            "report_inferred_claims"
+        } else {
+            "report_audit_warning"
+        };
+        let reason = first_non_empty(
+            coverage
+                .warnings
+                .iter()
+                .map(|warning| Some(warning.as_str())),
+        )
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            format!(
+                "claims cited={}/{}; citations located={}/{}; warnings={}; missing={}",
+                coverage.cited_claims,
+                coverage.total_claims,
+                coverage.located_citations,
+                coverage.total_citations,
+                coverage.warning_citations,
+                coverage.missing_citations
+            )
+        });
+
+        items.push(ReprocessQueueItem {
+            target_kind: "report".to_string(),
+            target_id: report.id.clone(),
+            title: report.title,
+            severity: severity.to_string(),
+            issue_kind: issue_kind.to_string(),
+            reason,
+            suggested_action: "refresh_report_audit_or_regenerate_report".to_string(),
+            source_id: None,
+            folder_id: None,
+            metadata_json: serde_json::json!({
+                "reportKind": report.kind,
+                "createdAt": report.created_at,
+                "totalClaims": coverage.total_claims,
+                "citedClaims": coverage.cited_claims,
+                "inferredClaims": coverage.inferred_claims,
+                "unsupportedClaims": coverage.unsupported_claims,
+                "totalCitations": coverage.total_citations,
+                "locatedCitations": coverage.located_citations,
+                "warningCitations": coverage.warning_citations,
+                "missingCitations": coverage.missing_citations,
+                "coverageRatio": coverage.coverage_ratio,
+            })
+            .to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn reprocess_severity_rank(severity: &str) -> i64 {
+    match severity {
+        "critical" => 2,
+        "warning" => 1,
+        _ => 0,
+    }
+}
+
+#[derive(Clone)]
+struct DuplicateAssetSeed {
+    kind: String,
+    id: String,
+    title: String,
+    excerpt: String,
+    fingerprint: String,
+    metadata_json: String,
+}
+
+pub fn detect_duplicate_assets(
+    conn: &Connection,
+    input: DuplicateAssetInput,
+) -> Result<DuplicateAssetReport> {
+    let limit = input.limit.unwrap_or(30).clamp(1, 100) as usize;
+    let kinds = normalize_duplicate_asset_kinds(input.kinds);
+    let mut seeds = Vec::new();
+    if kinds.contains("source") {
+        collect_duplicate_source_seeds(conn, &mut seeds)?;
+    }
+    if kinds.contains("point") {
+        collect_duplicate_point_seeds(conn, &mut seeds)?;
+    }
+    if kinds.contains("report") {
+        collect_duplicate_report_seeds(conn, &mut seeds)?;
+    }
+
+    let mut groups = duplicate_exact_groups(&seeds);
+    groups.extend(duplicate_near_groups(&seeds, &groups));
+    groups.sort_by(|left, right| {
+        right
+            .score
+            .partial_cmp(&left.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| left.duplicate_key.cmp(&right.duplicate_key))
+    });
+    let total_groups = groups.len();
+    groups.truncate(limit);
+    for (index, group) in groups.iter_mut().enumerate() {
+        group.group_id = format!("dup-{:03}", index + 1);
+    }
+
+    let candidate_count = groups
+        .iter()
+        .map(|group| group.candidates.len() as i64)
+        .sum::<i64>();
+    let mut warnings = Vec::new();
+    if groups.is_empty() {
+        warnings.push("No duplicate or near-duplicate assets were detected.".to_string());
+    }
+    if total_groups > groups.len() {
+        warnings.push(format!(
+            "Duplicate detection truncated from {total_groups} group(s) to {limit} group(s)."
+        ));
+    }
+
+    Ok(DuplicateAssetReport {
+        generated_at: chrono::Utc::now().to_rfc3339(),
+        group_count: groups.len() as i64,
+        candidate_count,
+        groups,
+        warnings,
+    })
+}
+
+fn normalize_duplicate_asset_kinds(kinds: Option<Vec<String>>) -> HashSet<String> {
+    let allowed = ["source", "point", "report"];
+    let mut normalized = kinds
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|kind| optional_trimmed(Some(&kind)))
+        .map(|kind| kind.to_lowercase())
+        .filter(|kind| allowed.contains(&kind.as_str()))
+        .collect::<HashSet<_>>();
+    if normalized.is_empty() {
+        normalized.extend(allowed.iter().map(|kind| (*kind).to_string()));
+    }
+    normalized
+}
+
+fn collect_duplicate_source_seeds(
+    conn: &Connection,
+    seeds: &mut Vec<DuplicateAssetSeed>,
+) -> Result<()> {
+    for source in list_recent_sources(conn, 500)? {
+        let title = first_non_empty([source.title.as_deref(), Some(source.canonical_uri.as_str())])
+            .unwrap_or("Untitled Source")
+            .to_string();
+        let fingerprint = duplicate_asset_fingerprint(&title);
+        if fingerprint.chars().count() < 4 {
+            continue;
+        }
+        seeds.push(DuplicateAssetSeed {
+            kind: "source".to_string(),
+            id: source.id.clone(),
+            title,
+            excerpt: source.canonical_uri.clone(),
+            fingerprint,
+            metadata_json: serde_json::json!({
+                "sourceKind": source.kind,
+                "canonicalUri": source.canonical_uri,
+                "chunkCount": source.chunk_count,
+                "pointCount": source.point_count,
+            })
+            .to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn collect_duplicate_point_seeds(
+    conn: &Connection,
+    seeds: &mut Vec<DuplicateAssetSeed>,
+) -> Result<()> {
+    for point in list_points(conn)? {
+        let fingerprint = duplicate_asset_fingerprint(&point.content);
+        if fingerprint.chars().count() < 8 {
+            continue;
+        }
+        seeds.push(DuplicateAssetSeed {
+            kind: "point".to_string(),
+            id: point.id,
+            title: compact_preview(&point.content, 80),
+            excerpt: compact_preview(&point.content, 260),
+            fingerprint,
+            metadata_json: serde_json::json!({
+                "tagType": point.tag_type,
+                "parentId": point.parent_id,
+                "sourceDocName": point.source_doc_name,
+                "starred": point.starred,
+            })
+            .to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn collect_duplicate_report_seeds(
+    conn: &Connection,
+    seeds: &mut Vec<DuplicateAssetSeed>,
+) -> Result<()> {
+    for report in list_recent_reports(conn, 500)? {
+        let fingerprint = duplicate_asset_fingerprint(&report.title);
+        if fingerprint.chars().count() < 4 {
+            continue;
+        }
+        seeds.push(DuplicateAssetSeed {
+            kind: "report".to_string(),
+            id: report.id,
+            title: report.title.clone(),
+            excerpt: compact_preview(&report.summary, 260),
+            fingerprint,
+            metadata_json: serde_json::json!({
+                "reportKind": report.kind,
+                "sourceName": report.source_name,
+                "createdAt": report.created_at,
+            })
+            .to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn duplicate_exact_groups(seeds: &[DuplicateAssetSeed]) -> Vec<DuplicateAssetGroup> {
+    let mut groups = Vec::new();
+    let mut fingerprints = Vec::<(String, String)>::new();
+    for seed in seeds {
+        let key = (seed.kind.clone(), seed.fingerprint.clone());
+        if !fingerprints.iter().any(|value| value == &key) {
+            fingerprints.push(key);
+        }
+    }
+    for (kind, fingerprint) in fingerprints {
+        let candidates = seeds
+            .iter()
+            .filter(|seed| seed.kind == kind && seed.fingerprint == fingerprint)
+            .cloned()
+            .collect::<Vec<_>>();
+        if candidates.len() < 2 {
+            continue;
+        }
+        groups.push(DuplicateAssetGroup {
+            group_id: String::new(),
+            duplicate_key: fingerprint.clone(),
+            match_kind: "exact_fingerprint".to_string(),
+            score: 1.0,
+            reason: "Normalized title/content fingerprint is identical within the same asset kind."
+                .to_string(),
+            candidates: candidates
+                .into_iter()
+                .map(duplicate_candidate_from_seed)
+                .collect(),
+        });
+    }
+    groups
+}
+
+fn duplicate_near_groups(
+    seeds: &[DuplicateAssetSeed],
+    exact_groups: &[DuplicateAssetGroup],
+) -> Vec<DuplicateAssetGroup> {
+    let exact_pairs = exact_groups
+        .iter()
+        .flat_map(|group| duplicate_group_pairs(&group.candidates))
+        .collect::<HashSet<_>>();
+    let mut groups = Vec::new();
+    let mut seen_pairs = HashSet::new();
+    for (left_index, left) in seeds.iter().enumerate() {
+        for right in seeds.iter().skip(left_index + 1) {
+            if left.kind != right.kind {
+                continue;
+            }
+            let pair_key = duplicate_pair_key(&left.kind, &left.id, &right.id);
+            if exact_pairs.contains(&pair_key) || !seen_pairs.insert(pair_key) {
+                continue;
+            }
+            let score = duplicate_fingerprint_similarity(&left.fingerprint, &right.fingerprint);
+            if score < 0.82 {
+                continue;
+            }
+            groups.push(DuplicateAssetGroup {
+                group_id: String::new(),
+                duplicate_key: format!("{}~{}", left.fingerprint, right.fingerprint),
+                match_kind: "near_fingerprint".to_string(),
+                score,
+                reason: format!(
+                    "Normalized fingerprints are {:.0}% similar within the same asset kind.",
+                    score * 100.0
+                ),
+                candidates: vec![
+                    duplicate_candidate_from_seed(left.clone()),
+                    duplicate_candidate_from_seed(right.clone()),
+                ],
+            });
+        }
+    }
+    groups
+}
+
+fn duplicate_group_pairs(candidates: &[DuplicateAssetCandidate]) -> Vec<String> {
+    let mut pairs = Vec::new();
+    for (left_index, left) in candidates.iter().enumerate() {
+        for right in candidates.iter().skip(left_index + 1) {
+            pairs.push(duplicate_pair_key(&left.kind, &left.id, &right.id));
+        }
+    }
+    pairs
+}
+
+fn duplicate_pair_key(kind: &str, left_id: &str, right_id: &str) -> String {
+    if left_id <= right_id {
+        format!("{kind}:{left_id}:{right_id}")
+    } else {
+        format!("{kind}:{right_id}:{left_id}")
+    }
+}
+
+fn duplicate_candidate_from_seed(seed: DuplicateAssetSeed) -> DuplicateAssetCandidate {
+    DuplicateAssetCandidate {
+        kind: seed.kind,
+        id: seed.id,
+        title: seed.title,
+        excerpt: seed.excerpt,
+        fingerprint: seed.fingerprint,
+        metadata_json: seed.metadata_json,
+    }
+}
+
+fn duplicate_asset_fingerprint(value: &str) -> String {
+    let mut normalized = String::new();
+    let mut last_was_space = true;
+    for ch in value.chars().flat_map(char::to_lowercase) {
+        if ch.is_alphanumeric() {
+            normalized.push(ch);
+            last_was_space = false;
+        } else if !last_was_space {
+            normalized.push(' ');
+            last_was_space = true;
+        }
+    }
+    normalized.trim().to_string()
+}
+
+fn duplicate_fingerprint_similarity(left: &str, right: &str) -> f64 {
+    if left == right {
+        return 1.0;
+    }
+    let left_tokens = left.split_whitespace().collect::<HashSet<_>>();
+    let right_tokens = right.split_whitespace().collect::<HashSet<_>>();
+    if left_tokens.is_empty() || right_tokens.is_empty() {
+        return 0.0;
+    }
+    let intersection = left_tokens.intersection(&right_tokens).count() as f64;
+    let union = left_tokens.union(&right_tokens).count() as f64;
+    let jaccard = if union == 0.0 {
+        0.0
+    } else {
+        intersection / union
+    };
+    let prefix_bonus = if left.starts_with(right) || right.starts_with(left) {
+        0.08
+    } else {
+        0.0
+    };
+    (jaccard + prefix_bonus).min(0.99)
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct GraphAssetKey {
+    kind: String,
+    id: String,
+}
+
+impl GraphAssetKey {
+    fn new(kind: impl Into<String>, id: impl Into<String>) -> Self {
+        Self {
+            kind: kind.into(),
+            id: id.into(),
+        }
+    }
+}
+
+struct GraphAssetSummary {
+    title: String,
+    label: String,
+    metadata_json: String,
+}
+
+pub fn build_graph_neighborhood_preview(
+    conn: &Connection,
+    input: GraphNeighborhoodInput,
+) -> Result<GraphNeighborhoodPreview> {
+    let root_kind = required_trimmed("graph target kind", &input.kind)?.to_string();
+    let root_id = required_trimmed("graph target id", &input.id)?.to_string();
+    validate_asset_kind(&root_kind)?;
+    let depth = input.depth.unwrap_or(2).clamp(1, 2);
+    let limit = input.limit.unwrap_or(80).clamp(1, 150) as usize;
+    let include_suggestions = input.include_suggestions.unwrap_or(true);
+    let root = GraphAssetKey::new(root_kind.clone(), root_id.clone());
+    let mut distances = HashMap::new();
+    let mut warnings = Vec::new();
+    distances.insert(root.clone(), 0);
+
+    let mut queue = VecDeque::from([root.clone()]);
+    while let Some(current) = queue.pop_front() {
+        let current_depth = distances.get(&current).copied().unwrap_or(0);
+        if current_depth >= depth {
+            continue;
+        }
+        for relation in discover_related_assets(conn, &current.kind, &current.id)? {
+            let Some(next) = graph_relation_neighbor(&relation, &current) else {
+                continue;
+            };
+            if distances.contains_key(&next) {
+                continue;
+            }
+            if distances.len() >= limit {
+                warnings.push(format!(
+                    "Graph neighborhood node limit reached at {limit}; additional relation neighbors were omitted."
+                ));
+                continue;
+            }
+            distances.insert(next.clone(), current_depth + 1);
+            queue.push_back(next);
+        }
+    }
+
+    let mut edges = Vec::new();
+    let mut seen_edges = HashSet::new();
+    add_graph_relation_edges(conn, &distances, &mut edges, &mut seen_edges)?;
+
+    if include_suggestions {
+        add_graph_backlink_suggestion_edges(
+            conn,
+            &root,
+            limit,
+            &mut distances,
+            &mut edges,
+            &mut seen_edges,
+            &mut warnings,
+        )?;
+        add_graph_duplicate_suggestion_edges(
+            conn,
+            &root,
+            limit,
+            &mut distances,
+            &mut edges,
+            &mut seen_edges,
+            &mut warnings,
+        )?;
+    }
+
+    let mut nodes = Vec::new();
+    for (key, node_depth) in &distances {
+        let Some(summary) = graph_asset_summary(conn, key)? else {
+            warnings.push(format!(
+                "Graph node {}:{} no longer resolves to an existing asset.",
+                key.kind, key.id
+            ));
+            nodes.push(GraphNeighborhoodNode {
+                kind: key.kind.clone(),
+                id: key.id.clone(),
+                title: format!("Missing {} {}", key.kind, key.id),
+                label: format!("missing:{}", key.kind),
+                depth: *node_depth,
+                root: key == &root,
+                asset_exists: false,
+                metadata_json: "{}".to_string(),
+            });
+            continue;
+        };
+        nodes.push(GraphNeighborhoodNode {
+            kind: key.kind.clone(),
+            id: key.id.clone(),
+            title: summary.title,
+            label: summary.label,
+            depth: *node_depth,
+            root: key == &root,
+            asset_exists: true,
+            metadata_json: summary.metadata_json,
+        });
+    }
+
+    nodes.sort_by(|left, right| {
+        left.depth
+            .cmp(&right.depth)
+            .then_with(|| right.root.cmp(&left.root))
+            .then_with(|| left.kind.cmp(&right.kind))
+            .then_with(|| left.title.cmp(&right.title))
+    });
+    edges.sort_by(|left, right| {
+        right
+            .score
+            .partial_cmp(&left.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| left.edge_kind.cmp(&right.edge_kind))
+            .then_with(|| left.from_kind.cmp(&right.from_kind))
+            .then_with(|| left.from_id.cmp(&right.from_id))
+            .then_with(|| left.to_kind.cmp(&right.to_kind))
+            .then_with(|| left.to_id.cmp(&right.to_id))
+    });
+
+    Ok(GraphNeighborhoodPreview {
+        generated_at: chrono::Utc::now().to_rfc3339(),
+        root_kind,
+        root_id,
+        depth,
+        node_count: nodes.len() as i64,
+        edge_count: edges.len() as i64,
+        nodes,
+        edges,
+        warnings,
+    })
+}
+
+fn add_graph_relation_edges(
+    conn: &Connection,
+    distances: &HashMap<GraphAssetKey, i64>,
+    edges: &mut Vec<GraphNeighborhoodEdge>,
+    seen_edges: &mut HashSet<String>,
+) -> Result<()> {
+    let included = distances.keys().cloned().collect::<HashSet<_>>();
+    for key in distances.keys() {
+        for relation in discover_related_assets(conn, &key.kind, &key.id)? {
+            let from = GraphAssetKey::new(relation.from_kind.clone(), relation.from_id.clone());
+            let to = GraphAssetKey::new(relation.to_kind.clone(), relation.to_id.clone());
+            if included.contains(&from) && included.contains(&to) {
+                add_graph_edge(edges, seen_edges, graph_edge_from_relation(relation));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn graph_relation_neighbor(
+    relation: &AssetRelationRecord,
+    current: &GraphAssetKey,
+) -> Option<GraphAssetKey> {
+    if relation.from_kind == current.kind && relation.from_id == current.id {
+        Some(GraphAssetKey::new(
+            relation.to_kind.clone(),
+            relation.to_id.clone(),
+        ))
+    } else if relation.to_kind == current.kind && relation.to_id == current.id {
+        Some(GraphAssetKey::new(
+            relation.from_kind.clone(),
+            relation.from_id.clone(),
+        ))
+    } else {
+        None
+    }
+}
+
+fn graph_edge_from_relation(relation: AssetRelationRecord) -> GraphNeighborhoodEdge {
+    GraphNeighborhoodEdge {
+        from_kind: relation.from_kind,
+        from_id: relation.from_id,
+        to_kind: relation.to_kind,
+        to_id: relation.to_id,
+        relation: relation.relation,
+        reason: relation.reason,
+        score: relation.score,
+        edge_kind: "relation".to_string(),
+        provenance: relation.source_kind,
+        existing_relation: true,
+    }
+}
+
+fn add_graph_backlink_suggestion_edges(
+    conn: &Connection,
+    root: &GraphAssetKey,
+    limit: usize,
+    distances: &mut HashMap<GraphAssetKey, i64>,
+    edges: &mut Vec<GraphNeighborhoodEdge>,
+    seen_edges: &mut HashSet<String>,
+    warnings: &mut Vec<String>,
+) -> Result<()> {
+    let suggestions = suggest_backlinks(
+        conn,
+        BacklinkSuggestionInput {
+            kind: root.kind.clone(),
+            id: root.id.clone(),
+            limit: Some(8),
+        },
+    )?;
+    for suggestion in suggestions {
+        let candidate = GraphAssetKey::new(suggestion.candidate_kind, suggestion.candidate_id);
+        if !distances.contains_key(&candidate) {
+            if distances.len() >= limit {
+                warnings.push(
+                    "Graph neighborhood node limit reached; backlink suggestions were omitted."
+                        .to_string(),
+                );
+                continue;
+            }
+            distances.insert(candidate.clone(), 1);
+        }
+        add_graph_edge(
+            edges,
+            seen_edges,
+            GraphNeighborhoodEdge {
+                from_kind: candidate.kind,
+                from_id: candidate.id,
+                to_kind: root.kind.clone(),
+                to_id: root.id.clone(),
+                relation: suggestion.relation,
+                reason: suggestion.reason,
+                score: suggestion.score,
+                edge_kind: "suggested_backlink".to_string(),
+                provenance: "unlinked_mention".to_string(),
+                existing_relation: false,
+            },
+        );
+    }
+    Ok(())
+}
+
+fn add_graph_duplicate_suggestion_edges(
+    conn: &Connection,
+    root: &GraphAssetKey,
+    limit: usize,
+    distances: &mut HashMap<GraphAssetKey, i64>,
+    edges: &mut Vec<GraphNeighborhoodEdge>,
+    seen_edges: &mut HashSet<String>,
+    warnings: &mut Vec<String>,
+) -> Result<()> {
+    if !matches!(root.kind.as_str(), "source" | "point" | "report") {
+        return Ok(());
+    }
+    let duplicate_report = detect_duplicate_assets(
+        conn,
+        DuplicateAssetInput {
+            kinds: Some(vec![root.kind.clone()]),
+            limit: Some(100),
+        },
+    )?;
+    for group in duplicate_report.groups {
+        let contains_root = group
+            .candidates
+            .iter()
+            .any(|candidate| candidate.kind == root.kind && candidate.id == root.id);
+        if !contains_root {
+            continue;
+        }
+        for candidate in group.candidates {
+            if candidate.kind == root.kind && candidate.id == root.id {
+                continue;
+            }
+            let candidate_key = GraphAssetKey::new(candidate.kind, candidate.id);
+            if !distances.contains_key(&candidate_key) {
+                if distances.len() >= limit {
+                    warnings.push("Graph neighborhood node limit reached; duplicate suggestions were omitted.".to_string());
+                    continue;
+                }
+                distances.insert(candidate_key.clone(), 1);
+            }
+            add_graph_edge(
+                edges,
+                seen_edges,
+                GraphNeighborhoodEdge {
+                    from_kind: root.kind.clone(),
+                    from_id: root.id.clone(),
+                    to_kind: candidate_key.kind,
+                    to_id: candidate_key.id,
+                    relation: "same_topic".to_string(),
+                    reason: format!(
+                        "Duplicate detection found a {} match: {}",
+                        group.match_kind, group.reason
+                    ),
+                    score: group.score,
+                    edge_kind: "suggested_duplicate".to_string(),
+                    provenance: group.match_kind.clone(),
+                    existing_relation: false,
+                },
+            );
+        }
+    }
+    Ok(())
+}
+
+fn add_graph_edge(
+    edges: &mut Vec<GraphNeighborhoodEdge>,
+    seen_edges: &mut HashSet<String>,
+    edge: GraphNeighborhoodEdge,
+) {
+    let key = graph_edge_dedupe_key(&edge);
+    if seen_edges.insert(key) {
+        edges.push(edge);
+    }
+}
+
+fn graph_edge_dedupe_key(edge: &GraphNeighborhoodEdge) -> String {
+    let left = format!("{}:{}", edge.from_kind, edge.from_id);
+    let right = format!("{}:{}", edge.to_kind, edge.to_id);
+    if edge.edge_kind == "relation" && edge.provenance == "auto" {
+        let (a, b) = if left <= right {
+            (left, right)
+        } else {
+            (right, left)
+        };
+        format!(
+            "{}|{}|{}|{}|{}",
+            edge.edge_kind, edge.provenance, edge.relation, a, b
+        )
+    } else {
+        format!(
+            "{}|{}|{}|{}|{}",
+            edge.edge_kind, edge.provenance, edge.relation, left, right
+        )
+    }
+}
+
+fn graph_asset_summary(
+    conn: &Connection,
+    key: &GraphAssetKey,
+) -> Result<Option<GraphAssetSummary>> {
+    match key.kind.as_str() {
+        "source" => {
+            let Some(source) = source_summary_by_id(conn, &key.id)? else {
+                return Ok(None);
+            };
+            let title = source
+                .title
+                .clone()
+                .unwrap_or_else(|| source.canonical_uri.clone());
+            Ok(Some(GraphAssetSummary {
+                title: title.clone(),
+                label: format!("Source: {title}"),
+                metadata_json: serde_json::json!({
+                    "sourceKind": &source.kind,
+                    "canonicalUri": &source.canonical_uri,
+                    "chunkCount": source.chunk_count,
+                    "pointCount": source.point_count,
+                    "starCount": source.star_count,
+                    "metadataJson": &source.metadata_json
+                })
+                .to_string(),
+            }))
+        }
+        "point" => {
+            let Some(point) = get_point(conn, &key.id)? else {
+                return Ok(None);
+            };
+            let title = compact_preview(&point.content, 100);
+            Ok(Some(GraphAssetSummary {
+                title: title.clone(),
+                label: format!("Point: {title}"),
+                metadata_json: serde_json::json!({
+                    "tagType": &point.tag_type,
+                    "parentId": &point.parent_id,
+                    "sourceDocName": &point.source_doc_name,
+                    "archived": point.archived,
+                    "starred": point.starred
+                })
+                .to_string(),
+            }))
+        }
+        "evidence" => {
+            let Some(evidence) = get_evidence(conn, &key.id)? else {
+                return Ok(None);
+            };
+            let title = compact_preview(&evidence.claim, 100);
+            Ok(Some(GraphAssetSummary {
+                title: title.clone(),
+                label: format!("Evidence: {title}"),
+                metadata_json: serde_json::json!({
+                    "verdict": &evidence.verdict,
+                    "sourceId": &evidence.source_id,
+                    "pointId": &evidence.point_id,
+                    "chunkIndex": evidence.chunk_index,
+                    "sourceCount": evidence.sources.len()
+                })
+                .to_string(),
+            }))
+        }
+        "report" => {
+            let Some(report) = get_report(conn, &key.id)? else {
+                return Ok(None);
+            };
+            Ok(Some(GraphAssetSummary {
+                title: report.title.clone(),
+                label: format!("Report: {}", report.title),
+                metadata_json: serde_json::json!({
+                    "reportKind": &report.kind,
+                    "sourceName": &report.source_name,
+                    "summary": compact_preview(&report.summary, 180)
+                })
+                .to_string(),
+            }))
+        }
+        "journal" => {
+            let Some(entry) = get_journal_entry(conn, &key.id)? else {
+                return Ok(None);
+            };
+            let title = if entry.query.trim().is_empty() {
+                compact_preview(&entry.note, 100)
+            } else {
+                entry.query.clone()
+            };
+            Ok(Some(GraphAssetSummary {
+                title: title.clone(),
+                label: format!("Journal: {title}"),
+                metadata_json: serde_json::json!({
+                    "sourceKind": &entry.source_kind,
+                    "tagsJson": &entry.tags_json,
+                    "invalidatedAt": &entry.invalidated_at
+                })
+                .to_string(),
+            }))
+        }
+        "gallery" => {
+            let Some(item) = get_gallery_item(conn, &key.id)? else {
+                return Ok(None);
+            };
+            let title = compact_preview(&item.prompt, 100);
+            Ok(Some(GraphAssetSummary {
+                title: title.clone(),
+                label: format!("Gallery: {title}"),
+                metadata_json: serde_json::json!({
+                    "filePath": &item.file_path,
+                    "thumbnailPath": &item.thumbnail_path,
+                    "downloadStatus": &item.download_status,
+                    "pointIds": &item.point_ids
+                })
+                .to_string(),
+            }))
+        }
+        "review" => {
+            let Some(item) = get_review_item(conn, &key.id)? else {
+                return Ok(None);
+            };
+            Ok(Some(GraphAssetSummary {
+                title: item.title.clone(),
+                label: format!("Review: {}", item.title),
+                metadata_json: serde_json::json!({
+                    "targetKind": &item.target_kind,
+                    "targetId": &item.target_id,
+                    "status": &item.status,
+                    "priority": &item.priority,
+                    "dueAt": &item.due_at
+                })
+                .to_string(),
+            }))
+        }
+        _ => Ok(None),
+    }
 }
 
 pub fn save_asset_relation(
@@ -3970,6 +11189,39 @@ fn map_report_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ReportRecord> {
     })
 }
 
+fn map_saved_asset_search_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SavedAssetSearch> {
+    let kinds_json: String = row.get(3)?;
+    Ok(SavedAssetSearch {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        query: row.get(2)?,
+        kinds: json_array_strings(&kinds_json),
+        filter: row.get(4)?,
+        limit: row.get(5)?,
+        created_at: row.get(6)?,
+        updated_at: row.get(7)?,
+    })
+}
+
+fn map_retrieval_profile_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RetrievalProfile> {
+    let kinds_json: String = row.get(4)?;
+    Ok(RetrievalProfile {
+        id: row.get(0)?,
+        name: row.get(1)?,
+        description: row.get(2)?,
+        query: row.get(3)?,
+        kinds: json_array_strings(&kinds_json),
+        filter: row.get(5)?,
+        saved_search_id: row.get(6)?,
+        limit: row.get(7)?,
+        max_chars_per_item: row.get(8)?,
+        min_score: row.get(9)?,
+        mode: row.get(10)?,
+        created_at: row.get(11)?,
+        updated_at: row.get(12)?,
+    })
+}
+
 fn map_report_claim_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ReportClaimRecord> {
     let citation_labels_json: String = row.get(5)?;
     Ok(ReportClaimRecord {
@@ -4058,6 +11310,22 @@ fn map_journal_entry_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<JournalEnt
         created_at: row.get(10)?,
         invalidated_at: row.get(11)?,
         invalidated_reason: row.get(12)?,
+    })
+}
+
+fn map_quick_capture_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<QuickCaptureItem> {
+    let tags_json: String = row.get(2)?;
+    Ok(QuickCaptureItem {
+        id: row.get(0)?,
+        content: row.get(1)?,
+        tags: json_array_strings(&tags_json),
+        source_kind: row.get(3)?,
+        status: row.get(4)?,
+        resolved_kind: row.get(5)?,
+        resolved_id: row.get(6)?,
+        resolved_at: row.get(7)?,
+        created_at: row.get(8)?,
+        updated_at: row.get(9)?,
     })
 }
 
@@ -4328,6 +11596,20 @@ fn validate_citation_locator_status(status: &str) -> Result<()> {
         "located" | "multiple_matches" | "not_found" | "stale" | "target_missing"
         | "not_applicable" => Ok(()),
         _ => anyhow::bail!("invalid citation locator status: {status}"),
+    }
+}
+
+fn validate_quick_capture_status(status: &str) -> Result<()> {
+    match status {
+        "inbox" | "resolved" | "dismissed" => Ok(()),
+        _ => anyhow::bail!("invalid quick capture status: {status}"),
+    }
+}
+
+fn validate_quick_capture_target_kind(kind: &str) -> Result<()> {
+    match kind {
+        "journal" | "point" | "source" => Ok(()),
+        _ => anyhow::bail!("invalid quick capture target kind: {kind}"),
     }
 }
 
@@ -5029,6 +12311,108 @@ mod tests {
                 r#"[{{"kind":"source","label":"S1","id":"source-{created_label}","title":"Source {created_label}","excerpt":"quoted evidence","sourceId":"source-{created_label}","chunkIndex":0,"url":"https://example.com/{created_label}"}}]"#
             ),
         }
+    }
+
+    struct SearchEvalCase {
+        query: &'static str,
+        expected_kind: &'static str,
+        expected_id: String,
+        hit_k: usize,
+        reason: &'static str,
+    }
+
+    struct SearchEvalOutcome {
+        query: String,
+        expected_kind: String,
+        expected_id: String,
+        top: Option<(String, String, String)>,
+        hit_at_1: bool,
+        hit_at_k: bool,
+        hit_k: usize,
+        reason: String,
+    }
+
+    fn run_search_eval(conn: &Connection, cases: Vec<SearchEvalCase>) -> Vec<SearchEvalOutcome> {
+        cases
+            .into_iter()
+            .map(|case| {
+                let results = search_assets(
+                    conn,
+                    SearchAssetsInput {
+                        query: case.query.to_string(),
+                        kinds: None,
+                        filter: None,
+                        limit: Some(case.hit_k.max(10) as i64),
+                    },
+                )
+                .unwrap();
+                let expected_hit = |result: &SearchAssetResult| {
+                    result.kind == case.expected_kind && result.id == case.expected_id
+                };
+                let top = results
+                    .first()
+                    .map(|result| (result.kind.clone(), result.id.clone(), result.title.clone()));
+                let hit_at_1 = results.first().map_or(false, |result| {
+                    result.kind == case.expected_kind && result.id == case.expected_id
+                });
+                let hit_at_k = results.iter().take(case.hit_k).any(expected_hit);
+
+                SearchEvalOutcome {
+                    query: case.query.to_string(),
+                    expected_kind: case.expected_kind.to_string(),
+                    expected_id: case.expected_id,
+                    top,
+                    hit_at_1,
+                    hit_at_k,
+                    hit_k: case.hit_k,
+                    reason: case.reason.to_string(),
+                }
+            })
+            .collect()
+    }
+
+    fn search_eval_summary(outcomes: &[SearchEvalOutcome]) -> String {
+        let mut lines = vec![
+            "| query | expected | top | hit@1 | hit@k | reason |".to_string(),
+            "|---|---|---|---:|---:|---|".to_string(),
+        ];
+        for outcome in outcomes {
+            let top = outcome
+                .top
+                .as_ref()
+                .map(|(kind, id, title)| format!("{kind}:{id}:{title}"))
+                .unwrap_or_else(|| "none".to_string());
+            lines.push(format!(
+                "| {} | {}:{} | {} | {} | {}@{} | {} |",
+                outcome.query,
+                outcome.expected_kind,
+                outcome.expected_id,
+                top,
+                outcome.hit_at_1,
+                outcome.hit_at_k,
+                outcome.hit_k,
+                outcome.reason
+            ));
+        }
+        lines.join("\n")
+    }
+
+    fn retrieval_context_counts(conn: &Connection) -> (i64, i64, i64, i64, i64, i64) {
+        (
+            table_count(conn, "source_documents"),
+            table_count(conn, "points"),
+            table_count(conn, "reports"),
+            table_count(conn, "journal_entries"),
+            table_count(conn, "indexed_folders"),
+            table_count(conn, "indexed_files"),
+        )
+    }
+
+    fn table_count(conn: &Connection, table: &str) -> i64 {
+        conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |row| {
+            row.get(0)
+        })
+        .unwrap()
     }
 
     #[test]
@@ -5827,6 +13211,253 @@ mod tests {
     }
 
     #[test]
+    fn citation_quality_dashboard_aggregates_report_audit_health_read_only() {
+        let conn = memory_db();
+        let healthy = save_report(
+            &conn,
+            SaveReportInput {
+                title: "Healthy Citation Report".to_string(),
+                kind: "investigation".to_string(),
+                source_name: Some("Quality".to_string()),
+                body_md: "Located claim [S1].".to_string(),
+                summary: "All citations located.".to_string(),
+                citations_json: "[]".to_string(),
+            },
+        )
+        .unwrap();
+        replace_report_audit_rows(
+            &conn,
+            &healthy.id,
+            vec![SaveReportClaimInput {
+                claim_index: 0,
+                claim_text: "Located claim [S1].".to_string(),
+                claim_status: "cited".to_string(),
+                citation_labels: vec!["S1".to_string()],
+            }],
+            vec![SaveReportCitationInput {
+                citation_index: 0,
+                target_kind: "source".to_string(),
+                target_id: "source-ok".to_string(),
+                label: Some("S1".to_string()),
+                title: Some("Source OK".to_string()),
+                quote: Some("located quote".to_string()),
+                excerpt: Some("located quote".to_string()),
+                reason: Some("direct support".to_string()),
+                source_id: Some("source-ok".to_string()),
+                chunk_index: Some(0),
+                source_text_hash: Some("fnv1a64:aaaaaaaaaaaaaaaa".to_string()),
+                span_start: Some(4),
+                span_end: Some(17),
+                locator_status: "located".to_string(),
+                match_count: 1,
+            }],
+        )
+        .unwrap();
+
+        let risky = save_report(
+            &conn,
+            SaveReportInput {
+                title: "Risky Citation Report".to_string(),
+                kind: "digest".to_string(),
+                source_name: Some("Quality".to_string()),
+                body_md: "Cited claim [S2].\n\nInferred claim.\n\nUnsupported claim.".to_string(),
+                summary: "Several citations need review.".to_string(),
+                citations_json: "[]".to_string(),
+            },
+        )
+        .unwrap();
+        replace_report_audit_rows(
+            &conn,
+            &risky.id,
+            vec![
+                SaveReportClaimInput {
+                    claim_index: 0,
+                    claim_text: "Cited claim [S2].".to_string(),
+                    claim_status: "cited".to_string(),
+                    citation_labels: vec!["S2".to_string()],
+                },
+                SaveReportClaimInput {
+                    claim_index: 1,
+                    claim_text: "Inferred claim.".to_string(),
+                    claim_status: "inferred".to_string(),
+                    citation_labels: Vec::new(),
+                },
+                SaveReportClaimInput {
+                    claim_index: 2,
+                    claim_text: "Unsupported claim.".to_string(),
+                    claim_status: "unsupported".to_string(),
+                    citation_labels: Vec::new(),
+                },
+            ],
+            vec![
+                SaveReportCitationInput {
+                    citation_index: 0,
+                    target_kind: "source".to_string(),
+                    target_id: "source-stale".to_string(),
+                    label: Some("S2".to_string()),
+                    title: Some("Stale Source".to_string()),
+                    quote: Some("stale quote".to_string()),
+                    excerpt: None,
+                    reason: None,
+                    source_id: Some("source-stale".to_string()),
+                    chunk_index: Some(1),
+                    source_text_hash: Some("fnv1a64:bbbbbbbbbbbbbbbb".to_string()),
+                    span_start: None,
+                    span_end: None,
+                    locator_status: "stale".to_string(),
+                    match_count: 1,
+                },
+                SaveReportCitationInput {
+                    citation_index: 1,
+                    target_kind: "point".to_string(),
+                    target_id: "point-ambiguous".to_string(),
+                    label: Some("P1".to_string()),
+                    title: Some("Ambiguous Point".to_string()),
+                    quote: Some("repeat".to_string()),
+                    excerpt: None,
+                    reason: None,
+                    source_id: None,
+                    chunk_index: None,
+                    source_text_hash: Some("fnv1a64:cccccccccccccccc".to_string()),
+                    span_start: Some(0),
+                    span_end: Some(6),
+                    locator_status: "multiple_matches".to_string(),
+                    match_count: 2,
+                },
+                SaveReportCitationInput {
+                    citation_index: 2,
+                    target_kind: "evidence".to_string(),
+                    target_id: "evidence-not-found".to_string(),
+                    label: Some("E1".to_string()),
+                    title: Some("Missing Quote Evidence".to_string()),
+                    quote: Some("absent quote".to_string()),
+                    excerpt: None,
+                    reason: Some("quote drifted".to_string()),
+                    source_id: None,
+                    chunk_index: None,
+                    source_text_hash: Some("fnv1a64:dddddddddddddddd".to_string()),
+                    span_start: None,
+                    span_end: None,
+                    locator_status: "not_found".to_string(),
+                    match_count: 0,
+                },
+                SaveReportCitationInput {
+                    citation_index: 3,
+                    target_kind: "source".to_string(),
+                    target_id: "source-missing".to_string(),
+                    label: Some("S3".to_string()),
+                    title: Some("Missing Source".to_string()),
+                    quote: Some("missing target quote".to_string()),
+                    excerpt: None,
+                    reason: None,
+                    source_id: Some("source-missing".to_string()),
+                    chunk_index: Some(0),
+                    source_text_hash: None,
+                    span_start: None,
+                    span_end: None,
+                    locator_status: "target_missing".to_string(),
+                    match_count: 0,
+                },
+                SaveReportCitationInput {
+                    citation_index: 4,
+                    target_kind: "source".to_string(),
+                    target_id: "source-no-quote".to_string(),
+                    label: Some("S4".to_string()),
+                    title: Some("No Quote Source".to_string()),
+                    quote: None,
+                    excerpt: None,
+                    reason: None,
+                    source_id: Some("source-no-quote".to_string()),
+                    chunk_index: Some(0),
+                    source_text_hash: None,
+                    span_start: None,
+                    span_end: None,
+                    locator_status: "not_applicable".to_string(),
+                    match_count: 0,
+                },
+            ],
+        )
+        .unwrap();
+
+        let legacy = save_report(
+            &conn,
+            report_input("Legacy Citation Report", "synthesis", "cq"),
+        )
+        .unwrap();
+        let before = (
+            table_count(&conn, "reports"),
+            table_count(&conn, "report_claims"),
+            table_count(&conn, "report_citations"),
+        );
+
+        let dashboard = build_citation_quality_dashboard(&conn, Some(10)).unwrap();
+        let after = (
+            table_count(&conn, "reports"),
+            table_count(&conn, "report_claims"),
+            table_count(&conn, "report_citations"),
+        );
+
+        assert_eq!(before, after);
+        assert_eq!(dashboard.report_count, 3);
+        assert_eq!(dashboard.audited_report_count, 2);
+        assert_eq!(dashboard.total_claims, 4);
+        assert_eq!(dashboard.cited_claims, 2);
+        assert_eq!(dashboard.inferred_claims, 1);
+        assert_eq!(dashboard.unsupported_claims, 1);
+        assert_eq!(dashboard.total_citations, 6);
+        assert_eq!(dashboard.located_citations, 1);
+        assert_eq!(dashboard.warning_citations, 3);
+        assert_eq!(dashboard.missing_citations, 2);
+        assert_eq!(dashboard.stale_citations, 1);
+        assert_eq!(dashboard.ambiguous_citations, 1);
+        assert_eq!(dashboard.not_found_citations, 1);
+        assert_eq!(dashboard.target_missing_citations, 1);
+        assert_eq!(dashboard.not_applicable_citations, 1);
+        assert!((dashboard.coverage_ratio - 0.5).abs() < f64::EPSILON);
+        assert!(dashboard.quality_score > 0.0);
+        assert!(dashboard.quality_score < 0.5);
+        assert_eq!(dashboard.problem_citations.len(), 5);
+        for status in [
+            "stale",
+            "multiple_matches",
+            "not_found",
+            "target_missing",
+            "not_applicable",
+        ] {
+            assert!(dashboard
+                .problem_citations
+                .iter()
+                .any(|citation| citation.locator_status == status));
+        }
+        assert!(dashboard
+            .problem_citations
+            .iter()
+            .any(|citation| citation.report_id == risky.id
+                && citation.locator_status == "not_found"
+                && citation.reason == "quote drifted"));
+        assert!(dashboard
+            .reports
+            .iter()
+            .any(|row| row.report_id == healthy.id && row.severity == "ok"));
+        assert!(dashboard
+            .reports
+            .iter()
+            .any(|row| row.report_id == risky.id && row.severity == "critical"));
+        assert!(dashboard.reports.iter().any(|row| {
+            row.report_id == legacy.id
+                && row.severity == "warning"
+                && row
+                    .warnings
+                    .iter()
+                    .any(|warning| warning.contains("No durable audit rows"))
+        }));
+        assert!(dashboard
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("do not have durable audit rows")));
+    }
+
+    #[test]
     fn ai_invocation_audit_persists_context_and_links_to_report() {
         let conn = memory_db();
         let invocation = save_ai_invocation(
@@ -6016,6 +13647,2117 @@ mod tests {
     }
 
     #[test]
+    fn search_assets_eval_fixture_tracks_hit_at_1_and_hit_at_k() {
+        let mut conn = memory_db();
+        let source = upsert_source_document(
+            &conn,
+            "file",
+            "D:/eval/alpha-source-anchor.md",
+            Some("Alpha Source Anchor"),
+            r#"{"topic":"alpha-source-anchor"}"#,
+        )
+        .unwrap();
+        replace_source_chunks(
+            &mut conn,
+            &source.id,
+            &["Body text for the Alpha Source Anchor fixture.".to_string()],
+        )
+        .unwrap();
+        insert_point(
+            &conn,
+            "point-eval-delta",
+            "delta-point-insight quantizes local research salience",
+            None,
+            "2026-07-08T00:00:00Z",
+        );
+        let report = save_report(
+            &conn,
+            report_input(
+                "Market Rotation Report",
+                "investigation",
+                "market-rotation-report",
+            ),
+        )
+        .unwrap();
+        let journal = save_journal_entry(
+            &conn,
+            SaveJournalEntryInput {
+                query: "pricing-power-journal".to_string(),
+                note: "Journal note for durable moat tracking.".to_string(),
+                tags: vec!["pricing-power-journal".to_string()],
+                source_ids: vec![source.id.clone()],
+                point_ids: vec!["point-eval-delta".to_string()],
+                evidence_ids: Vec::new(),
+                report_ids: vec![report.id.clone()],
+                created_report_id: Some(report.id.clone()),
+                source_kind: "investigation".to_string(),
+            },
+        )
+        .unwrap();
+        let folder = add_indexed_folder(&conn, "D:/Eval Notes").unwrap();
+        let indexed = upsert_indexed_file(
+            &conn,
+            UpsertIndexedFileInput {
+                folder_id: folder.id.clone(),
+                path: "D:/Eval Notes/semantic-map-needle.md".to_string(),
+                canonical_path: Some("D:/Eval Notes/semantic-map-needle.md".to_string()),
+                name: "semantic-map-needle.md".to_string(),
+                extension: Some("md".to_string()),
+                size_bytes: Some(512),
+                modified_at: Some("2026-07-08T00:05:00Z".to_string()),
+                source_id: Some(source.id.clone()),
+                descriptor_kind: "markdown".to_string(),
+                read_status: "ok".to_string(),
+                index_status: "indexed".to_string(),
+                metadata_json: r#"{"kind":"indexed_file","eval":"round-01"}"#.to_string(),
+                preview_text: Some("semantic-map-needle marks local graph context.".to_string()),
+                text_hash: Some("fnv1a64:search-eval".to_string()),
+                extracted_chars: Some(48),
+                total_chars: Some(48),
+                last_error: None,
+            },
+        )
+        .unwrap();
+
+        let outcomes = run_search_eval(
+            &conn,
+            vec![
+                SearchEvalCase {
+                    query: "alpha-source-anchor",
+                    expected_kind: "source",
+                    expected_id: source.id.clone(),
+                    hit_k: 5,
+                    reason: "source title/metadata should be discoverable through unified search",
+                },
+                SearchEvalCase {
+                    query: "delta-point-insight",
+                    expected_kind: "point",
+                    expected_id: "point-eval-delta".to_string(),
+                    hit_k: 5,
+                    reason: "point content should remain searchable via workspace search",
+                },
+                SearchEvalCase {
+                    query: "Market Rotation Report",
+                    expected_kind: "report",
+                    expected_id: report.id.clone(),
+                    hit_k: 5,
+                    reason: "report title/body/citation fields should join the unified stream",
+                },
+                SearchEvalCase {
+                    query: "pricing-power-journal",
+                    expected_kind: "journal",
+                    expected_id: journal.id.clone(),
+                    hit_k: 5,
+                    reason: "journal query/tags should be retrievable for memory workflows",
+                },
+                SearchEvalCase {
+                    query: "semantic-map-needle",
+                    expected_kind: "indexed_file",
+                    expected_id: indexed.id.clone(),
+                    hit_k: 5,
+                    reason: "indexed folder metadata and preview should feed unified search",
+                },
+            ],
+        );
+        let summary = search_eval_summary(&outcomes);
+
+        assert!(
+            outcomes.iter().all(|outcome| outcome.hit_at_k),
+            "search eval hit@k regression:\n{summary}"
+        );
+        assert!(
+            outcomes.iter().filter(|outcome| outcome.hit_at_1).count() >= 4,
+            "search eval hit@1 regression:\n{summary}"
+        );
+        assert!(summary.contains("pricing-power-journal"));
+        assert!(summary.contains("semantic-map-needle"));
+    }
+
+    #[test]
+    fn build_retrieval_context_returns_agent_safe_read_only_manifest() {
+        let mut conn = memory_db();
+        let source = upsert_source_document(
+            &conn,
+            "file",
+            "D:/eval/round-two-agent.md",
+            Some("round-two-agent source"),
+            r#"{"topic":"round-two-agent"}"#,
+        )
+        .unwrap();
+        replace_source_chunks(
+            &mut conn,
+            &source.id,
+            &["round-two-agent source text should not be written into a new table.".to_string()],
+        )
+        .unwrap();
+        insert_point(
+            &conn,
+            "point-round-two-agent",
+            "round-two-agent point context for retrieval",
+            None,
+            "2026-07-08T00:10:00Z",
+        );
+        let report = save_report(
+            &conn,
+            report_input("round-two-agent report", "investigation", "round-two-agent"),
+        )
+        .unwrap();
+        save_journal_entry(
+            &conn,
+            SaveJournalEntryInput {
+                query: "round-two-agent journal".to_string(),
+                note: "round-two-agent memory note".to_string(),
+                tags: vec!["round-two-agent".to_string()],
+                source_ids: vec![source.id.clone()],
+                point_ids: vec!["point-round-two-agent".to_string()],
+                evidence_ids: Vec::new(),
+                report_ids: vec![report.id.clone()],
+                created_report_id: Some(report.id.clone()),
+                source_kind: "investigation".to_string(),
+            },
+        )
+        .unwrap();
+        let folder = add_indexed_folder(&conn, "D:/Agent Eval Notes").unwrap();
+        let indexed = upsert_indexed_file(
+            &conn,
+            UpsertIndexedFileInput {
+                folder_id: folder.id,
+                path: "D:/Agent Eval Notes/round-two-agent.md".to_string(),
+                canonical_path: Some("D:/Agent Eval Notes/round-two-agent.md".to_string()),
+                name: "round-two-agent.md".to_string(),
+                extension: Some("md".to_string()),
+                size_bytes: Some(256),
+                modified_at: Some("2026-07-08T00:11:00Z".to_string()),
+                source_id: Some(source.id.clone()),
+                descriptor_kind: "markdown".to_string(),
+                read_status: "ok".to_string(),
+                index_status: "indexed".to_string(),
+                metadata_json: r#"{"kind":"indexed_file","eval":"round-02"}"#.to_string(),
+                preview_text: Some("round-two-agent indexed preview".to_string()),
+                text_hash: Some("fnv1a64:round-two-agent".to_string()),
+                extracted_chars: Some(31),
+                total_chars: Some(31),
+                last_error: None,
+            },
+        )
+        .unwrap();
+        let before = retrieval_context_counts(&conn);
+
+        let context = build_retrieval_context(
+            &conn,
+            RetrievalContextInput {
+                query: "round-two-agent".to_string(),
+                kinds: None,
+                filter: None,
+                limit: Some(5),
+                max_chars_per_item: Some(120),
+            },
+        )
+        .unwrap();
+        let after = retrieval_context_counts(&conn);
+
+        assert_eq!(before, after);
+        assert_eq!(context.query, "round-two-agent");
+        assert_eq!(context.item_count, 5);
+        assert_eq!(context.items.len(), 5);
+        assert!(context.total_chars > 0);
+        assert!(context
+            .items
+            .iter()
+            .enumerate()
+            .all(|(index, item)| item.index == index as i64 + 1
+                && !item.excerpt.is_empty()
+                && item.excerpt.chars().count() <= 120
+                && !item.reason.is_empty()));
+        assert!(context
+            .items
+            .iter()
+            .any(|item| item.kind == "source" && item.id == source.id));
+        assert!(context
+            .items
+            .iter()
+            .any(|item| item.kind == "point" && item.id == "point-round-two-agent"));
+        assert!(context
+            .items
+            .iter()
+            .any(|item| item.kind == "indexed_file" && item.id == indexed.id));
+        assert!(context
+            .warnings
+            .contains(&"retrieval result set reached the configured limit".to_string()));
+    }
+
+    #[test]
+    fn suggest_backlinks_finds_unlinked_mentions_without_persisting_relations() {
+        let mut conn = memory_db();
+        let source = upsert_source_document(
+            &conn,
+            "file",
+            "D:/eval/round-three-anchor.md",
+            Some("Round Three Anchor"),
+            r#"{"topic":"round-three-anchor"}"#,
+        )
+        .unwrap();
+        replace_source_chunks(
+            &mut conn,
+            &source.id,
+            &["Round Three Anchor is the target asset for backlink suggestions.".to_string()],
+        )
+        .unwrap();
+        let report = save_report(
+            &conn,
+            SaveReportInput {
+                title: "Unlinked Backlink Report".to_string(),
+                kind: "investigation".to_string(),
+                source_name: Some("round-three".to_string()),
+                body_md: "This report references Round Three Anchor without a saved relation."
+                    .to_string(),
+                summary: "Round Three Anchor appears as an unlinked mention.".to_string(),
+                citations_json: "[]".to_string(),
+            },
+        )
+        .unwrap();
+        let journal = save_journal_entry(
+            &conn,
+            SaveJournalEntryInput {
+                query: "Backlink inbox".to_string(),
+                note: "Follow up on Round Three Anchor and connect it to current research."
+                    .to_string(),
+                tags: vec!["round-three-anchor".to_string()],
+                source_ids: Vec::new(),
+                point_ids: Vec::new(),
+                evidence_ids: Vec::new(),
+                report_ids: Vec::new(),
+                created_report_id: None,
+                source_kind: "manual".to_string(),
+            },
+        )
+        .unwrap();
+        insert_point(
+            &conn,
+            "point-existing-backlink",
+            "Round Three Anchor is already linked through a stored relation.",
+            None,
+            "2026-07-08T00:30:00Z",
+        );
+        save_asset_relation(
+            &conn,
+            SaveAssetRelationInput {
+                from_kind: "point".to_string(),
+                from_id: "point-existing-backlink".to_string(),
+                to_kind: "source".to_string(),
+                to_id: source.id.clone(),
+                relation: "same_topic".to_string(),
+                reason: "existing vetted relation".to_string(),
+                score: 0.72,
+                source_kind: "manual".to_string(),
+            },
+        )
+        .unwrap();
+
+        let before_counts = retrieval_context_counts(&conn);
+        let before_relations = table_count(&conn, "asset_relations");
+        let suggestions = suggest_backlinks(
+            &conn,
+            BacklinkSuggestionInput {
+                kind: "source".to_string(),
+                id: source.id.clone(),
+                limit: Some(10),
+            },
+        )
+        .unwrap();
+        let after_counts = retrieval_context_counts(&conn);
+        let after_relations = table_count(&conn, "asset_relations");
+
+        assert_eq!(before_counts, after_counts);
+        assert_eq!(before_relations, after_relations);
+        assert!(suggestions.iter().any(|suggestion| {
+            suggestion.candidate_kind == "report"
+                && suggestion.candidate_id == report.id
+                && suggestion.relation == "same_topic"
+                && !suggestion.existing_relation
+                && suggestion.reason.contains("Unlinked mention candidate")
+        }));
+        assert!(suggestions.iter().any(|suggestion| {
+            suggestion.candidate_kind == "journal" && suggestion.candidate_id == journal.id
+        }));
+        assert!(!suggestions.iter().any(|suggestion| {
+            suggestion.candidate_kind == "point"
+                && suggestion.candidate_id == "point-existing-backlink"
+        }));
+        assert!(suggestions
+            .iter()
+            .all(|suggestion| suggestion.target_kind == "source"
+                && suggestion.target_id == source.id
+                && !suggestion.candidate_excerpt.is_empty()
+                && suggestion.score > 0.0));
+    }
+
+    #[test]
+    fn saved_asset_searches_preview_dynamic_collections_read_only() {
+        let conn = memory_db();
+        let saved = save_asset_search(
+            &conn,
+            SaveAssetSearchInput {
+                name: "Round Five Investigations".to_string(),
+                query: "Round Five Dynamic".to_string(),
+                kinds: Some(vec!["report".to_string(), "unknown".to_string()]),
+                filter: Some(r#"reportKind == "investigation""#.to_string()),
+                limit: Some(5),
+            },
+        )
+        .unwrap();
+        assert_eq!(saved.name, "Round Five Investigations");
+        assert_eq!(saved.kinds, vec!["report"]);
+        assert_eq!(
+            saved.filter.as_deref(),
+            Some(r#"reportKind == "investigation""#)
+        );
+        assert_eq!(saved.limit, 5);
+        assert_eq!(table_count(&conn, "saved_asset_searches"), 1);
+
+        let empty_preview = preview_saved_asset_search(&conn, &saved.id, None)
+            .unwrap()
+            .unwrap();
+        assert_eq!(empty_preview.result_count, 0);
+        assert!(empty_preview
+            .warnings
+            .contains(&"saved search preview returned no matches".to_string()));
+
+        let investigation = save_report(
+            &conn,
+            report_input(
+                "Round Five Dynamic Investigation",
+                "investigation",
+                "round-five-dynamic",
+            ),
+        )
+        .unwrap();
+        let digest = save_report(
+            &conn,
+            report_input("Round Five Dynamic Digest", "digest", "round-five-dynamic"),
+        )
+        .unwrap();
+        let before_preview = (
+            table_count(&conn, "saved_asset_searches"),
+            table_count(&conn, "reports"),
+        );
+        let preview = preview_saved_asset_search(&conn, &saved.id, None)
+            .unwrap()
+            .unwrap();
+        let after_preview = (
+            table_count(&conn, "saved_asset_searches"),
+            table_count(&conn, "reports"),
+        );
+
+        assert_eq!(before_preview, after_preview);
+        assert_eq!(preview.result_count, 1);
+        assert_eq!(preview.results[0].kind, "report");
+        assert_eq!(preview.results[0].id, investigation.id);
+        assert!(!preview.results.iter().any(|result| result.id == digest.id));
+
+        let updated = save_asset_search(
+            &conn,
+            SaveAssetSearchInput {
+                name: "Round Five Investigations".to_string(),
+                query: "Round Five Dynamic".to_string(),
+                kinds: None,
+                filter: Some(r#"kind == "report""#.to_string()),
+                limit: Some(1),
+            },
+        )
+        .unwrap();
+        assert_eq!(updated.id, saved.id);
+        assert!(updated.kinds.is_empty());
+        assert_eq!(updated.filter.as_deref(), Some(r#"kind == "report""#));
+        assert_eq!(table_count(&conn, "saved_asset_searches"), 1);
+        let listed = list_saved_asset_searches(&conn).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id, saved.id);
+
+        let limited_preview = preview_saved_asset_search(&conn, &saved.id, None)
+            .unwrap()
+            .unwrap();
+        assert_eq!(limited_preview.result_count, 1);
+        assert!(limited_preview
+            .warnings
+            .contains(&"saved search preview reached the configured limit".to_string()));
+
+        let invalid = save_asset_search(
+            &conn,
+            SaveAssetSearchInput {
+                name: "Broken Filter".to_string(),
+                query: "Round Five".to_string(),
+                kinds: Some(vec!["source".to_string()]),
+                filter: Some(r#"kind == "report""#.to_string()),
+                limit: None,
+            },
+        )
+        .unwrap_err();
+        assert!(invalid
+            .to_string()
+            .contains("saved search kinds conflict with the saved filter"));
+
+        delete_saved_asset_search(&conn, &saved.id).unwrap();
+        assert!(preview_saved_asset_search(&conn, &saved.id, None)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn retrieval_profiles_save_list_preview_saved_search_scope_read_only() {
+        let conn = memory_db();
+        let saved = save_asset_search(
+            &conn,
+            SaveAssetSearchInput {
+                name: "Round Twelve Investigation Search".to_string(),
+                query: "Round Twelve Profile".to_string(),
+                kinds: Some(vec!["report".to_string()]),
+                filter: Some(r#"reportKind == "investigation""#.to_string()),
+                limit: Some(5),
+            },
+        )
+        .unwrap();
+
+        let profile = save_retrieval_profile(
+            &conn,
+            SaveRetrievalProfileInput {
+                name: "Round Twelve Investigation Profile".to_string(),
+                description: Some("AnythingLLM-style workspace retrieval scope".to_string()),
+                query: "   ".to_string(),
+                kinds: None,
+                filter: None,
+                saved_search_id: Some(saved.id.clone()),
+                limit: Some(5),
+                max_chars_per_item: Some(120),
+                min_score: Some(0.85),
+                mode: Some("query".to_string()),
+            },
+        )
+        .unwrap();
+        assert_eq!(profile.name, "Round Twelve Investigation Profile");
+        assert_eq!(profile.query, "");
+        assert_eq!(profile.saved_search_id.as_deref(), Some(saved.id.as_str()));
+        assert_eq!(profile.limit, 5);
+        assert_eq!(profile.max_chars_per_item, 120);
+        assert_eq!(profile.min_score, 0.85);
+        assert_eq!(profile.mode, "query");
+
+        let source = upsert_source_document(
+            &conn,
+            "file",
+            "D:/eval/round-twelve-profile.md",
+            Some("Round Twelve Profile Source"),
+            r#"{"round":"twelve"}"#,
+        )
+        .unwrap();
+        let investigation = save_report(
+            &conn,
+            report_input(
+                "Round Twelve Profile Investigation",
+                "investigation",
+                "round-twelve-profile",
+            ),
+        )
+        .unwrap();
+        let digest = save_report(
+            &conn,
+            report_input(
+                "Round Twelve Profile Digest",
+                "digest",
+                "round-twelve-profile",
+            ),
+        )
+        .unwrap();
+
+        let before_preview = (
+            table_count(&conn, "retrieval_profiles"),
+            table_count(&conn, "saved_asset_searches"),
+            table_count(&conn, "source_documents"),
+            table_count(&conn, "reports"),
+        );
+        let preview = preview_retrieval_profile(
+            &conn,
+            PreviewRetrievalProfileInput {
+                id: profile.id.clone(),
+                query_override: None,
+                limit: None,
+                max_chars_per_item: None,
+            },
+        )
+        .unwrap()
+        .unwrap();
+        let after_preview = (
+            table_count(&conn, "retrieval_profiles"),
+            table_count(&conn, "saved_asset_searches"),
+            table_count(&conn, "source_documents"),
+            table_count(&conn, "reports"),
+        );
+
+        assert_eq!(before_preview, after_preview);
+        assert_eq!(preview.effective_query, "Round Twelve Profile");
+        assert_eq!(preview.effective_kinds, vec!["report"]);
+        assert_eq!(
+            preview.effective_filter.as_deref(),
+            Some(r#"reportKind == "investigation""#)
+        );
+        assert_eq!(preview.min_score, 0.85);
+        assert_eq!(
+            preview
+                .saved_search
+                .as_ref()
+                .map(|search| search.id.as_str()),
+            Some(saved.id.as_str())
+        );
+        assert_eq!(preview.context.item_count, 1);
+        assert_eq!(preview.context.items[0].kind, "report");
+        assert_eq!(preview.context.items[0].id, investigation.id);
+        assert!(!preview
+            .context
+            .items
+            .iter()
+            .any(|item| item.id == digest.id || item.id == source.id));
+        assert!(preview
+            .warnings
+            .contains(&"profile scope includes a saved search definition.".to_string()));
+
+        let listed = list_retrieval_profiles(&conn).unwrap();
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].id.as_str(), profile.id.as_str());
+
+        let updated = save_retrieval_profile(
+            &conn,
+            SaveRetrievalProfileInput {
+                name: "Round Twelve Investigation Profile".to_string(),
+                description: None,
+                query: "Round Twelve Profile Source".to_string(),
+                kinds: Some(vec!["source".to_string()]),
+                filter: None,
+                saved_search_id: None,
+                limit: Some(30),
+                max_chars_per_item: Some(8_000),
+                min_score: Some(2.0),
+                mode: Some("chat".to_string()),
+            },
+        )
+        .unwrap();
+        assert_eq!(updated.id.as_str(), profile.id.as_str());
+        assert_eq!(updated.query, "Round Twelve Profile Source");
+        assert_eq!(updated.kinds, vec!["source"]);
+        assert_eq!(updated.limit, 20);
+        assert_eq!(updated.max_chars_per_item, 2_000);
+        assert_eq!(updated.min_score, 1.0);
+        assert_eq!(updated.mode, "chat");
+        assert_eq!(table_count(&conn, "retrieval_profiles"), 1);
+
+        let invalid = save_retrieval_profile(
+            &conn,
+            SaveRetrievalProfileInput {
+                name: "Broken Retrieval Profile".to_string(),
+                description: None,
+                query: "Round Twelve".to_string(),
+                kinds: Some(vec!["source".to_string()]),
+                filter: Some(r#"kind == "report""#.to_string()),
+                saved_search_id: None,
+                limit: None,
+                max_chars_per_item: None,
+                min_score: None,
+                mode: None,
+            },
+        )
+        .unwrap_err();
+        assert!(invalid
+            .to_string()
+            .contains("retrieval profile kinds conflict with the effective filter"));
+
+        delete_retrieval_profile(&conn, &profile.id).unwrap();
+        assert_eq!(table_count(&conn, "retrieval_profiles"), 0);
+        assert!(preview_retrieval_profile(
+            &conn,
+            PreviewRetrievalProfileInput {
+                id: profile.id.clone(),
+                query_override: None,
+                limit: None,
+                max_chars_per_item: None,
+            },
+        )
+        .unwrap()
+        .is_none());
+    }
+
+    #[test]
+    fn quick_capture_inbox_resolves_to_journal_point_and_source_transactionally() {
+        let mut conn = memory_db();
+
+        let blank = save_quick_capture(
+            &conn,
+            SaveQuickCaptureInput {
+                content: "   ".to_string(),
+                tags: Vec::new(),
+                source_kind: None,
+            },
+        )
+        .unwrap_err();
+        assert!(blank
+            .to_string()
+            .contains("quick capture content is required"));
+
+        let capture = save_quick_capture(
+            &conn,
+            SaveQuickCaptureInput {
+                content: "Round Six inbox memo should become a journal entry.".to_string(),
+                tags: vec!["round-six".to_string(), "inbox".to_string()],
+                source_kind: None,
+            },
+        )
+        .unwrap();
+        assert_eq!(capture.status, "inbox");
+        assert_eq!(capture.source_kind, "manual");
+        assert_eq!(capture.tags, vec!["round-six", "inbox"]);
+
+        let second = save_quick_capture(
+            &conn,
+            SaveQuickCaptureInput {
+                content: "Round Six second memo should stay in the inbox.".to_string(),
+                tags: vec!["clipboard".to_string()],
+                source_kind: Some("clipboard".to_string()),
+            },
+        )
+        .unwrap();
+        let before_list_counts = (
+            table_count(&conn, "quick_capture_items"),
+            table_count(&conn, "journal_entries"),
+            table_count(&conn, "points"),
+            table_count(&conn, "source_documents"),
+            table_count(&conn, "source_chunks"),
+        );
+        let inbox = list_quick_captures(&conn, Some("inbox"), Some(10)).unwrap();
+        let after_list_counts = (
+            table_count(&conn, "quick_capture_items"),
+            table_count(&conn, "journal_entries"),
+            table_count(&conn, "points"),
+            table_count(&conn, "source_documents"),
+            table_count(&conn, "source_chunks"),
+        );
+        assert_eq!(before_list_counts, after_list_counts);
+        assert_eq!(inbox.len(), 2);
+        assert!(inbox.iter().any(|item| item.id == capture.id));
+        assert!(inbox.iter().any(|item| {
+            item.id == second.id && item.source_kind == "clipboard" && item.status == "inbox"
+        }));
+
+        let journal_resolution = resolve_quick_capture(
+            &mut conn,
+            ResolveQuickCaptureInput {
+                id: capture.id.clone(),
+                target_kind: "journal".to_string(),
+                title: Some("Round Six Capture Journal".to_string()),
+                query: Some("Round Six query".to_string()),
+                parent_id: None,
+            },
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(journal_resolution.item.status, "resolved");
+        assert_eq!(
+            journal_resolution.item.resolved_kind.as_deref(),
+            Some("journal")
+        );
+        let journal = journal_resolution.journal.unwrap();
+        assert_eq!(journal.query, "Round Six query");
+        assert_eq!(
+            journal.note,
+            "Round Six inbox memo should become a journal entry."
+        );
+        assert_eq!(journal.source_kind, "quick_capture");
+        assert_eq!(
+            journal_resolution.item.resolved_id.as_deref(),
+            Some(journal.id.as_str())
+        );
+        assert!(journal_resolution.point.is_none());
+        assert!(journal_resolution.source.is_none());
+
+        let repeat = resolve_quick_capture(
+            &mut conn,
+            ResolveQuickCaptureInput {
+                id: capture.id.clone(),
+                target_kind: "journal".to_string(),
+                title: None,
+                query: None,
+                parent_id: None,
+            },
+        )
+        .unwrap_err();
+        assert!(repeat.to_string().contains("quick capture is not in inbox"));
+
+        let point_capture = save_quick_capture(
+            &conn,
+            SaveQuickCaptureInput {
+                content: "Round Six point-worthy thought.".to_string(),
+                tags: vec!["point".to_string()],
+                source_kind: Some("shortcut".to_string()),
+            },
+        )
+        .unwrap();
+        let point_resolution = resolve_quick_capture(
+            &mut conn,
+            ResolveQuickCaptureInput {
+                id: point_capture.id.clone(),
+                target_kind: "point".to_string(),
+                title: None,
+                query: None,
+                parent_id: Some("parent-point".to_string()),
+            },
+        )
+        .unwrap()
+        .unwrap();
+        let point = point_resolution.point.unwrap();
+        assert_eq!(point.content, "Round Six point-worthy thought.");
+        assert_eq!(point.tag_type.as_deref(), Some("quick_capture"));
+        assert_eq!(point.parent_id.as_deref(), Some("parent-point"));
+        assert_eq!(
+            point_resolution.item.resolved_kind.as_deref(),
+            Some("point")
+        );
+        assert_eq!(
+            point_resolution.item.resolved_id.as_deref(),
+            Some(point.id.as_str())
+        );
+
+        let source_capture = save_quick_capture(
+            &conn,
+            SaveQuickCaptureInput {
+                content: "Round Six source material with enough detail to index.".to_string(),
+                tags: vec!["source".to_string()],
+                source_kind: Some("paste".to_string()),
+            },
+        )
+        .unwrap();
+        let source_resolution = resolve_quick_capture(
+            &mut conn,
+            ResolveQuickCaptureInput {
+                id: source_capture.id.clone(),
+                target_kind: "source".to_string(),
+                title: Some("Round Six Capture Source".to_string()),
+                query: None,
+                parent_id: None,
+            },
+        )
+        .unwrap()
+        .unwrap();
+        let source = source_resolution.source.unwrap();
+        assert_eq!(source.kind, "quick_capture");
+        assert_eq!(source.title.as_deref(), Some("Round Six Capture Source"));
+        assert_eq!(
+            source.canonical_uri,
+            format!("quick-capture://{}", source_capture.id)
+        );
+        assert_eq!(
+            source_resolution.item.resolved_kind.as_deref(),
+            Some("source")
+        );
+        assert_eq!(
+            source_resolution.item.resolved_id.as_deref(),
+            Some(source.id.as_str())
+        );
+        let source_chunk_text: String = conn
+            .query_row(
+                "SELECT text FROM source_chunks WHERE source_id = ?1 AND chunk_index = 0",
+                params![source.id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            source_chunk_text,
+            "Round Six source material with enough detail to index."
+        );
+
+        let dismiss_capture = save_quick_capture(
+            &conn,
+            SaveQuickCaptureInput {
+                content: "Round Six dismissed memo should remain queryable.".to_string(),
+                tags: Vec::new(),
+                source_kind: None,
+            },
+        )
+        .unwrap();
+        let dismissed = dismiss_quick_capture(&conn, &dismiss_capture.id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(dismissed.status, "dismissed");
+        assert_eq!(
+            dismissed.content,
+            "Round Six dismissed memo should remain queryable."
+        );
+        assert!(list_quick_captures(&conn, Some("dismissed"), Some(10))
+            .unwrap()
+            .iter()
+            .any(|item| item.id == dismiss_capture.id));
+        let dismissed_resolve = resolve_quick_capture(
+            &mut conn,
+            ResolveQuickCaptureInput {
+                id: dismiss_capture.id.clone(),
+                target_kind: "source".to_string(),
+                title: None,
+                query: None,
+                parent_id: None,
+            },
+        )
+        .unwrap_err();
+        assert!(dismissed_resolve
+            .to_string()
+            .contains("quick capture is not in inbox"));
+
+        let invalid_capture = save_quick_capture(
+            &conn,
+            SaveQuickCaptureInput {
+                content: "Round Six invalid target should remain inbox.".to_string(),
+                tags: Vec::new(),
+                source_kind: None,
+            },
+        )
+        .unwrap();
+        let before_invalid_counts = (
+            table_count(&conn, "quick_capture_items"),
+            table_count(&conn, "journal_entries"),
+            table_count(&conn, "points"),
+            table_count(&conn, "source_documents"),
+            table_count(&conn, "source_chunks"),
+        );
+        let invalid = resolve_quick_capture(
+            &mut conn,
+            ResolveQuickCaptureInput {
+                id: invalid_capture.id.clone(),
+                target_kind: "report".to_string(),
+                title: None,
+                query: None,
+                parent_id: None,
+            },
+        )
+        .unwrap_err();
+        let after_invalid_counts = (
+            table_count(&conn, "quick_capture_items"),
+            table_count(&conn, "journal_entries"),
+            table_count(&conn, "points"),
+            table_count(&conn, "source_documents"),
+            table_count(&conn, "source_chunks"),
+        );
+        assert!(invalid
+            .to_string()
+            .contains("invalid quick capture target kind"));
+        assert_eq!(before_invalid_counts, after_invalid_counts);
+        assert!(list_quick_captures(&conn, Some("inbox"), Some(10))
+            .unwrap()
+            .iter()
+            .any(|item| item.id == invalid_capture.id));
+    }
+
+    #[test]
+    fn report_starter_templates_build_read_only_drafts_with_context_citations() {
+        let mut conn = memory_db();
+        let source = upsert_source_document(
+            &conn,
+            "file",
+            "D:/round-seven/source.md",
+            Some("Round Seven Source"),
+            r#"{"round":7}"#,
+        )
+        .unwrap();
+        replace_source_chunks(
+            &mut conn,
+            &source.id,
+            &["Round Seven source context should appear in the starter draft.".to_string()],
+        )
+        .unwrap();
+        insert_point(
+            &conn,
+            "round-seven-point",
+            "Round Seven point context should be cited in the starter.",
+            None,
+            "2026-07-09T00:00:00Z",
+        );
+        let evidence = save_evidence(
+            &mut conn,
+            SaveEvidenceInput {
+                claim: "Round Seven evidence claim".to_string(),
+                verdict: "supported".to_string(),
+                answer: "Round Seven evidence answer.".to_string(),
+                reasoning: Some("Round Seven evidence reasoning.".to_string()),
+                context: None,
+                point_id: Some("round-seven-point".to_string()),
+                source_id: Some(source.id.clone()),
+                chunk_index: Some(0),
+                checked_at: Some("2026-07-09T00:10:00Z".to_string()),
+                sources: Vec::new(),
+            },
+        )
+        .unwrap();
+
+        let investigation_templates =
+            list_report_starter_templates(Some("investigation"), Some("brief"));
+        assert!(investigation_templates
+            .iter()
+            .any(|template| template.id == "investigation-brief"));
+        assert!(investigation_templates
+            .iter()
+            .all(|template| template.category == "investigation"));
+        assert!(list_report_starter_templates(None, None).len() >= 3);
+
+        let before_counts = (
+            table_count(&conn, "source_documents"),
+            table_count(&conn, "source_chunks"),
+            table_count(&conn, "points"),
+            table_count(&conn, "evidence_records"),
+            table_count(&conn, "reports"),
+        );
+        let draft = build_report_starter(
+            &conn,
+            BuildReportStarterInput {
+                template_id: "investigation-brief".to_string(),
+                query: "Round Seven templated report".to_string(),
+                source_ids: vec![
+                    source.id.clone(),
+                    source.id.clone(),
+                    "missing-source".to_string(),
+                ],
+                point_ids: vec!["round-seven-point".to_string(), "missing-point".to_string()],
+                evidence_ids: vec![evidence.id.clone(), "missing-evidence".to_string()],
+            },
+        )
+        .unwrap();
+        let after_counts = (
+            table_count(&conn, "source_documents"),
+            table_count(&conn, "source_chunks"),
+            table_count(&conn, "points"),
+            table_count(&conn, "evidence_records"),
+            table_count(&conn, "reports"),
+        );
+
+        assert_eq!(before_counts, after_counts);
+        assert_eq!(draft.template.id, "investigation-brief");
+        assert_eq!(draft.save_input.kind, "investigation");
+        assert!(draft
+            .save_input
+            .title
+            .contains("Round Seven templated report"));
+        assert!(draft.save_input.body_md.contains("## Evidence Map"));
+        assert!(draft.save_input.body_md.contains("[S1] source"));
+        assert!(draft.save_input.body_md.contains("[P1] point"));
+        assert!(draft.save_input.body_md.contains("[E1] evidence"));
+        assert_eq!(draft.context_items.len(), 3);
+        assert_eq!(draft.context_items[0].label, "S1");
+        assert_eq!(draft.context_items[1].label, "P1");
+        assert_eq!(draft.context_items[2].label, "E1");
+        assert!(draft
+            .warnings
+            .contains(&"source not found: missing-source".to_string()));
+        assert!(draft
+            .warnings
+            .contains(&"point not found: missing-point".to_string()));
+        assert!(draft
+            .warnings
+            .contains(&"evidence not found: missing-evidence".to_string()));
+
+        let citations: serde_json::Value =
+            serde_json::from_str(&draft.save_input.citations_json).unwrap();
+        let citations = citations.as_array().unwrap();
+        assert_eq!(citations.len(), 3);
+        assert_eq!(citations[0]["label"], "S1");
+        assert_eq!(citations[1]["label"], "P1");
+        assert_eq!(citations[2]["label"], "E1");
+
+        let blank = build_report_starter(
+            &conn,
+            BuildReportStarterInput {
+                template_id: "investigation-brief".to_string(),
+                query: "   ".to_string(),
+                source_ids: Vec::new(),
+                point_ids: Vec::new(),
+                evidence_ids: Vec::new(),
+            },
+        )
+        .unwrap_err();
+        assert!(blank
+            .to_string()
+            .contains("report starter query is required"));
+
+        let unknown = build_report_starter(
+            &conn,
+            BuildReportStarterInput {
+                template_id: "unknown-template".to_string(),
+                query: "Round Seven".to_string(),
+                source_ids: Vec::new(),
+                point_ids: Vec::new(),
+                evidence_ids: Vec::new(),
+            },
+        )
+        .unwrap_err();
+        assert!(unknown
+            .to_string()
+            .contains("unknown report starter template"));
+    }
+
+    #[test]
+    fn reprocess_queue_surfaces_low_quality_assets_without_mutating_them() {
+        let mut conn = memory_db();
+        let folder = add_indexed_folder(&conn, "D:/round-eight").unwrap();
+        let empty_source = upsert_source_document(
+            &conn,
+            "file",
+            "D:/round-eight/no-chunks.md",
+            Some("Round Eight Source Without Chunks"),
+            r#"{"round":8}"#,
+        )
+        .unwrap();
+        let healthy_source = upsert_source_document(
+            &conn,
+            "file",
+            "D:/round-eight/healthy.md",
+            Some("Round Eight Healthy Source"),
+            r#"{"round":8,"healthy":true}"#,
+        )
+        .unwrap();
+        replace_source_chunks(
+            &mut conn,
+            &healthy_source.id,
+            &["Round Eight healthy chunk.".to_string()],
+        )
+        .unwrap();
+
+        let missing_file = upsert_indexed_file(
+            &conn,
+            UpsertIndexedFileInput {
+                folder_id: folder.id.clone(),
+                path: "D:/round-eight/missing.md".to_string(),
+                canonical_path: None,
+                name: "missing.md".to_string(),
+                extension: Some("md".to_string()),
+                size_bytes: None,
+                modified_at: None,
+                source_id: None,
+                descriptor_kind: "markdown".to_string(),
+                read_status: "missing".to_string(),
+                index_status: "stale".to_string(),
+                metadata_json: r#"{"round":8}"#.to_string(),
+                preview_text: None,
+                text_hash: None,
+                extracted_chars: None,
+                total_chars: None,
+                last_error: Some("file missing on last scan".to_string()),
+            },
+        )
+        .unwrap();
+        let metadata_only_file = upsert_indexed_file(
+            &conn,
+            UpsertIndexedFileInput {
+                folder_id: folder.id.clone(),
+                path: "D:/round-eight/image.png".to_string(),
+                canonical_path: None,
+                name: "image.png".to_string(),
+                extension: Some("png".to_string()),
+                size_bytes: Some(100),
+                modified_at: None,
+                source_id: None,
+                descriptor_kind: "image".to_string(),
+                read_status: "unsupported".to_string(),
+                index_status: "metadata_only".to_string(),
+                metadata_json: r#"{"round":8,"type":"image"}"#.to_string(),
+                preview_text: None,
+                text_hash: None,
+                extracted_chars: None,
+                total_chars: None,
+                last_error: Some("unsupported image parser".to_string()),
+            },
+        )
+        .unwrap();
+        upsert_indexed_file(
+            &conn,
+            UpsertIndexedFileInput {
+                folder_id: folder.id.clone(),
+                path: "D:/round-eight/healthy.md".to_string(),
+                canonical_path: None,
+                name: "healthy.md".to_string(),
+                extension: Some("md".to_string()),
+                size_bytes: Some(42),
+                modified_at: None,
+                source_id: Some(healthy_source.id.clone()),
+                descriptor_kind: "markdown".to_string(),
+                read_status: "ok".to_string(),
+                index_status: "indexed".to_string(),
+                metadata_json: r#"{"round":8,"healthy":true}"#.to_string(),
+                preview_text: Some("healthy preview".to_string()),
+                text_hash: Some("fnv1a64:0000000000000001".to_string()),
+                extracted_chars: Some(20),
+                total_chars: Some(20),
+                last_error: None,
+            },
+        )
+        .unwrap();
+        let unaudited_report = save_report(
+            &conn,
+            report_input(
+                "Round Eight Unaudited Report",
+                "investigation",
+                "round-eight",
+            ),
+        )
+        .unwrap();
+
+        let before_counts = (
+            table_count(&conn, "indexed_files"),
+            table_count(&conn, "source_documents"),
+            table_count(&conn, "source_chunks"),
+            table_count(&conn, "reports"),
+            table_count(&conn, "report_claims"),
+            table_count(&conn, "report_citations"),
+        );
+        let queue = build_reprocess_queue(
+            &conn,
+            ReprocessQueueInput {
+                kinds: None,
+                limit: Some(20),
+            },
+        )
+        .unwrap();
+        let after_counts = (
+            table_count(&conn, "indexed_files"),
+            table_count(&conn, "source_documents"),
+            table_count(&conn, "source_chunks"),
+            table_count(&conn, "reports"),
+            table_count(&conn, "report_claims"),
+            table_count(&conn, "report_citations"),
+        );
+
+        assert_eq!(before_counts, after_counts);
+        assert!(queue.item_count >= 4);
+        assert!(queue.critical_count >= 2);
+        assert!(queue.warning_count >= 2);
+        assert_eq!(queue.items[0].severity, "critical");
+        assert!(queue.items.iter().any(|item| {
+            item.target_kind == "indexed_file"
+                && item.target_id == missing_file.id
+                && item.issue_kind == "missing_or_stale_file"
+                && item.suggested_action == "scan_indexed_folder"
+                && item.folder_id.as_deref() == Some(folder.id.as_str())
+        }));
+        assert!(queue.items.iter().any(|item| {
+            item.target_kind == "indexed_file"
+                && item.target_id == metadata_only_file.id
+                && (item.issue_kind == "file_read_failed"
+                    || item.issue_kind == "metadata_only_file")
+        }));
+        assert!(queue.items.iter().any(|item| {
+            item.target_kind == "source"
+                && item.target_id == empty_source.id
+                && item.issue_kind == "source_has_no_chunks"
+        }));
+        assert!(queue.items.iter().any(|item| {
+            item.target_kind == "report"
+                && item.target_id == unaudited_report.id
+                && item.issue_kind == "report_missing_audit_rows"
+        }));
+        assert!(!queue
+            .items
+            .iter()
+            .any(|item| item.target_id == healthy_source.id));
+
+        let source_only = build_reprocess_queue(
+            &conn,
+            ReprocessQueueInput {
+                kinds: Some(vec!["source".to_string(), "unknown".to_string()]),
+                limit: Some(5),
+            },
+        )
+        .unwrap();
+        assert!(!source_only.items.is_empty());
+        assert!(source_only
+            .items
+            .iter()
+            .all(|item| item.target_kind == "source"));
+    }
+
+    #[test]
+    fn duplicate_asset_detection_groups_exact_and_near_matches_read_only() {
+        let conn = memory_db();
+        let source_a = upsert_source_document(
+            &conn,
+            "file",
+            "D:/round-nine/source-a.md",
+            Some("Round Nine Duplicate Source"),
+            r#"{"round":9,"source":"a"}"#,
+        )
+        .unwrap();
+        let source_b = upsert_source_document(
+            &conn,
+            "web",
+            "https://example.com/round-nine-source-b",
+            Some("round nine duplicate source!"),
+            r#"{"round":9,"source":"b"}"#,
+        )
+        .unwrap();
+        let source_near = upsert_source_document(
+            &conn,
+            "file",
+            "D:/round-nine/source-near.md",
+            Some("Round Nine Duplicate Source Draft"),
+            r#"{"round":9,"source":"near"}"#,
+        )
+        .unwrap();
+        insert_point(
+            &conn,
+            "round-nine-point-a",
+            "Duplicate point content should group exactly.",
+            None,
+            "2026-07-09T01:00:00Z",
+        );
+        insert_point(
+            &conn,
+            "round-nine-point-b",
+            "Duplicate point content should group exactly!",
+            None,
+            "2026-07-09T01:01:00Z",
+        );
+        let report_a = save_report(
+            &conn,
+            report_input(
+                "Round Nine Near Duplicate Report",
+                "investigation",
+                "round-nine-a",
+            ),
+        )
+        .unwrap();
+        let report_b = save_report(
+            &conn,
+            report_input(
+                "Round Nine Near Duplicate Report Draft",
+                "investigation",
+                "round-nine-b",
+            ),
+        )
+        .unwrap();
+        let cross_kind_same_name = save_report(
+            &conn,
+            report_input("Round Nine Duplicate Source", "digest", "round-nine-cross"),
+        )
+        .unwrap();
+
+        let before_counts = (
+            table_count(&conn, "source_documents"),
+            table_count(&conn, "points"),
+            table_count(&conn, "reports"),
+            table_count(&conn, "asset_relations"),
+        );
+        let report = detect_duplicate_assets(
+            &conn,
+            DuplicateAssetInput {
+                kinds: None,
+                limit: Some(20),
+            },
+        )
+        .unwrap();
+        let after_counts = (
+            table_count(&conn, "source_documents"),
+            table_count(&conn, "points"),
+            table_count(&conn, "reports"),
+            table_count(&conn, "asset_relations"),
+        );
+
+        assert_eq!(before_counts, after_counts);
+        assert!(report.group_count >= 3);
+        assert!(report.candidate_count >= 6);
+        assert!(report.groups.iter().any(|group| {
+            group.match_kind == "exact_fingerprint"
+                && group
+                    .candidates
+                    .iter()
+                    .any(|candidate| candidate.id == source_a.id)
+                && group
+                    .candidates
+                    .iter()
+                    .any(|candidate| candidate.id == source_b.id)
+                && !group
+                    .candidates
+                    .iter()
+                    .any(|candidate| candidate.id == cross_kind_same_name.id)
+        }));
+        assert!(report.groups.iter().any(|group| {
+            group.match_kind == "near_fingerprint"
+                && group.score >= 0.82
+                && group
+                    .candidates
+                    .iter()
+                    .any(|candidate| candidate.id == source_near.id)
+        }));
+        assert!(report.groups.iter().any(|group| {
+            group.match_kind == "exact_fingerprint"
+                && group
+                    .candidates
+                    .iter()
+                    .all(|candidate| candidate.kind == "point")
+                && group
+                    .candidates
+                    .iter()
+                    .any(|candidate| candidate.id == "round-nine-point-a")
+                && group
+                    .candidates
+                    .iter()
+                    .any(|candidate| candidate.id == "round-nine-point-b")
+        }));
+        assert!(report.groups.iter().any(|group| {
+            group.match_kind == "near_fingerprint"
+                && group
+                    .candidates
+                    .iter()
+                    .all(|candidate| candidate.kind == "report")
+                && group
+                    .candidates
+                    .iter()
+                    .any(|candidate| candidate.id == report_a.id)
+                && group
+                    .candidates
+                    .iter()
+                    .any(|candidate| candidate.id == report_b.id)
+        }));
+
+        let reports_only = detect_duplicate_assets(
+            &conn,
+            DuplicateAssetInput {
+                kinds: Some(vec!["report".to_string(), "unknown".to_string()]),
+                limit: Some(10),
+            },
+        )
+        .unwrap();
+        assert!(!reports_only.groups.is_empty());
+        assert!(reports_only.groups.iter().all(|group| {
+            group
+                .candidates
+                .iter()
+                .all(|candidate| candidate.kind == "report")
+        }));
+    }
+
+    #[test]
+    fn graph_neighborhood_preview_builds_read_only_relation_and_suggestion_graph() {
+        let mut conn = memory_db();
+        let source = upsert_source_document(
+            &conn,
+            "file",
+            "D:/round-ten/graph-seed.md",
+            Some("Round Ten Graph Seed"),
+            r#"{"round":10,"role":"root"}"#,
+        )
+        .unwrap();
+        let duplicate_source = upsert_source_document(
+            &conn,
+            "web",
+            "https://example.com/round-ten-graph-seed-copy",
+            Some("round ten graph seed!"),
+            r#"{"round":10,"role":"duplicate"}"#,
+        )
+        .unwrap();
+        insert_point(
+            &conn,
+            "round-ten-point",
+            "Round ten graph neighbor point.",
+            None,
+            "2026-07-10T01:00:00Z",
+        );
+        let evidence = save_evidence(
+            &mut conn,
+            evidence_input(
+                "Round ten graph second hop evidence",
+                Some("round-ten-point"),
+                Some(&source.id),
+                "2026-07-10T01:05:00Z",
+            ),
+        )
+        .unwrap();
+        save_asset_relation(
+            &conn,
+            SaveAssetRelationInput {
+                from_kind: "source".to_string(),
+                from_id: source.id.clone(),
+                to_kind: "point".to_string(),
+                to_id: "round-ten-point".to_string(),
+                relation: "same_topic".to_string(),
+                reason: "Manual graph seed relation".to_string(),
+                score: 0.91,
+                source_kind: "manual".to_string(),
+            },
+        )
+        .unwrap();
+        save_asset_relation(
+            &conn,
+            SaveAssetRelationInput {
+                from_kind: "point".to_string(),
+                from_id: "round-ten-point".to_string(),
+                to_kind: "evidence".to_string(),
+                to_id: evidence.id.clone(),
+                relation: "supports".to_string(),
+                reason: "Point is supported by this evidence".to_string(),
+                score: 0.81,
+                source_kind: "manual".to_string(),
+            },
+        )
+        .unwrap();
+        let backlink_report = save_report(
+            &conn,
+            SaveReportInput {
+                title: "Round Ten Unlinked Graph Report".to_string(),
+                kind: "investigation".to_string(),
+                source_name: Some("round-ten".to_string()),
+                body_md: "This report mentions Round Ten Graph Seed without a stored relation."
+                    .to_string(),
+                summary: "Unlinked mention for graph preview.".to_string(),
+                citations_json: "[]".to_string(),
+            },
+        )
+        .unwrap();
+        let before_counts = (
+            table_count(&conn, "source_documents"),
+            table_count(&conn, "points"),
+            table_count(&conn, "evidence_records"),
+            table_count(&conn, "reports"),
+            table_count(&conn, "asset_relations"),
+        );
+
+        let preview = build_graph_neighborhood_preview(
+            &conn,
+            GraphNeighborhoodInput {
+                kind: "source".to_string(),
+                id: source.id.clone(),
+                depth: Some(2),
+                include_suggestions: Some(true),
+                limit: Some(20),
+            },
+        )
+        .unwrap();
+        let after_counts = (
+            table_count(&conn, "source_documents"),
+            table_count(&conn, "points"),
+            table_count(&conn, "evidence_records"),
+            table_count(&conn, "reports"),
+            table_count(&conn, "asset_relations"),
+        );
+
+        assert_eq!(before_counts, after_counts);
+        assert_eq!(preview.root_kind, "source");
+        assert_eq!(preview.root_id, source.id);
+        assert!(preview.nodes.iter().any(|node| {
+            node.kind == "source" && node.id == source.id && node.depth == 0 && node.root
+        }));
+        assert!(preview.nodes.iter().any(|node| {
+            node.kind == "point" && node.id == "round-ten-point" && node.depth == 1
+        }));
+        assert!(preview
+            .nodes
+            .iter()
+            .any(|node| { node.kind == "evidence" && node.id == evidence.id && node.depth == 2 }));
+        assert!(preview.edges.iter().any(|edge| {
+            edge.edge_kind == "relation"
+                && edge.existing_relation
+                && edge.from_kind == "source"
+                && edge.to_kind == "point"
+                && edge.relation == "same_topic"
+        }));
+        assert!(preview.edges.iter().any(|edge| {
+            edge.edge_kind == "suggested_backlink"
+                && !edge.existing_relation
+                && edge.from_kind == "report"
+                && edge.from_id == backlink_report.id
+                && edge.to_kind == "source"
+        }));
+        assert!(preview.edges.iter().any(|edge| {
+            edge.edge_kind == "suggested_duplicate"
+                && !edge.existing_relation
+                && edge.to_kind == "source"
+                && edge.to_id == duplicate_source.id
+        }));
+
+        let without_suggestions = build_graph_neighborhood_preview(
+            &conn,
+            GraphNeighborhoodInput {
+                kind: "source".to_string(),
+                id: source.id,
+                depth: Some(2),
+                include_suggestions: Some(false),
+                limit: Some(20),
+            },
+        )
+        .unwrap();
+        assert!(without_suggestions
+            .edges
+            .iter()
+            .all(|edge| edge.edge_kind == "relation"));
+    }
+
+    #[test]
+    fn command_palette_manifest_filters_static_actions_without_db_writes() {
+        let conn = memory_db();
+        let before_counts = (
+            table_count(&conn, "source_documents"),
+            table_count(&conn, "points"),
+            table_count(&conn, "reports"),
+            table_count(&conn, "saved_asset_searches"),
+            table_count(&conn, "quick_capture_items"),
+            table_count(&conn, "asset_relations"),
+        );
+
+        let manifest = list_command_palette_items(CommandPaletteInput {
+            query: None,
+            category: None,
+            limit: Some(100),
+        });
+        let after_counts = (
+            table_count(&conn, "source_documents"),
+            table_count(&conn, "points"),
+            table_count(&conn, "reports"),
+            table_count(&conn, "saved_asset_searches"),
+            table_count(&conn, "quick_capture_items"),
+            table_count(&conn, "asset_relations"),
+        );
+
+        assert_eq!(before_counts, after_counts);
+        assert!(manifest.item_count >= 20);
+        assert!(manifest.categories.contains(&"diagnostics".to_string()));
+        assert!(manifest.categories.contains(&"graph".to_string()));
+        assert!(manifest.categories.contains(&"capture".to_string()));
+        assert!(manifest.items.windows(2).all(|pair| {
+            pair[0].priority >= pair[1].priority || pair[0].category <= pair[1].category
+        }));
+        assert!(manifest
+            .items
+            .iter()
+            .any(|item| item.command_name == "load_reprocess_queue"
+                && item.source_inspiration.contains("Round 08")
+                && item.risk == "read_only"));
+        assert!(manifest
+            .items
+            .iter()
+            .any(|item| item.command_name == "detect_duplicate_assets"
+                && item.source_inspiration.contains("Round 09")));
+        assert!(manifest.items.iter().any(|item| item.command_name
+            == "build_graph_neighborhood_preview"
+            && item.source_inspiration.contains("Round 10")
+            && item.required_input == vec!["kind".to_string(), "id".to_string()]));
+
+        let diagnostics = list_command_palette_items(CommandPaletteInput {
+            query: None,
+            category: Some("DIAGNOSTICS".to_string()),
+            limit: Some(20),
+        });
+        assert!(!diagnostics.items.is_empty());
+        assert!(diagnostics
+            .items
+            .iter()
+            .all(|item| item.category == "diagnostics"));
+        assert!(diagnostics
+            .items
+            .iter()
+            .any(|item| item.command_name == "load_citation_quality_dashboard"));
+
+        let duplicate_query = list_command_palette_items(CommandPaletteInput {
+            query: Some("zotero duplicate review".to_string()),
+            category: None,
+            limit: Some(10),
+        });
+        assert!(duplicate_query
+            .items
+            .iter()
+            .any(|item| item.command_name == "detect_duplicate_assets"));
+
+        let limited = list_command_palette_items(CommandPaletteInput {
+            query: None,
+            category: None,
+            limit: Some(2),
+        });
+        assert_eq!(limited.item_count, 2);
+        assert!(limited
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("truncated")));
+
+        let empty = list_command_palette_items(CommandPaletteInput {
+            query: Some("zzzzzz-not-a-command".to_string()),
+            category: None,
+            limit: None,
+        });
+        assert_eq!(empty.item_count, 0);
+        assert!(empty
+            .warnings
+            .contains(&"No command palette items matched the filters.".to_string()));
+    }
+
+    #[test]
+    fn automation_suggestions_aggregate_existing_diagnostics_read_only() {
+        let mut conn = memory_db();
+        insert_point(
+            &conn,
+            "round-thirteen-review-point",
+            "Round Thirteen review target point.",
+            None,
+            "2026-07-09T01:00:00Z",
+        );
+        let review = add_review_item(
+            &conn,
+            AddReviewItemInput {
+                target_kind: "point".to_string(),
+                target_id: "round-thirteen-review-point".to_string(),
+                title: "Round Thirteen Due Review".to_string(),
+                note: Some("Exercise the automation suggestion review source.".to_string()),
+                priority: Some("high".to_string()),
+                due_at: Some("2020-01-01T00:00:00Z".to_string()),
+            },
+        )
+        .unwrap();
+
+        let report = save_report(
+            &conn,
+            report_input(
+                "Round Thirteen Citation Drift Report",
+                "investigation",
+                "round-thirteen-citation",
+            ),
+        )
+        .unwrap();
+        replace_report_audit_rows(
+            &conn,
+            &report.id,
+            vec![SaveReportClaimInput {
+                claim_index: 0,
+                claim_text: "Round Thirteen claim needs support.".to_string(),
+                claim_status: "cited".to_string(),
+                citation_labels: vec!["S1".to_string()],
+            }],
+            vec![SaveReportCitationInput {
+                citation_index: 0,
+                target_kind: "source".to_string(),
+                target_id: "missing-round-thirteen-source".to_string(),
+                label: Some("S1".to_string()),
+                title: Some("Missing Round Thirteen Source".to_string()),
+                quote: Some("missing quote".to_string()),
+                excerpt: None,
+                reason: Some("source was removed".to_string()),
+                source_id: Some("missing-round-thirteen-source".to_string()),
+                chunk_index: Some(0),
+                source_text_hash: None,
+                span_start: None,
+                span_end: None,
+                locator_status: "target_missing".to_string(),
+                match_count: 0,
+            }],
+        )
+        .unwrap();
+
+        let folder = add_indexed_folder(&conn, "D:/round-thirteen").unwrap();
+        let stale_file = upsert_indexed_file(
+            &conn,
+            UpsertIndexedFileInput {
+                folder_id: folder.id.clone(),
+                path: "D:/round-thirteen/missing.md".to_string(),
+                canonical_path: None,
+                name: "missing.md".to_string(),
+                extension: Some("md".to_string()),
+                size_bytes: None,
+                modified_at: None,
+                source_id: None,
+                descriptor_kind: "markdown".to_string(),
+                read_status: "missing".to_string(),
+                index_status: "stale".to_string(),
+                metadata_json: r#"{"round":13}"#.to_string(),
+                preview_text: None,
+                text_hash: None,
+                extracted_chars: None,
+                total_chars: None,
+                last_error: Some("file missing on automation sweep".to_string()),
+            },
+        )
+        .unwrap();
+
+        save_report(
+            &conn,
+            report_input(
+                "Round Thirteen Duplicate Candidate",
+                "synthesis",
+                "round-thirteen-dup-a",
+            ),
+        )
+        .unwrap();
+        save_report(
+            &conn,
+            report_input(
+                "Round Thirteen Duplicate Candidate",
+                "digest",
+                "round-thirteen-dup-b",
+            ),
+        )
+        .unwrap();
+
+        let capture = save_quick_capture(
+            &conn,
+            SaveQuickCaptureInput {
+                content: "Round Thirteen inbox item should be suggested for triage.".to_string(),
+                tags: vec!["automation".to_string()],
+                source_kind: Some("manual".to_string()),
+            },
+        )
+        .unwrap();
+
+        let source = upsert_source_document(
+            &conn,
+            "file",
+            "D:/round-thirteen/new-source.md",
+            Some("Round Thirteen New Source"),
+            r#"{"round":13,"role":"new-source"}"#,
+        )
+        .unwrap();
+        replace_source_chunks(
+            &mut conn,
+            &source.id,
+            &["Round Thirteen new source chunk.".to_string()],
+        )
+        .unwrap();
+
+        let profile = save_retrieval_profile(
+            &conn,
+            SaveRetrievalProfileInput {
+                name: "Round Thirteen Retrieval Profile".to_string(),
+                description: Some("Profile to preview from automation suggestions.".to_string()),
+                query: "Round Thirteen".to_string(),
+                kinds: Some(vec!["source".to_string()]),
+                filter: None,
+                saved_search_id: None,
+                limit: Some(5),
+                max_chars_per_item: Some(160),
+                min_score: Some(0.0),
+                mode: Some("query".to_string()),
+            },
+        )
+        .unwrap();
+
+        let before_counts = (
+            table_count(&conn, "review_items"),
+            table_count(&conn, "reports"),
+            table_count(&conn, "report_claims"),
+            table_count(&conn, "report_citations"),
+            table_count(&conn, "indexed_files"),
+            table_count(&conn, "quick_capture_items"),
+            table_count(&conn, "source_documents"),
+            table_count(&conn, "source_chunks"),
+            table_count(&conn, "retrieval_profiles"),
+            table_count(&conn, "asset_relations"),
+        );
+        let suggestions = load_automation_suggestions(
+            &conn,
+            AutomationSuggestionInput {
+                categories: None,
+                limit: Some(100),
+            },
+        )
+        .unwrap();
+        let after_counts = (
+            table_count(&conn, "review_items"),
+            table_count(&conn, "reports"),
+            table_count(&conn, "report_claims"),
+            table_count(&conn, "report_citations"),
+            table_count(&conn, "indexed_files"),
+            table_count(&conn, "quick_capture_items"),
+            table_count(&conn, "source_documents"),
+            table_count(&conn, "source_chunks"),
+            table_count(&conn, "retrieval_profiles"),
+            table_count(&conn, "asset_relations"),
+        );
+
+        assert_eq!(before_counts, after_counts);
+        assert!(suggestions.item_count >= 7);
+        assert!(suggestions.critical_count >= 2);
+        assert!(suggestions.items.windows(2).all(|pair| {
+            pair[0].priority_score >= pair[1].priority_score || pair[0].category <= pair[1].category
+        }));
+        assert!(suggestions.items.iter().any(|item| {
+            item.category == "review"
+                && item.command_name == "build_review_queue_plan"
+                && item.target_id.as_deref() == Some("round-thirteen-review-point")
+                && item.input_json.contains("\"mode\":\"due\"")
+                && item.id.contains(&review.id)
+        }));
+        assert!(suggestions.items.iter().any(|item| {
+            item.category == "citations"
+                && item.command_name == "load_citation_quality_dashboard"
+                && item.target_id.as_deref() == Some(report.id.as_str())
+                && item.priority == "critical"
+        }));
+        assert!(suggestions.items.iter().any(|item| {
+            item.category == "reprocess"
+                && item.command_name == "load_reprocess_queue"
+                && item.target_id.as_deref() == Some(stale_file.id.as_str())
+        }));
+        assert!(suggestions.items.iter().any(|item| {
+            item.category == "duplicates" && item.command_name == "detect_duplicate_assets"
+        }));
+        assert!(suggestions.items.iter().any(|item| {
+            item.category == "capture"
+                && item.command_name == "resolve_quick_capture"
+                && item.target_id.as_deref() == Some(capture.id.as_str())
+        }));
+        assert!(suggestions.items.iter().any(|item| {
+            item.category == "sources"
+                && item.command_name == "add_review_item"
+                && item.target_id.as_deref() == Some(source.id.as_str())
+        }));
+        assert!(suggestions.items.iter().any(|item| {
+            item.category == "retrieval"
+                && item.command_name == "preview_retrieval_profile"
+                && item.target_id.as_deref() == Some(profile.id.as_str())
+        }));
+
+        let capture_only = load_automation_suggestions(
+            &conn,
+            AutomationSuggestionInput {
+                categories: Some(vec!["capture".to_string()]),
+                limit: Some(10),
+            },
+        )
+        .unwrap();
+        assert!(!capture_only.items.is_empty());
+        assert!(capture_only
+            .items
+            .iter()
+            .all(|item| item.category == "capture"));
+
+        let manifest = list_command_palette_items(CommandPaletteInput {
+            query: Some("khoj automation suggestions".to_string()),
+            category: None,
+            limit: Some(20),
+        });
+        assert!(manifest.items.iter().any(|item| {
+            item.command_name == "load_automation_suggestions"
+                && item.risk == "read_only"
+                && item.source_inspiration.contains("Round 13")
+        }));
+    }
+
+    #[test]
+    fn import_diagnostics_ledger_summarizes_scan_outcomes_read_only() {
+        let conn = memory_db();
+        let folder = add_indexed_folder(&conn, "D:/round-fourteen/imports").unwrap();
+        let ok_file = upsert_indexed_file(
+            &conn,
+            UpsertIndexedFileInput {
+                folder_id: folder.id.clone(),
+                path: "D:/round-fourteen/imports/ok.md".to_string(),
+                canonical_path: Some("D:/round-fourteen/imports/ok.md".to_string()),
+                name: "ok.md".to_string(),
+                extension: Some("md".to_string()),
+                size_bytes: Some(42),
+                modified_at: Some("2026-07-09T01:00:00Z".to_string()),
+                source_id: Some("source-ok".to_string()),
+                descriptor_kind: "markdown".to_string(),
+                read_status: "ok".to_string(),
+                index_status: "indexed".to_string(),
+                metadata_json: r#"{"round":14,"state":"ok"}"#.to_string(),
+                preview_text: Some("Indexed body".to_string()),
+                text_hash: Some("fnv1a64:0000000000000001".to_string()),
+                extracted_chars: Some(12),
+                total_chars: Some(12),
+                last_error: None,
+            },
+        )
+        .unwrap();
+        let metadata_only = upsert_indexed_file(
+            &conn,
+            UpsertIndexedFileInput {
+                folder_id: folder.id.clone(),
+                path: "D:/round-fourteen/imports/image.png".to_string(),
+                canonical_path: Some("D:/round-fourteen/imports/image.png".to_string()),
+                name: "image.png".to_string(),
+                extension: Some("png".to_string()),
+                size_bytes: Some(2048),
+                modified_at: Some("2026-07-09T01:01:00Z".to_string()),
+                source_id: None,
+                descriptor_kind: "image".to_string(),
+                read_status: "unsupported".to_string(),
+                index_status: "metadata_only".to_string(),
+                metadata_json: r#"{"round":14,"state":"metadata"}"#.to_string(),
+                preview_text: None,
+                text_hash: None,
+                extracted_chars: None,
+                total_chars: None,
+                last_error: None,
+            },
+        )
+        .unwrap();
+        let partial = upsert_indexed_file(
+            &conn,
+            UpsertIndexedFileInput {
+                folder_id: folder.id.clone(),
+                path: "D:/round-fourteen/imports/bad.txt".to_string(),
+                canonical_path: Some("D:/round-fourteen/imports/bad.txt".to_string()),
+                name: "bad.txt".to_string(),
+                extension: Some("txt".to_string()),
+                size_bytes: Some(128),
+                modified_at: Some("2026-07-09T01:02:00Z".to_string()),
+                source_id: None,
+                descriptor_kind: "text".to_string(),
+                read_status: "ok".to_string(),
+                index_status: "partial".to_string(),
+                metadata_json: r#"{"round":14,"state":"partial"}"#.to_string(),
+                preview_text: None,
+                text_hash: None,
+                extracted_chars: Some(0),
+                total_chars: Some(128),
+                last_error: Some("invalid utf-8 sequence during import".to_string()),
+            },
+        )
+        .unwrap();
+        let missing = upsert_indexed_file(
+            &conn,
+            UpsertIndexedFileInput {
+                folder_id: folder.id.clone(),
+                path: "D:/round-fourteen/imports/missing.md".to_string(),
+                canonical_path: None,
+                name: "missing.md".to_string(),
+                extension: Some("md".to_string()),
+                size_bytes: None,
+                modified_at: None,
+                source_id: None,
+                descriptor_kind: "markdown".to_string(),
+                read_status: "missing".to_string(),
+                index_status: "stale".to_string(),
+                metadata_json: r#"{"round":14,"state":"missing"}"#.to_string(),
+                preview_text: None,
+                text_hash: None,
+                extracted_chars: None,
+                total_chars: None,
+                last_error: Some("file missing on last scan".to_string()),
+            },
+        )
+        .unwrap();
+
+        let before_counts = (
+            table_count(&conn, "indexed_folders"),
+            table_count(&conn, "indexed_files"),
+            table_count(&conn, "source_documents"),
+            table_count(&conn, "source_chunks"),
+        );
+        let ledger = load_import_diagnostics_ledger(
+            &conn,
+            ImportDiagnosticsInput {
+                folder_id: None,
+                statuses: None,
+                include_ok: None,
+                limit: Some(20),
+            },
+        )
+        .unwrap();
+        let after_counts = (
+            table_count(&conn, "indexed_folders"),
+            table_count(&conn, "indexed_files"),
+            table_count(&conn, "source_documents"),
+            table_count(&conn, "source_chunks"),
+        );
+
+        assert_eq!(before_counts, after_counts);
+        assert_eq!(ledger.folder_count, 1);
+        assert_eq!(ledger.item_count, 3);
+        assert_eq!(ledger.ok_count, 1);
+        assert_eq!(ledger.warning_count, 2);
+        assert_eq!(ledger.critical_count, 1);
+        let folder_summary = ledger.folders.first().unwrap();
+        assert_eq!(folder_summary.folder_id, folder.id);
+        assert_eq!(folder_summary.total_files, 4);
+        assert_eq!(folder_summary.metadata_only_count, 1);
+        assert_eq!(folder_summary.partial_count, 1);
+        assert_eq!(folder_summary.missing_count, 1);
+        assert_eq!(folder_summary.stale_count, 1);
+        assert_eq!(folder_summary.ok_count, 1);
+        assert_eq!(folder_summary.warning_count, 2);
+        assert_eq!(folder_summary.critical_count, 1);
+        assert!(!ledger.items.iter().any(|item| item.file_id == ok_file.id));
+
+        let missing_item = ledger
+            .items
+            .iter()
+            .find(|item| item.file_id == missing.id)
+            .unwrap();
+        assert_eq!(missing_item.severity, "critical");
+        assert_eq!(missing_item.issue_kind, "missing_or_stale_file");
+        assert_eq!(missing_item.command_name, "scan_indexed_folder");
+        assert!(missing_item.input_json.contains(&folder.id));
+
+        let metadata_item = ledger
+            .items
+            .iter()
+            .find(|item| item.file_id == metadata_only.id)
+            .unwrap();
+        assert_eq!(metadata_item.issue_kind, "metadata_only_file");
+        assert_eq!(metadata_item.command_name, "load_indexed_file_preview");
+        assert!(metadata_item.input_json.contains(&metadata_only.id));
+
+        let partial_item = ledger
+            .items
+            .iter()
+            .find(|item| item.file_id == partial.id)
+            .unwrap();
+        assert_eq!(partial_item.issue_kind, "partial_index");
+        assert!(partial_item.message.contains("invalid utf-8"));
+
+        let include_ok = load_import_diagnostics_ledger(
+            &conn,
+            ImportDiagnosticsInput {
+                folder_id: Some(folder.id.clone()),
+                statuses: None,
+                include_ok: Some(true),
+                limit: Some(20),
+            },
+        )
+        .unwrap();
+        assert_eq!(include_ok.item_count, 4);
+        assert!(include_ok
+            .items
+            .iter()
+            .any(|item| item.file_id == ok_file.id));
+
+        let critical_only = load_import_diagnostics_ledger(
+            &conn,
+            ImportDiagnosticsInput {
+                folder_id: None,
+                statuses: Some(vec!["critical".to_string()]),
+                include_ok: Some(true),
+                limit: Some(20),
+            },
+        )
+        .unwrap();
+        assert_eq!(critical_only.item_count, 1);
+        assert_eq!(critical_only.items[0].file_id, missing.id);
+
+        let automation = load_automation_suggestions(
+            &conn,
+            AutomationSuggestionInput {
+                categories: Some(vec!["import".to_string()]),
+                limit: Some(10),
+            },
+        )
+        .unwrap();
+        assert!(automation.items.iter().any(|item| {
+            item.category == "import"
+                && item.command_name == "load_import_diagnostics_ledger"
+                && item.target_id.as_deref() == Some(missing.id.as_str())
+                && item.input_json.contains("\"includeOk\":false")
+        }));
+
+        let manifest = list_command_palette_items(CommandPaletteInput {
+            query: Some("zotero joplin import ledger".to_string()),
+            category: Some("diagnostics".to_string()),
+            limit: Some(20),
+        });
+        assert!(manifest.items.iter().any(|item| {
+            item.command_name == "load_import_diagnostics_ledger"
+                && item.risk == "read_only"
+                && item.source_inspiration.contains("Round 14")
+        }));
+    }
+
+    #[test]
     fn search_assets_empty_query_returns_empty() {
         let conn = memory_db();
         let results = search_assets(
@@ -6166,6 +15908,644 @@ mod tests {
         assert!(results[0]
             .metadata_json
             .contains(r#""sourceKind":"indexed_folder""#));
+    }
+
+    #[test]
+    fn explain_search_ranking_breaks_down_scores_without_changing_search_order() {
+        let mut conn = memory_db();
+        insert_point(
+            &conn,
+            "round-fifteen-point",
+            "round-fifteen-ranking field match point content",
+            None,
+            "2026-07-09T01:00:00Z",
+        );
+        save_report(
+            &conn,
+            report_input(
+                "Round Fifteen Ranking Investigation",
+                "investigation",
+                "round-fifteen-ranking",
+            ),
+        )
+        .unwrap();
+        let source = upsert_source_document(
+            &conn,
+            "file",
+            "D:/round-fifteen/ranking.md",
+            Some("Round Fifteen Ranking Source"),
+            r#"{"round":15,"topic":"ranking explainability"}"#,
+        )
+        .unwrap();
+        replace_source_chunks(
+            &mut conn,
+            &source.id,
+            &["round-fifteen-ranking source text for diagnostics".to_string()],
+        )
+        .unwrap();
+        let folder = add_indexed_folder(&conn, "D:/round-fifteen").unwrap();
+        let indexed = upsert_indexed_file(
+            &conn,
+            UpsertIndexedFileInput {
+                folder_id: folder.id.clone(),
+                path: "D:/round-fifteen/ranking-notes.md".to_string(),
+                canonical_path: Some("D:/round-fifteen/ranking-notes.md".to_string()),
+                name: "ranking-notes.md".to_string(),
+                extension: Some("md".to_string()),
+                size_bytes: Some(512),
+                modified_at: Some("2026-07-09T01:02:00Z".to_string()),
+                source_id: Some(source.id.clone()),
+                descriptor_kind: "markdown".to_string(),
+                read_status: "ok".to_string(),
+                index_status: "indexed".to_string(),
+                metadata_json: r#"{"round":15,"language":"zh"}"#.to_string(),
+                preview_text: Some(
+                    "round-fifteen-ranking indexed preview about 机器学习 ranking".to_string(),
+                ),
+                text_hash: Some("fnv1a64:round-fifteen".to_string()),
+                extracted_chars: Some(70),
+                total_chars: Some(70),
+                last_error: None,
+            },
+        )
+        .unwrap();
+
+        let before_counts = (
+            table_count(&conn, "source_documents"),
+            table_count(&conn, "source_chunks"),
+            table_count(&conn, "points"),
+            table_count(&conn, "reports"),
+            table_count(&conn, "indexed_folders"),
+            table_count(&conn, "indexed_files"),
+        );
+        let raw_results = search_assets(
+            &conn,
+            SearchAssetsInput {
+                query: "round-fifteen-ranking".to_string(),
+                kinds: None,
+                filter: None,
+                limit: Some(20),
+            },
+        )
+        .unwrap();
+        let explanation = explain_search_ranking(
+            &conn,
+            SearchRankingExplanationInput {
+                query: "round-fifteen-ranking".to_string(),
+                kinds: None,
+                filter: None,
+                limit: Some(20),
+            },
+        )
+        .unwrap();
+        let after_counts = (
+            table_count(&conn, "source_documents"),
+            table_count(&conn, "source_chunks"),
+            table_count(&conn, "points"),
+            table_count(&conn, "reports"),
+            table_count(&conn, "indexed_folders"),
+            table_count(&conn, "indexed_files"),
+        );
+
+        assert_eq!(before_counts, after_counts);
+        assert_eq!(explanation.ranker, "search_assets_coarse_score_v1");
+        assert_eq!(explanation.result_count as usize, raw_results.len());
+        assert_eq!(
+            explanation.items.first().map(|item| item.id.as_str()),
+            raw_results.first().map(|item| item.id.as_str())
+        );
+        assert!(explanation
+            .query_terms
+            .contains(&"round-fifteen-ranking".to_string()));
+        assert!(explanation.query_terms.contains(&"fifteen".to_string()));
+        assert!(explanation.query_terms.contains(&"ranking".to_string()));
+
+        let point_explanation = explanation
+            .items
+            .iter()
+            .find(|item| item.kind == "point" && item.id == "round-fifteen-point")
+            .unwrap();
+        assert!(point_explanation
+            .matched_terms
+            .contains(&"round-fifteen-ranking".to_string()));
+        assert!(point_explanation
+            .matched_fields
+            .iter()
+            .any(|field| field == "snippet"));
+        assert!(point_explanation.components.iter().any(|component| {
+            component.name == "asset_kind_prior"
+                && component.used_for_ranking
+                && component.contribution > 0.0
+        }));
+        assert!(point_explanation
+            .components
+            .iter()
+            .any(|component| { component.name == "field_match" && !component.used_for_ranking }));
+
+        let indexed_explanation = explanation
+            .items
+            .iter()
+            .find(|item| item.kind == "indexed_file" && item.id == indexed.id)
+            .unwrap();
+        assert!(indexed_explanation
+            .components
+            .iter()
+            .any(|component| { component.name == "source_locator" && component.value > 0.0 }));
+        assert!(indexed_explanation
+            .components
+            .iter()
+            .any(|component| { component.name == "metadata_quality" && component.value > 0.0 }));
+
+        let cjk = explain_search_ranking(
+            &conn,
+            SearchRankingExplanationInput {
+                query: "机器学习".to_string(),
+                kinds: Some(vec!["indexed_file".to_string()]),
+                filter: None,
+                limit: Some(5),
+            },
+        )
+        .unwrap();
+        assert!(cjk.query_terms.contains(&"机器学习".to_string()));
+        assert!(cjk.items.iter().any(|item| {
+            item.id == indexed.id && item.matched_terms.contains(&"机器学习".to_string())
+        }));
+
+        let manifest = list_command_palette_items(CommandPaletteInput {
+            query: Some("marginalia score components".to_string()),
+            category: Some("search".to_string()),
+            limit: Some(20),
+        });
+        assert!(manifest.items.iter().any(|item| {
+            item.command_name == "explain_search_ranking"
+                && item.wrapper_name == "explainSearchRanking"
+                && item.source_inspiration.contains("Round 15")
+        }));
+    }
+
+    #[test]
+    fn block_reference_manifest_builds_point_chunk_cards_read_only() {
+        let mut conn = memory_db();
+        let source = upsert_source_document(
+            &conn,
+            "file",
+            "D:/round-sixteen/block-reference.md",
+            Some("Round Sixteen Block Reference Source"),
+            r#"{"round":16,"topic":"block references"}"#,
+        )
+        .unwrap();
+        replace_source_chunks(
+            &mut conn,
+            &source.id,
+            &[
+                "background chunk without the key phrase".to_string(),
+                "siyuan block reference source chunk with anchored evidence".to_string(),
+            ],
+        )
+        .unwrap();
+        insert_point(
+            &conn,
+            "round-sixteen-point",
+            "siyuan block reference point insight",
+            None,
+            "2026-07-10T01:00:00Z",
+        );
+        insert_point_source_link(
+            &conn,
+            "round-sixteen-point",
+            &source.id,
+            1,
+            Some("anchored evidence"),
+        )
+        .unwrap();
+        save_evidence(
+            &mut conn,
+            evidence_input(
+                "siyuan block reference evidence",
+                Some("round-sixteen-point"),
+                Some(&source.id),
+                "2026-07-10T01:05:00Z",
+            ),
+        )
+        .unwrap();
+
+        let before_counts = (
+            table_count(&conn, "source_documents"),
+            table_count(&conn, "source_chunks"),
+            table_count(&conn, "points"),
+            table_count(&conn, "point_source_links"),
+            table_count(&conn, "evidence_records"),
+            table_count(&conn, "evidence_sources"),
+        );
+        let manifest = build_block_reference_manifest(
+            &conn,
+            BlockReferenceInput {
+                kind: "point".to_string(),
+                id: "round-sixteen-point".to_string(),
+                query: Some("siyuan block reference".to_string()),
+                limit: Some(10),
+                include_related: Some(true),
+            },
+        )
+        .unwrap();
+        let after_counts = (
+            table_count(&conn, "source_documents"),
+            table_count(&conn, "source_chunks"),
+            table_count(&conn, "points"),
+            table_count(&conn, "point_source_links"),
+            table_count(&conn, "evidence_records"),
+            table_count(&conn, "evidence_sources"),
+        );
+
+        assert_eq!(before_counts, after_counts);
+        assert_eq!(manifest.root_kind, "point");
+        assert_eq!(manifest.root_id, "round-sixteen-point");
+        assert_eq!(manifest.root_title.as_deref(), Some("作者观点"));
+        assert!(manifest.source_inspiration.contains("Round 16"));
+        assert!(manifest.block_count >= 3);
+
+        let point_card = manifest
+            .cards
+            .iter()
+            .find(|card| card.block_kind == "point_card")
+            .unwrap();
+        assert_eq!(point_card.command_name, "get_point_source_context");
+        assert_eq!(point_card.wrapper_name, "getPointSourceContext");
+        assert!(point_card.matched_terms.contains(&"siyuan".to_string()));
+        assert!(point_card.matched_fields.iter().any(|field| field == "text"));
+        assert!(point_card.block_hash.starts_with("fnv1a64:"));
+
+        let chunk_card = manifest
+            .cards
+            .iter()
+            .find(|card| card.block_kind == "source_chunk")
+            .unwrap();
+        assert_eq!(chunk_card.asset_kind, "source");
+        assert_eq!(chunk_card.source_id.as_deref(), Some(source.id.as_str()));
+        assert_eq!(chunk_card.chunk_index, Some(1));
+        assert_eq!(chunk_card.command_name, "open_source_workspace");
+        assert!(chunk_card.input_json.contains("sourceId"));
+
+        assert!(manifest.cards.iter().any(|card| {
+            card.block_kind == "evidence_claim"
+                && card.command_name == "get_evidence"
+                && card.matched_terms.contains(&"reference".to_string())
+        }));
+
+        let missing = build_block_reference_manifest(
+            &conn,
+            BlockReferenceInput {
+                kind: "point".to_string(),
+                id: "missing-point".to_string(),
+                query: None,
+                limit: Some(5),
+                include_related: Some(true),
+            },
+        )
+        .unwrap();
+        assert_eq!(missing.block_count, 0);
+        assert!(missing
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("not found")));
+
+        let manifest_item = list_command_palette_items(CommandPaletteInput {
+            query: Some("siyuan block references".to_string()),
+            category: Some("references".to_string()),
+            limit: Some(20),
+        });
+        assert!(manifest_item.items.iter().any(|item| {
+            item.command_name == "build_block_reference_manifest"
+                && item.wrapper_name == "buildBlockReferenceManifest"
+                && item.source_inspiration.contains("Round 16")
+            }));
+    }
+
+    #[test]
+    fn board_snapshot_export_converts_block_refs_to_markdown_map_read_only() {
+        let mut conn = memory_db();
+        let source = upsert_source_document(
+            &conn,
+            "file",
+            "D:/round-seventeen/board-snapshot.md",
+            Some("Round Seventeen Board Source"),
+            r#"{"round":17,"topic":"board snapshot"}"#,
+        )
+        .unwrap();
+        replace_source_chunks(
+            &mut conn,
+            &source.id,
+            &[
+                "affine board snapshot background".to_string(),
+                "appflowy board snapshot source chunk for markdown map".to_string(),
+            ],
+        )
+        .unwrap();
+        insert_point(
+            &conn,
+            "round-seventeen-point",
+            "affine appflowy board snapshot point",
+            None,
+            "2026-07-10T02:00:00Z",
+        );
+        insert_point_source_link(
+            &conn,
+            "round-seventeen-point",
+            &source.id,
+            1,
+            Some("board snapshot source chunk"),
+        )
+        .unwrap();
+        save_evidence(
+            &mut conn,
+            evidence_input(
+                "affine board snapshot evidence",
+                Some("round-seventeen-point"),
+                Some(&source.id),
+                "2026-07-10T02:05:00Z",
+            ),
+        )
+        .unwrap();
+
+        let before_counts = (
+            table_count(&conn, "source_documents"),
+            table_count(&conn, "source_chunks"),
+            table_count(&conn, "points"),
+            table_count(&conn, "point_source_links"),
+            table_count(&conn, "evidence_records"),
+            table_count(&conn, "evidence_sources"),
+        );
+        let export = build_board_snapshot_export(
+            &conn,
+            BoardSnapshotInput {
+                kind: "point".to_string(),
+                id: "round-seventeen-point".to_string(),
+                query: Some("affine board snapshot".to_string()),
+                limit: Some(12),
+                include_related: Some(true),
+            },
+        )
+        .unwrap();
+        let after_counts = (
+            table_count(&conn, "source_documents"),
+            table_count(&conn, "source_chunks"),
+            table_count(&conn, "points"),
+            table_count(&conn, "point_source_links"),
+            table_count(&conn, "evidence_records"),
+            table_count(&conn, "evidence_sources"),
+        );
+
+        assert_eq!(before_counts, after_counts);
+        assert_eq!(export.root_kind, "point");
+        assert_eq!(export.root_id, "round-seventeen-point");
+        assert!(export.source_inspiration.contains("Round 17"));
+        assert!(export.node_count >= 3);
+        assert_eq!(export.edge_count, export.node_count.saturating_sub(1));
+        assert!(export.nodes.iter().any(|node| node.lane == "sources"));
+        assert!(export.nodes.iter().any(|node| node.lane == "claims"));
+        assert!(export.markdown.contains("```mermaid"));
+        assert!(export.markdown.contains("flowchart LR"));
+        assert!(export.markdown.contains("## Cards"));
+        assert!(export
+            .edges
+            .iter()
+            .all(|edge| edge.relation == "references"));
+
+        let manifest_item = list_command_palette_items(CommandPaletteInput {
+            query: Some("affine appflowy board snapshot".to_string()),
+            category: Some("board".to_string()),
+            limit: Some(20),
+        });
+        assert!(manifest_item.items.iter().any(|item| {
+            item.command_name == "build_board_snapshot_export"
+                && item.wrapper_name == "buildBoardSnapshotExport"
+                && item.source_inspiration.contains("Round 17")
+        }));
+    }
+
+    #[test]
+    fn investigation_qa_eval_scores_multi_document_reports_read_only() {
+        let mut conn = memory_db();
+        let source = upsert_source_document(
+            &conn,
+            "file",
+            "D:/round-nineteen/qa-source.md",
+            Some("Round Nineteen QA Source"),
+            r#"{"round":19,"topic":"qa eval"}"#,
+        )
+        .unwrap();
+        replace_source_chunks(
+            &mut conn,
+            &source.id,
+            &["alpha qa quote from source context".to_string()],
+        )
+        .unwrap();
+        insert_point(
+            &conn,
+            "round-nineteen-point",
+            "point qa quote from extracted insight",
+            None,
+            "2026-07-10T03:00:00Z",
+        );
+        insert_point_source_link(&conn, "round-nineteen-point", &source.id, 0, None).unwrap();
+
+        let citations_json = serde_json::to_string(&serde_json::json!([
+            {
+                "kind": "source",
+                "label": "S1",
+                "id": source.id,
+                "title": "Round Nineteen QA Source",
+                "quote": "alpha qa quote",
+                "sourceId": source.id,
+                "chunkIndex": 0
+            },
+            {
+                "kind": "point",
+                "label": "P1",
+                "id": "round-nineteen-point",
+                "title": "QA Point",
+                "quote": "point qa quote"
+            }
+        ]))
+        .unwrap();
+        let strong = save_report(
+            &conn,
+            SaveReportInput {
+                title: "Round Nineteen Multi Document QA".to_string(),
+                kind: "investigation".to_string(),
+                source_name: Some("Round 19".to_string()),
+                body_md: "# Round Nineteen Multi Document QA\n\nThe source says alpha qa quote [S1].\n\nThe point preserves point qa quote [P1].\n\nThe conclusion combines both cited contexts [S1][P1] for a multi-document answer.".to_string(),
+                summary: "QA investigation summary with enough detail for regression checks.".to_string(),
+                citations_json,
+            },
+        )
+        .unwrap();
+        replace_report_audit_rows(
+            &conn,
+            &strong.id,
+            extract_report_claims_for_report(&strong),
+            vec![
+                SaveReportCitationInput {
+                    citation_index: 0,
+                    target_kind: "source".to_string(),
+                    target_id: source.id.clone(),
+                    label: Some("S1".to_string()),
+                    title: Some("Round Nineteen QA Source".to_string()),
+                    quote: Some("alpha qa quote".to_string()),
+                    excerpt: None,
+                    reason: Some("source context".to_string()),
+                    source_id: Some(source.id.clone()),
+                    chunk_index: Some(0),
+                    source_text_hash: Some(stable_text_hash("alpha qa quote from source context")),
+                    span_start: Some(0),
+                    span_end: Some(14),
+                    locator_status: "located".to_string(),
+                    match_count: 1,
+                },
+                SaveReportCitationInput {
+                    citation_index: 1,
+                    target_kind: "point".to_string(),
+                    target_id: "round-nineteen-point".to_string(),
+                    label: Some("P1".to_string()),
+                    title: Some("QA Point".to_string()),
+                    quote: Some("point qa quote".to_string()),
+                    excerpt: None,
+                    reason: Some("point context".to_string()),
+                    source_id: None,
+                    chunk_index: None,
+                    source_text_hash: Some(stable_text_hash(
+                        "point qa quote from extracted insight",
+                    )),
+                    span_start: Some(0),
+                    span_end: Some(14),
+                    locator_status: "located".to_string(),
+                    match_count: 1,
+                },
+            ],
+        )
+        .unwrap();
+        save_report(
+            &conn,
+            SaveReportInput {
+                title: "Weak Investigation".to_string(),
+                kind: "investigation".to_string(),
+                source_name: Some("Round 19".to_string()),
+                body_md: "# Weak\n\nNo citations here.".to_string(),
+                summary: "short".to_string(),
+                citations_json: "[]".to_string(),
+            },
+        )
+        .unwrap();
+
+        let before_counts = (
+            table_count(&conn, "reports"),
+            table_count(&conn, "report_claims"),
+            table_count(&conn, "report_citations"),
+            table_count(&conn, "source_documents"),
+            table_count(&conn, "points"),
+        );
+        let eval = run_investigation_qa_eval(
+            &conn,
+            InvestigationQaEvalInput {
+                report_id: None,
+                limit: Some(10),
+            },
+        )
+        .unwrap();
+        let after_counts = (
+            table_count(&conn, "reports"),
+            table_count(&conn, "report_claims"),
+            table_count(&conn, "report_citations"),
+            table_count(&conn, "source_documents"),
+            table_count(&conn, "points"),
+        );
+
+        assert_eq!(before_counts, after_counts);
+        assert_eq!(eval.case_count, 2);
+        assert_eq!(eval.pass_count, 1);
+        assert_eq!(eval.fail_count, 1);
+        assert!(eval.average_score > 0.0);
+        assert!(eval.source_inspiration.contains("Round 19"));
+
+        let strong_case = eval
+            .cases
+            .iter()
+            .find(|case| case.report_id == strong.id)
+            .unwrap();
+        assert_eq!(strong_case.status, "pass");
+        assert_eq!(strong_case.unique_citation_targets, 2);
+        assert!(strong_case
+            .expected_citation_kinds
+            .contains(&"source".to_string()));
+        assert!(strong_case
+            .expected_citation_kinds
+            .contains(&"point".to_string()));
+        assert!(strong_case
+            .checks
+            .iter()
+            .any(|check| check.name == "multi_document_context" && check.status == "pass"));
+
+        let targeted = run_investigation_qa_eval(
+            &conn,
+            InvestigationQaEvalInput {
+                report_id: Some(strong.id.clone()),
+                limit: Some(10),
+            },
+        )
+        .unwrap();
+        assert_eq!(targeted.case_count, 1);
+        assert_eq!(targeted.pass_count, 1);
+
+        let manifest_item = list_command_palette_items(CommandPaletteInput {
+            query: Some("kotaemon multi document qa fixtures".to_string()),
+            category: Some("evaluations".to_string()),
+            limit: Some(20),
+        });
+        assert!(manifest_item.items.iter().any(|item| {
+            item.command_name == "run_investigation_qa_eval"
+                && item.wrapper_name == "runInvestigationQaEval"
+                && item.source_inspiration.contains("Round 19")
+        }));
+    }
+
+    #[test]
+    fn capability_scorecard_summarizes_all_refinement_rounds() {
+        let scorecard = build_capability_scorecard();
+
+        assert_eq!(scorecard.item_count, 20);
+        assert_eq!(scorecard.completed_count, 20);
+        assert!(scorecard.read_only_count >= 12);
+        assert!(scorecard.write_count >= 3);
+        assert!(scorecard.average_impact_score > 0.75);
+        assert!(scorecard.average_risk_score < 0.20);
+        assert!(scorecard
+            .recommendations
+            .iter()
+            .any(|item| item.contains("read-only diagnostics")));
+        assert!(scorecard.items.iter().any(|item| {
+            item.round == 19
+                && item
+                    .command_names
+                    .contains(&"run_investigation_qa_eval".to_string())
+        }));
+        assert!(scorecard.items.iter().any(|item| {
+            item.round == 20
+                && item
+                    .command_names
+                    .contains(&"build_capability_scorecard".to_string())
+                && item.source_inspiration.contains("Cross-project")
+        }));
+
+        let manifest_item = list_command_palette_items(CommandPaletteInput {
+            query: Some("round 20 capability scorecard roadmap".to_string()),
+            category: Some("system".to_string()),
+            limit: Some(20),
+        });
+        assert!(manifest_item.items.iter().any(|item| {
+            item.command_name == "build_capability_scorecard"
+                && item.wrapper_name == "buildCapabilityScorecard"
+                && item.source_inspiration.contains("Round 20")
+        }));
     }
 
     #[test]

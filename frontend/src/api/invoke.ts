@@ -64,6 +64,11 @@ function browserPreviewFallback<T extends TauriCommandName>(
     case 'search_workspace':
     case 'search_evidence':
     case 'search_assets':
+    case 'suggest_backlinks':
+    case 'list_saved_asset_searches':
+    case 'list_retrieval_profiles':
+    case 'list_quick_captures':
+    case 'list_report_starter_templates':
     case 'search_reports':
     case 'search_gallery':
     case 'list_suggestions_by_date':
@@ -93,8 +98,172 @@ function browserPreviewFallback<T extends TauriCommandName>(
     case 'load_report_citation_audit':
     case 'load_report_invocation_audit':
     case 'load_report_audit':
+    case 'preview_saved_asset_search':
+    case 'preview_retrieval_profile':
     case 'load_open_data_mirror_manifest':
       return null as TauriCommandResult<T>
+    case 'build_retrieval_context':
+      return {
+        query: '',
+        itemCount: 0,
+        totalChars: 0,
+        items: [],
+        warnings: ['Tauri runtime unavailable'],
+      } as TauriCommandResult<T>
+    case 'explain_search_ranking':
+      return {
+        query: '',
+        queryTerms: [],
+        ranker: 'search_assets_coarse_score_v1',
+        diagnosticModel: 'marginalia_score_components_diagnostic_v1',
+        resultCount: 0,
+        analyzedCount: 0,
+        maxScore: null,
+        minScore: null,
+        items: [],
+        warnings: ['Tauri runtime unavailable'],
+        generatedAt: new Date(0).toISOString(),
+      } as TauriCommandResult<T>
+    case 'build_block_reference_manifest':
+      return {
+        rootKind: 'source',
+        rootId: '',
+        rootTitle: null,
+        query: null,
+        blockCount: 0,
+        cards: [],
+        warnings: ['Tauri runtime unavailable'],
+        generatedAt: new Date(0).toISOString(),
+        sourceInspiration: 'SiYuan block-level references refined into Thepoint Round 16',
+      } as TauriCommandResult<T>
+    case 'build_board_snapshot_export':
+      return {
+        rootKind: 'source',
+        rootId: '',
+        title: '',
+        nodeCount: 0,
+        edgeCount: 0,
+        nodes: [],
+        edges: [],
+        markdown: '',
+        warnings: ['Tauri runtime unavailable'],
+        generatedAt: new Date(0).toISOString(),
+        sourceInspiration:
+          'AFFiNE canvas snapshots and AppFlowy board views refined into Thepoint Round 17',
+      } as TauriCommandResult<T>
+    case 'load_citation_quality_dashboard':
+      return {
+        generatedAt: new Date(0).toISOString(),
+        reportCount: 0,
+        auditedReportCount: 0,
+        totalClaims: 0,
+        citedClaims: 0,
+        inferredClaims: 0,
+        unsupportedClaims: 0,
+        totalCitations: 0,
+        locatedCitations: 0,
+        warningCitations: 0,
+        missingCitations: 0,
+        staleCitations: 0,
+        ambiguousCitations: 0,
+        notFoundCitations: 0,
+        targetMissingCitations: 0,
+        notApplicableCitations: 0,
+        coverageRatio: 0,
+        qualityScore: 0,
+        reports: [],
+        problemCitations: [],
+        warnings: ['Tauri runtime unavailable'],
+      } as TauriCommandResult<T>
+    case 'run_investigation_qa_eval':
+      return {
+        generatedAt: new Date(0).toISOString(),
+        caseCount: 0,
+        passCount: 0,
+        warningCount: 0,
+        failCount: 0,
+        averageScore: 0,
+        cases: [],
+        warnings: ['Tauri runtime unavailable'],
+        sourceInspiration:
+          'Kotaemon multi-document QA evaluation fixtures refined into Thepoint Round 19',
+      } as TauriCommandResult<T>
+    case 'list_command_palette_items':
+      return {
+        generatedAt: new Date(0).toISOString(),
+        itemCount: 0,
+        categories: [],
+        items: [],
+        warnings: ['Tauri runtime unavailable'],
+      } as TauriCommandResult<T>
+    case 'build_capability_scorecard':
+      return {
+        generatedAt: new Date(0).toISOString(),
+        itemCount: 0,
+        completedCount: 0,
+        readOnlyCount: 0,
+        writeCount: 0,
+        draftCount: 0,
+        modelCallCount: 0,
+        averageImpactScore: 0,
+        averageRiskScore: 0,
+        items: [],
+        recommendations: [],
+        sourceInspiration:
+          'Cross-project capability refinement scorecard for Thepoint Round 20',
+      } as TauriCommandResult<T>
+    case 'load_automation_suggestions':
+      return {
+        generatedAt: new Date(0).toISOString(),
+        itemCount: 0,
+        criticalCount: 0,
+        highCount: 0,
+        normalCount: 0,
+        lowCount: 0,
+        items: [],
+        warnings: ['Tauri runtime unavailable'],
+      } as TauriCommandResult<T>
+    case 'load_import_diagnostics_ledger':
+      return {
+        generatedAt: new Date(0).toISOString(),
+        itemCount: 0,
+        folderCount: 0,
+        okCount: 0,
+        warningCount: 0,
+        criticalCount: 0,
+        folders: [],
+        items: [],
+        warnings: ['Tauri runtime unavailable'],
+      } as TauriCommandResult<T>
+    case 'load_reprocess_queue':
+      return {
+        generatedAt: new Date(0).toISOString(),
+        itemCount: 0,
+        criticalCount: 0,
+        warningCount: 0,
+        items: [],
+        warnings: ['Tauri runtime unavailable'],
+      } as TauriCommandResult<T>
+    case 'detect_duplicate_assets':
+      return {
+        generatedAt: new Date(0).toISOString(),
+        groupCount: 0,
+        candidateCount: 0,
+        groups: [],
+        warnings: ['Tauri runtime unavailable'],
+      } as TauriCommandResult<T>
+    case 'build_graph_neighborhood_preview':
+      return {
+        generatedAt: new Date(0).toISOString(),
+        rootKind: 'source',
+        rootId: '',
+        depth: 0,
+        nodeCount: 0,
+        edgeCount: 0,
+        nodes: [],
+        edges: [],
+        warnings: ['Tauri runtime unavailable'],
+      } as TauriCommandResult<T>
     case 'get_open_data_mirror_config':
       return {
         enabled: false,
@@ -122,6 +291,24 @@ function browserPreviewFallback<T extends TauriCommandName>(
         stale: [],
         toPrune: [],
         errors: [],
+      } as TauriCommandResult<T>
+    case 'build_export_sync_audit':
+      return {
+        generatedAt: new Date(0).toISOString(),
+        status: 'needs_config',
+        rootPath: null,
+        manifestVersion: null,
+        currentAssetCount: 0,
+        manifestAssetCount: 0,
+        inSyncCount: 0,
+        pendingWriteCount: 0,
+        pendingOverwriteCount: 0,
+        pendingPruneCount: 0,
+        errorCount: 0,
+        items: [],
+        warnings: ['Tauri runtime unavailable'],
+        sourceInspiration:
+          'AppFlowy local-first workspace consistency checks refined into Thepoint Round 18',
       } as TauriCommandResult<T>
     case 'export_open_data_mirror':
       return {
