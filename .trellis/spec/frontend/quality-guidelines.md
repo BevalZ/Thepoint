@@ -64,6 +64,82 @@ Required coverage depends on the change:
 
 ---
 
+## Scenario: Capability Center Command Navigation Boundary
+
+### 1. Scope / Trigger
+
+- Trigger: exposing backend capability manifests through the global command palette or Capability Center.
+- Applies to: `App.tsx`, `components/CommandPalette.tsx`, `pages/CapabilityCenter.tsx`, and `lib/capabilityCenter.ts`.
+- Use this when adding a palette item, diagnostic panel, command category, or command-to-view route.
+
+### 2. Signatures
+
+```ts
+listCommandPaletteItems(input?: CommandPaletteInput): Promise<CommandPaletteManifest>
+
+capabilityTargetForCommand(
+  item: Pick<CommandPaletteItem, 'id' | 'commandName'>
+): CapabilityCenterTarget
+
+type CapabilityCenterView = 'overview' | 'diagnostics' | 'commands'
+```
+
+### 3. Contracts
+
+- `Ctrl/Cmd+K` opens a navigation-only palette backed by `listCommandPaletteItems`.
+- Selecting an item maps it through `capabilityTargetForCommand`, opens the Capability Center, and never invokes a command name dynamically.
+- `build_capability_scorecard` routes to overview; known read-only diagnostic wrappers route to their diagnostic panel; all other commands route to the descriptive catalog.
+- Commands that require input or have non-read-only risk remain descriptive. Show their input and risk metadata, but do not expose an execution action.
+- Capability Center diagnostics call only known typed wrappers from `src/api`; each request owns independent data, loading, and error state.
+- When palette navigation targets a catalog command, clear stale catalog query/category filters before scrolling the target into view.
+- Browser preview fallbacks return valid empty manifests and diagnostic records so empty states render without Tauri internals.
+
+### 4. Validation & Error Matrix
+
+| Condition | Behavior |
+|---|---|
+| Manifest load fails | Keep the palette open and show an explicit retry state |
+| Manifest is empty | Show a valid empty state and `0 / 0`, without throwing |
+| Diagnostic load fails | Show the error only in that diagnostic's state; other diagnostics remain usable |
+| Item has required input | Route to its catalog row and describe the required fields |
+| Item risk is not `read_only` | Route to its catalog row and state that the palette will not execute it |
+| Existing catalog filter excludes the selected item | Clear query/category filters, then focus and scroll the selected row |
+
+### 5. Good/Base/Bad Cases
+
+- Good: selecting `load_citation_quality_dashboard` opens the citation diagnostic, which loads through `loadCitationQualityDashboard()`.
+- Base: selecting an input-bound read command such as `search_assets` opens its catalog description without executing a search.
+- Base: browser preview renders zero-item scorecard, manifest, and diagnostics as explicit empty states.
+- Bad: constructing a generic payload and calling a selected `commandName` or `wrapperName` at runtime.
+- Bad: sharing one error flag across all diagnostics so one failed request blanks the whole page.
+
+### 6. Tests Required
+
+- `src/lib/capabilityCenter.test.ts`: scorecard/diagnostic/catalog routing, risk/input presentation, and metadata filtering while preserving manifest order.
+- `npm run typecheck`: target, manifest, and diagnostic DTOs stay aligned with typed API wrappers.
+- `npm run check:boundaries`: pages and components do not import raw Tauri `invoke` or the generic invoke helper.
+- `npm run test:run`: focused helper coverage and existing frontend regressions pass.
+- `npm run build`: the Capability Center remains a valid lazy-loaded production chunk.
+- Manual desktop E2E: at the configured minimum window size, verify `Ctrl/Cmd+K`, filtering, arrows, Enter, Escape, diagnostic routing, focused catalog routing, and refresh states.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```ts
+// Runtime command selection bypasses typed payload and risk boundaries.
+invokeCommand(item.commandName as TauriCommandName, dynamicPayload)
+```
+
+#### Correct
+
+```ts
+setCapabilityTarget(capabilityTargetForCommand(item))
+setPage('capabilities')
+```
+
+---
+
 ## Scenario: Knowledge Workbench Regression Tests
 
 ### 1. Scope / Trigger
