@@ -1,6 +1,6 @@
 # 技术架构设计 —— Deep Explorer
 
-> 更新：2026-06-03 | 技术栈：Tauri 2 + Rust + React
+> 更新：2026-07-11 | 技术栈：Tauri 2 + Rust + React
 
 ---
 
@@ -142,6 +142,14 @@ pub async fn extract_text(
 - 命令名、入参和返回值在 `commandMap.ts` 里集中维护，避免前后端契约散落
 
 ---
+
+## 当前实现基线（2026-07）
+
+系统以 Source 为知识入口：文档/网页/粘贴内容写入 `source_documents` 与 `source_chunks`，Point、Evidence、Report、Journal 和 Gallery 通过来源定位与引用审计形成知识工作台。前端所有 Tauri 调用统一经过 `frontend/src/api` 的 typed command boundary。
+
+语义检索位于 `src-tauri/src/semantic/`：默认使用 fastembed multilingual E5-small（384 维，`query:` / `passage:` 前缀），向量持久化到 SQLite 并在查询时执行精确余弦搜索。关键词与语义各取前 60，使用 RRF (`k=60`) 融合。Research Q&A 仅使用用户勾选的检索上下文，引用无效或证据不足时拒绝输出；成功回答沿用 Investigation report 和 invocation audit。
+
+应用仍是单进程桌面架构，不引入 Python sidecar、独立 HTTP 服务或云向量数据库。API 密钥写入操作系统凭据存储；SQLite schema 变更前创建并验证本地备份。
 
 ## 四、前端分层约束
 

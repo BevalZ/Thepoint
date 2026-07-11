@@ -94,6 +94,70 @@ Report kind:
 kind TEXT NOT NULL CHECK (kind IN ('digest', 'synthesis', 'investigation'))
 ```
 
+## Scenario: Semantic Chunk Index And Grounded Research Answers
+
+### 1. Scope / Trigger
+
+- Trigger: adding or changing embedding providers, `chunk_embeddings`, hybrid retrieval, Research Q&A citations, credential migration, or DB backup/restore.
+
+### 2. Signatures
+
+```rust
+rebuild_semantic_index(input: RebuildSemanticIndexInput) -> SemanticIndexStatus
+hybrid_semantic_search(input: HybridSearchInput) -> Vec<HybridSearchHit>
+generate_grounded_answer(input: GroundedAnswerInput) -> GroundedAnswerResult
+save_grounded_answer_report(input: SaveGroundedAnswerReportInput) -> ReportRecord
+```
+
+DB keys are `(chunk_id, model_key)`; vectors are normalized little-endian `f32` blobs with explicit dimension and SHA-256 `text_hash`.
+
+### 3. Contracts
+
+- V1 embeds `source_chunks` only. Missing rows are pending; hash mismatches are stale; old model rows remain but are ignored.
+- Local E5 uses `query:` and `passage:` prefixes and must return 384 dimensions. Keyword and semantic candidate limits are 60 and fuse with RRF `k=60`.
+- Final index counts must be recomputed from SQLite after a rebuild; batch counters are progress only.
+- A Source citation persists `id=source_id` plus `chunk_index`; never store a chunk row id as a citation whose `kind` is `source`.
+- Evidence-insufficient requests return `refused=true`, `invocationId=null`, and do not call the chat model.
+- Secret migration is write → read verify → delete plaintext. DB migration is integrity check → validated backup → schema change.
+
+### 4. Validation & Error Matrix
+
+| Condition | Behavior |
+|---|---|
+| Vector bytes/dimension mismatch | Reject row/query; do not score it |
+| Remote response count/dimensions mismatch | Return provider error |
+| Model answer has no valid `[S#]` or an unknown label | Reject answer |
+| No/short selected context | Refuse before chat request |
+| Credential write/read verification fails | Keep plaintext value |
+| Backup integrity check fails | Do not replace live DB |
+
+### 5. Good/Base/Bad Cases
+
+- Good: changed chunk hash becomes stale, is re-embedded, then final status is read from DB.
+- Base: keyword results still work with zero ready vectors.
+- Bad: infer final ready/failed totals only from the current rebuild batch.
+- Bad: save `{ kind: "source", id: chunk_id }` and break citation resolution.
+
+### 6. Tests Required
+
+- Vector round-trip/dimension, hash invalidation, normalization, RRF ordering/ties, refusal-before-model, citation label validation, remote response validation, and schema idempotence.
+- Cross-layer command parity plus frontend typecheck/boundary checks.
+- Manual desktop: download/index → search → select → answer → citation jump → save Investigation → restart.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+GroundedCitation { kind: "source".into(), id: hit.id, chunk_index: Some(hit.chunk_index), /* ... */ }
+```
+
+#### Correct
+
+```rust
+GroundedCitation { kind: "source".into(), id: hit.source_id, chunk_index: Some(hit.chunk_index), /* ... */ }
+```
+
 Durable tables:
 
 ```sql

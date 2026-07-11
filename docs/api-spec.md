@@ -1,10 +1,25 @@
 # Tauri Command 接口文档 —— Deep Explorer
 
-> 前端通过 `invoke(command, args)` 调用 | 更新：2026-06-03
+> 前端通过 `frontend/src/api` typed wrappers 调用 | 更新：2026-07-11
 
 所有 command 返回 `Promise<T>`，错误时 reject 一个 `string`。
 
 ---
+
+## Semantic Retrieval / Research Q&A
+
+| Command | Purpose |
+|---|---|
+| `get_semantic_index_status` | 返回模型、缓存和 ready/pending/stale/failed 计数 |
+| `rebuild_semantic_index` | 下载/加载 embedding 模型并可恢复地索引 Source chunks |
+| `cancel_semantic_index_rebuild` | 请求在批次边界取消索引任务 |
+| `hybrid_semantic_search` | 关键词 + exact cosine + RRF 的 Source/Chunk 结果 |
+| `generate_grounded_answer` | 仅基于选择的 hits 生成带 `[S#]` 引用的回答 |
+| `save_grounded_answer_report` | 保存 Investigation report 并链接 invocation audit |
+| `check_database_integrity` / `backup_database` / `restore_database_backup` | 本地数据库安全操作 |
+| `store_semantic_api_key` | 将远程 embedding key 写入 OS credential store |
+
+Rust 注册、TypeScript command map 和 API wrapper 名称由 `npm run check:commands` 强制保持一致。浏览器预览为只读状态类命令提供显式 unavailable/empty fallback，不会下载模型。
 
 ## 类型定义
 

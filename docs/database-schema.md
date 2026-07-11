@@ -1,8 +1,40 @@
 # 数据库表结构 —— Deep Explorer
 
-> SQLite + FTS5 | 更新：2026-06-03
+> SQLite (rusqlite) | 更新：2026-07-11
 
 ---
+
+## 当前 Source 与语义索引表
+
+`source_documents` 保存来源元数据，`source_chunks` 保存可定位正文块。语义 V1 只为 `source_chunks` 建索引：
+
+```sql
+CREATE TABLE semantic_index_meta (
+  model_key TEXT PRIMARY KEY,
+  provider_kind TEXT NOT NULL,
+  dimension INTEGER NOT NULL,
+  status TEXT NOT NULL,
+  last_error TEXT,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE chunk_embeddings (
+  chunk_id TEXT NOT NULL,
+  model_key TEXT NOT NULL,
+  source_id TEXT NOT NULL,
+  text_hash TEXT NOT NULL,
+  dimension INTEGER NOT NULL,
+  vector BLOB,
+  status TEXT NOT NULL,
+  error TEXT,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (chunk_id, model_key)
+);
+```
+
+向量编码为 little-endian `f32` blob。读取时必须验证 dimension 和文本 SHA-256；缺行是 pending，hash 变化是 stale，旧模型行保留但不会参与当前模型查询。`ai_invocations` 与 `investigation_context_items` 记录 grounded answer 的模型、prompt 版本、输入引用、实际上下文和输出报告链接。
+
+数据库使用 `PRAGMA user_version` 记录 schema 基线。首次应用语义 schema 前先运行 `integrity_check` 并创建 `*.pre-semantic-v1.db`；手动备份使用 `VACUUM INTO`，恢复前后都验证完整性。
 
 ## 表关系概览
 

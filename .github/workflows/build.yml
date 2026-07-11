@@ -17,8 +17,36 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  quality:
+    name: Quality gate
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v6
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+        working-directory: frontend
+      - name: Frontend quality
+        working-directory: frontend
+        run: npm run typecheck && npm run check:boundaries && npm run check:commands && npm run test:run && npm run build
+      - name: Rust tests
+        working-directory: src-tauri
+        run: cargo test
+
   build:
     name: Build ${{ matrix.platform.name }}
+    needs: quality
     runs-on: ${{ matrix.platform.os }}
     strategy:
       fail-fast: false

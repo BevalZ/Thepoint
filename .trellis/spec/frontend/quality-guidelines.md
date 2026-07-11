@@ -41,6 +41,63 @@ npm run test:run
 npm run build
 ```
 
+## Scenario: Research Q&A Typed Boundary
+
+### 1. Scope / Trigger
+
+- Trigger: Research page, semantic settings, index controls, hybrid hits, grounded answers, or DB safety UI.
+
+### 2. Signatures
+
+```ts
+hybridSemanticSearch(query, provider, sourceId, limit): Promise<HybridSearchHit[]>
+generateGroundedAnswer(query, hits): Promise<GroundedAnswerResult>
+saveGroundedAnswerReport(query, answer): Promise<ReportRecord>
+```
+
+### 3. Contracts
+
+- The UI exposes retrieved chunks before answer generation and sends only selected hits.
+- Provider metadata may use validated localStorage; API keys never do. Remote keys use the OS credential command.
+- Citation navigation passes `sourceId` and `chunkIndex` through the App-owned callback.
+- Browser preview returns explicit unavailable/empty/refusal records and never starts a model download.
+
+### 4. Validation & Error Matrix
+
+| Condition | Behavior |
+|---|---|
+| Empty query | Search button disabled |
+| Zero selected hits | Answer button disabled |
+| Backend refuses | Render warning; hide report-save action |
+| Invalid persisted provider JSON | Fall back to local provider |
+| Browser preview | Render unavailable index and empty results without throwing |
+
+### 5. Good/Base/Bad Cases
+
+- Good: user selects six chunks, sees match reasons, gets cited answer, and jumps to exact Source chunk.
+- Base: keyword-only results remain usable before local vectors exist.
+- Bad: persist remote API key in localStorage or construct command payloads inside the page.
+
+### 6. Tests Required
+
+- Provider settings parser rejects malformed values and strips API keys.
+- `npm run typecheck`, `check:boundaries`, `check:commands`, `test:run`, and `build`.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```ts
+localStorage.setItem('semantic', JSON.stringify({ ...provider, apiKey }))
+```
+
+#### Correct
+
+```ts
+saveEmbeddingProvider({ ...provider, apiKey: null })
+await storeSemanticApiKey(apiKey)
+```
+
 Required coverage depends on the change:
 
 - Type-only or UI wiring changes: at minimum `typecheck` and `check:boundaries`.
