@@ -119,6 +119,9 @@ DB keys are `(chunk_id, model_key)`; vectors are normalized little-endian `f32` 
 - A Source citation persists `id=source_id` plus `chunk_index`; never store a chunk row id as a citation whose `kind` is `source`.
 - Evidence-insufficient requests return `refused=true`, `invocationId=null`, and do not call the chat model.
 - Secret migration is write → read verify → delete plaintext. DB migration is integrity check → validated backup → schema change.
+- Local model cache readiness requires a complete model artifact and tokenizer; a non-empty/partial cache is not `modelCached=true`.
+- Only one semantic rebuild may run at a time. Every success, cancellation, provider error, join error, and early return must leave a non-cancellable terminal status.
+- Restore is validate candidate → create/validate safety copy → stage/validate candidate → swap → validate live; failed swaps recover the previous live DB.
 
 ### 4. Validation & Error Matrix
 
@@ -130,6 +133,9 @@ DB keys are `(chunk_id, model_key)`; vectors are normalized little-endian `f32` 
 | No/short selected context | Refuse before chat request |
 | Credential write/read verification fails | Keep plaintext value |
 | Backup integrity check fails | Do not replace live DB |
+| Second rebuild starts while active | Return a clear already-running error |
+| Cancel requested while idle | Return `false`; do not create a fake cancelled state |
+| Cache contains only partial download files | Report uncached and allow retry |
 
 ### 5. Good/Base/Bad Cases
 
@@ -141,6 +147,7 @@ DB keys are `(chunk_id, model_key)`; vectors are normalized little-endian `f32` 
 ### 6. Tests Required
 
 - Vector round-trip/dimension, hash invalidation, normalization, RRF ordering/ties, refusal-before-model, citation label validation, remote response validation, and schema idempotence.
+- Rebuild mutual exclusion/guard release, idle cancellation, partial-cache detection, source-scoped pending rows, failure retry/model isolation, and valid/invalid restore recovery.
 - Cross-layer command parity plus frontend typecheck/boundary checks.
 - Manual desktop: download/index → search → select → answer → citation jump → save Investigation → restart.
 
