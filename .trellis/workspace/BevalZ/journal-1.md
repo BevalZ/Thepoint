@@ -841,3 +841,38 @@ Completed capability refinement rounds 16-20, added read-only manifests, board s
 ### Next Steps
 
 - None - task complete
+
+
+## Session 25: Capability Center UI
+
+**Date**: 2026-07-11
+**Task**: Capability Center UI
+**Branch**: `main`
+
+### Summary
+
+Added the Capability Center, global navigation-only command palette, independent read-only diagnostics, focused routing helpers and tests, responsive desktop verification, and the frontend command-boundary specification.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `356d011` | (see git log) |
+| `639a0a7` | (see git log) |
+| `bcd6066` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
