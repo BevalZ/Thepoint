@@ -25,10 +25,38 @@ use super::{
 const PROMPT_VERSION: &str = "grounded-research-qa.v1";
 const MIN_CONTEXT_CHARS: usize = 80;
 static CANCEL_REBUILD: AtomicBool = AtomicBool::new(false);
+static REBUILD_ACTIVE: AtomicBool = AtomicBool::new(false);
 static LIVE_STATUS: OnceLock<Mutex<Option<SemanticIndexStatus>>> = OnceLock::new();
 
 fn live_status() -> &'static Mutex<Option<SemanticIndexStatus>> {
     LIVE_STATUS.get_or_init(|| Mutex::new(None))
+}
+
+struct RebuildGuard;
+
+impl RebuildGuard {
+    fn acquire() -> Result<Self> {
+        REBUILD_ACTIVE
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .map(|_| Self)
+            .map_err(|_| anyhow::anyhow!("semantic index rebuild is already running"))
+    }
+}
+
+impl Drop for RebuildGuard {
+    fn drop(&mut self) {
+        REBUILD_ACTIVE.store(false, Ordering::SeqCst);
+        if let Ok(mut live) = live_status().lock() {
+            if let Some(status) = live.as_mut().filter(|status| status.cancellable) {
+                status.phase = "failed".to_string();
+                status.cancellable = false;
+                status
+                    .last_error
+                    .get_or_insert_with(|| "semantic index rebuild aborted".to_string());
+                status.updated_at = Some(Utc::now().to_rfc3339());
+            }
+        }
+    }
 }
 
 fn cache_dir(app: &AppHandle<Wry>) -> Result<PathBuf> {
@@ -38,9 +66,41 @@ fn cache_dir(app: &AppHandle<Wry>) -> Result<PathBuf> {
 }
 
 fn model_cached(path: &Path) -> bool {
-    fs::read_dir(path)
-        .ok()
-        .is_some_and(|mut entries| entries.next().is_some())
+    fn contains_file(root: &Path, name: &str, minimum_bytes: u64) -> bool {
+        let Ok(entries) = fs::read_dir(root) else {
+            return false;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() && contains_file(&path, name, minimum_bytes) {
+                return true;
+            }
+            if path.file_name().and_then(|value| value.to_str()) == Some(name)
+                && entry
+                    .metadata()
+                    .map(|meta| meta.len() >= minimum_bytes)
+                    .unwrap_or(false)
+            {
+                return true;
+            }
+        }
+        false
+    }
+    contains_file(path, "model.onnx", 1_000_000) && contains_file(path, "tokenizer.json", 1_000)
+}
+
+fn embedding_error_message(error: &anyhow::Error) -> String {
+    let details = format!("{error:#}");
+    let normalized = details.to_ascii_lowercase();
+    if normalized.contains("connection refused")
+        || normalized.contains("timed out")
+        || normalized.contains("dns")
+        || normalized.contains("offline")
+    {
+        format!("无法访问 embedding 模型服务；请检查网络/代理后重试。详情：{details}")
+    } else {
+        details
+    }
 }
 
 #[tauri::command]
@@ -71,8 +131,12 @@ pub async fn get_semantic_index_status(
 
 #[tauri::command]
 pub fn cancel_semantic_index_rebuild() -> bool {
-    CANCEL_REBUILD.store(true, Ordering::SeqCst);
-    true
+    if REBUILD_ACTIVE.load(Ordering::SeqCst) {
+        CANCEL_REBUILD.store(true, Ordering::SeqCst);
+        true
+    } else {
+        false
+    }
 }
 
 #[tauri::command]
@@ -80,6 +144,7 @@ pub async fn rebuild_semantic_index(
     app: AppHandle<Wry>,
     input: RebuildSemanticIndexInput,
 ) -> Result<SemanticIndexStatus, String> {
+    let _guard = RebuildGuard::acquire().map_err(|e| e.to_string())?;
     CANCEL_REBUILD.store(false, Ordering::SeqCst);
     let model_key = input.provider.model_key();
     let path = db::db_path(&app).map_err(|e| e.to_string())?;
@@ -176,7 +241,7 @@ pub async fn rebuild_semantic_index(
                 progress.ready += batch_len;
             }
             Err(error) => {
-                let message = error.to_string();
+                let message = embedding_error_message(&error);
                 let path = path.clone();
                 let model_key = model_key.clone();
                 let batch = batch.to_vec();
@@ -522,6 +587,40 @@ fn backups_dir(app: &AppHandle<Wry>) -> Result<PathBuf> {
     Ok(path)
 }
 
+fn restore_database_files(path: &Path, backup: &Path, safety: &Path) -> Result<()> {
+    storage::validate_database(backup)
+        .context("backup validation failed; database was not changed")?;
+    if path.exists() {
+        fs::copy(path, safety).context("failed to create pre-restore safety copy")?;
+        storage::validate_database(safety).context("pre-restore safety copy failed validation")?;
+    }
+    let staged = path.with_extension(format!("restore-stage-{}.db", uuid::Uuid::new_v4()));
+    fs::copy(backup, &staged).context("failed to stage database backup")?;
+    storage::validate_database(&staged).context("staged database backup failed validation")?;
+    let previous = path.with_extension(format!("restore-old-{}.db", uuid::Uuid::new_v4()));
+    if path.exists() {
+        fs::rename(path, &previous).context("failed to move live database for replacement")?;
+    }
+    if let Err(error) = fs::rename(&staged, path) {
+        if previous.exists() {
+            let _ = fs::rename(&previous, path);
+        }
+        let _ = fs::remove_file(&staged);
+        return Err(error).context("failed to install validated database backup");
+    }
+    if let Err(error) = storage::validate_database(path) {
+        let _ = fs::remove_file(path);
+        if previous.exists() {
+            let _ = fs::rename(&previous, path);
+        }
+        return Err(error).context("restored database failed validation; live database recovered");
+    }
+    if previous.exists() {
+        fs::remove_file(previous).context("failed to remove restore swap file")?;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub async fn check_database_integrity(app: AppHandle<Wry>) -> Result<DatabaseSafetyStatus, String> {
     let path = db::db_path(&app).map_err(|e| e.to_string())?;
@@ -582,15 +681,11 @@ pub async fn restore_database_backup(
     let backup = PathBuf::from(backup_path);
     let backup_dir = backups_dir(&app).map_err(|e| e.to_string())?;
     tokio::task::spawn_blocking(move || -> Result<DatabaseSafetyStatus> {
-        storage::validate_database(&backup)
-            .context("backup validation failed; database was not changed")?;
         let safety = backup_dir.join(format!(
             "pre-restore-{}.db",
             Utc::now().format("%Y%m%d-%H%M%S")
         ));
-        fs::copy(&path, &safety)?;
-        storage::validate_database(&safety)?;
-        fs::copy(&backup, &path)?;
+        restore_database_files(&path, &backup, &safety)?;
         let integrity = storage::validate_database(&path)?;
         Ok(DatabaseSafetyStatus {
             database_path: path.display().to_string(),
@@ -671,5 +766,87 @@ mod tests {
         assert!(!has_sufficient_context("question", &[hit.clone()]));
         hit.text = "evidence ".repeat(20);
         assert!(has_sufficient_context("question", &[hit]));
+    }
+
+    #[test]
+    fn rebuild_guard_rejects_concurrent_work_and_releases_on_drop() {
+        let first = RebuildGuard::acquire().unwrap();
+        assert!(RebuildGuard::acquire().is_err());
+        drop(first);
+        assert!(RebuildGuard::acquire().is_ok());
+    }
+
+    #[test]
+    fn cancellation_reports_false_when_no_rebuild_is_active() {
+        REBUILD_ACTIVE.store(false, Ordering::SeqCst);
+        assert!(!cancel_semantic_index_rebuild());
+    }
+
+    #[test]
+    fn restore_rejects_invalid_backup_without_changing_live_database() {
+        let root =
+            std::env::temp_dir().join(format!("thepoint-restore-test-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let live = root.join("live.db");
+        let backup = root.join("bad.db");
+        let safety = root.join("safety.db");
+        let conn = rusqlite::Connection::open(&live).unwrap();
+        conn.execute_batch("CREATE TABLE marker(value TEXT); INSERT INTO marker VALUES ('live');")
+            .unwrap();
+        drop(conn);
+        fs::write(&backup, b"not sqlite").unwrap();
+        assert!(restore_database_files(&live, &backup, &safety).is_err());
+        let conn = rusqlite::Connection::open(&live).unwrap();
+        let marker: String = conn
+            .query_row("SELECT value FROM marker", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(marker, "live");
+        drop(conn);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn restore_installs_valid_backup_and_keeps_safety_copy() {
+        let root =
+            std::env::temp_dir().join(format!("thepoint-restore-test-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        let live = root.join("live.db");
+        let backup = root.join("backup.db");
+        let safety = root.join("safety.db");
+        for (path, value) in [(&live, "live"), (&backup, "backup")] {
+            let conn = rusqlite::Connection::open(path).unwrap();
+            conn.execute_batch(&format!(
+                "CREATE TABLE marker(value TEXT); INSERT INTO marker VALUES ('{value}');"
+            ))
+            .unwrap();
+        }
+        restore_database_files(&live, &backup, &safety).unwrap();
+        for (path, expected) in [(&live, "backup"), (&safety, "live")] {
+            let conn = rusqlite::Connection::open(path).unwrap();
+            let marker: String = conn
+                .query_row("SELECT value FROM marker", [], |row| row.get(0))
+                .unwrap();
+            assert_eq!(marker, expected);
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn incomplete_model_cache_is_not_reported_as_ready() {
+        let root =
+            std::env::temp_dir().join(format!("thepoint-cache-test-{}", uuid::Uuid::new_v4()));
+        fs::create_dir_all(&root).unwrap();
+        fs::write(root.join("model.onnx"), vec![0_u8; 32]).unwrap();
+        fs::write(root.join("tokenizer.json"), vec![0_u8; 2_000]).unwrap();
+        assert!(!model_cached(&root));
+        fs::write(root.join("model.onnx"), vec![0_u8; 1_000_000]).unwrap();
+        assert!(model_cached(&root));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn network_embedding_errors_are_actionable() {
+        let error = anyhow::anyhow!("request error: Connection refused");
+        assert!(embedding_error_message(&error).contains("检查网络/代理"));
     }
 }

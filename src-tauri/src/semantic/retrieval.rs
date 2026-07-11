@@ -170,4 +170,38 @@ mod tests {
     fn cosine_rejects_dimension_mismatch() {
         assert_eq!(cosine(&[1.0], &[1.0, 2.0]), None);
     }
+
+    fn hit_at_k(results: &[HybridSearchHit], expected: &str, k: usize) -> usize {
+        usize::from(results.iter().take(k).any(|hit| hit.id == expected))
+    }
+
+    #[test]
+    fn bilingual_fixture_preserves_keyword_baseline_and_improves_recall() {
+        // Deterministic stand-in for bilingual E5 behavior: semantic ranks recover
+        // cross-language matches while exact keyword ranks retain literal matches.
+        let fixtures = [
+            ("中文：可重复性危机", "reproducibility", "cross-language"),
+            ("English: causal inference", "causal", "literal"),
+            ("中文：蛋白质折叠", "protein-folding", "cross-language"),
+        ];
+        let mut keyword_hit_at_5 = 0;
+        let mut hybrid_hit_at_5 = 0;
+        for (query, expected, mode) in fixtures {
+            let keyword = if mode == "literal" {
+                vec![hit(expected), hit("distractor-a")]
+            } else {
+                vec![hit("distractor-a"), hit("distractor-b")]
+            };
+            keyword_hit_at_5 += hit_at_k(&keyword, expected, 5);
+            let semantic = if query.contains('中') {
+                vec![hit(expected), hit("distractor-c")]
+            } else {
+                vec![hit(expected)]
+            };
+            let fused = reciprocal_rank_fusion(keyword, semantic, 5);
+            hybrid_hit_at_5 += hit_at_k(&fused, expected, 5);
+        }
+        assert!(hybrid_hit_at_5 >= keyword_hit_at_5);
+        assert_eq!(hybrid_hit_at_5, fixtures.len());
+    }
 }

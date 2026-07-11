@@ -400,4 +400,40 @@ mod tests {
             1
         );
     }
+
+    #[test]
+    fn failures_retry_and_model_rows_remain_isolated() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE source_documents (id TEXT PRIMARY KEY, title TEXT, canonical_uri TEXT NOT NULL); CREATE TABLE source_chunks (id TEXT PRIMARY KEY, source_id TEXT NOT NULL, chunk_index INTEGER NOT NULL, heading_path TEXT, text TEXT NOT NULL);").unwrap();
+        init_schema(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO source_documents VALUES ('s1', 'Source', 'file://source')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO source_chunks VALUES ('c1', 's1', 0, NULL, 'alpha')",
+            [],
+        )
+        .unwrap();
+        let chunk = pending_chunks(&conn, "model-a", None).unwrap().remove(0);
+        save_embedding_failure(&conn, &chunk, "model-a", "offline").unwrap();
+        assert_eq!(index_status(&conn, "model-a").unwrap().failed, 1);
+        assert_eq!(pending_chunks(&conn, "model-a", None).unwrap().len(), 1);
+        save_embedding(&conn, &chunk, "model-a", &[1.0, 0.0]).unwrap();
+        assert_eq!(index_status(&conn, "model-a").unwrap().ready, 1);
+        assert_eq!(index_status(&conn, "model-a").unwrap().failed, 0);
+        assert_eq!(pending_chunks(&conn, "model-b", None).unwrap().len(), 1);
+        assert!(load_vectors(&conn, "model-b", None).unwrap().is_empty());
+    }
+
+    #[test]
+    fn pending_chunks_respect_source_scope() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE source_documents (id TEXT PRIMARY KEY, title TEXT, canonical_uri TEXT NOT NULL); CREATE TABLE source_chunks (id TEXT PRIMARY KEY, source_id TEXT NOT NULL, chunk_index INTEGER NOT NULL, heading_path TEXT, text TEXT NOT NULL); INSERT INTO source_documents VALUES ('s1','One','file://one'),('s2','Two','file://two'); INSERT INTO source_chunks VALUES ('c1','s1',0,NULL,'alpha'),('c2','s2',0,NULL,'beta');").unwrap();
+        init_schema(&conn).unwrap();
+        let scoped = pending_chunks(&conn, LOCAL_MODEL_KEY, Some("s2")).unwrap();
+        assert_eq!(scoped.len(), 1);
+        assert_eq!(scoped[0].source_id, "s2");
+    }
 }
