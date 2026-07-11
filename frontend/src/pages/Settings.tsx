@@ -4,9 +4,10 @@ import { Eye, EyeOff, Check, RefreshCw, X, MessageSquare, Settings2, Pencil, Typ
 import { motion, AnimatePresence } from 'framer-motion'
 import { useConfigStore, useThemeStore, UI_FONTS, CODE_FONTS } from '@/store'
 import type { ThemeMode, UiFontKey, CodeFontKey, FontSize } from '@/store'
-import { addIndexedFolder, buildOpenDataMirrorPlan, exportOpenDataMirror, fetchModels, getOpenDataMirrorConfig, importCommentatorFromSkill, listIndexedFilesForFolder, listIndexedFolders, loadIndexedFilePreview, loadOpenDataMirrorManifest, pruneOpenDataMirror, removeIndexedFolder, scanIndexedFolder, setOpenDataMirrorConfig } from '@/api'
+import { addIndexedFolder, backupDatabase, buildOpenDataMirrorPlan, checkDatabaseIntegrity, exportOpenDataMirror, fetchModels, getOpenDataMirrorConfig, getSemanticIndexStatus, importCommentatorFromSkill, listIndexedFilesForFolder, listIndexedFolders, loadIndexedFilePreview, loadOpenDataMirrorManifest, pruneOpenDataMirror, rebuildSemanticIndex, removeIndexedFolder, scanIndexedFolder, setOpenDataMirrorConfig, storeSemanticApiKey } from '@/api'
 import { cn } from '@/lib/utils'
-import type { CommentatorProfile, ConfigProfile, IndexedFile, IndexedFolder, IndexedFolderScanResult, MentalModel, MirrorExportResult, MirrorManifestCounts, MirrorPlanItem, OpenDataMirrorConfig, OpenDataMirrorManifest, OpenDataMirrorPlan, OpenDataMirrorPruneResult } from '@/api/types'
+import type { CommentatorProfile, ConfigProfile, DatabaseSafetyStatus, EmbeddingProviderConfig, IndexedFile, IndexedFolder, IndexedFolderScanResult, MentalModel, MirrorExportResult, MirrorManifestCounts, MirrorPlanItem, OpenDataMirrorConfig, OpenDataMirrorManifest, OpenDataMirrorPlan, OpenDataMirrorPruneResult, SemanticIndexStatus } from '@/api/types'
+import { loadEmbeddingProvider, saveEmbeddingProvider } from '@/lib/semanticSettings'
 
 const PROVIDERS = [
   { key: 'openai-compat', label: 'OpenAI compatible', baseUrl: 'https://api.openai.com', suffix: '/v1/chat/completions' },
@@ -577,6 +578,13 @@ export default function Settings() {
   const [indexedPreviewFile, setIndexedPreviewFile] = useState<IndexedFile | null>(null)
   const [indexedPreviewLoadingId, setIndexedPreviewLoadingId] = useState<string | null>(null)
   const [indexedError, setIndexedError] = useState<string | null>(null)
+  const [semanticProvider, setSemanticProvider] = useState<EmbeddingProviderConfig>(() => loadEmbeddingProvider())
+  const [semanticApiKey, setSemanticApiKey] = useState('')
+  const [semanticStatus, setSemanticStatus] = useState<SemanticIndexStatus | null>(null)
+  const [semanticBusy, setSemanticBusy] = useState(false)
+  const [databaseStatus, setDatabaseStatus] = useState<DatabaseSafetyStatus | null>(null)
+  const [databaseBusy, setDatabaseBusy] = useState(false)
+  const [safetyError, setSafetyError] = useState<string | null>(null)
 
   async function loadDataSettings() {
     setMirrorLoading(true)
@@ -584,12 +592,16 @@ export default function Settings() {
     setMirrorError(null)
     setIndexedError(null)
     try {
-      const [mirror, folders] = await Promise.all([
+      const [mirror, folders, semantic, database] = await Promise.all([
         getOpenDataMirrorConfig(),
         listIndexedFolders(),
+        getSemanticIndexStatus(semanticProvider),
+        checkDatabaseIntegrity(),
       ])
       setMirrorConfig(mirror)
       setIndexedFolders(folders)
+      setSemanticStatus(semantic)
+      setDatabaseStatus(database)
       setMirrorPlan(null)
       setMirrorResult(null)
       setMirrorPruneResult(null)
@@ -610,6 +622,26 @@ export default function Settings() {
       setMirrorLoading(false)
       setIndexedLoading(false)
     }
+  }
+
+  async function handleSaveSemanticSettings() {
+    setSemanticBusy(true); setSafetyError(null)
+    try {
+      saveEmbeddingProvider(semanticProvider)
+      if (semanticProvider.kind === 'remote' && semanticApiKey.trim()) await storeSemanticApiKey(semanticApiKey.trim())
+      setSemanticStatus(await getSemanticIndexStatus(semanticProvider))
+      setSemanticApiKey('')
+    } catch (error) { setSafetyError(settingsErrorMessage(error, '保存语义设置失败')) } finally { setSemanticBusy(false) }
+  }
+
+  async function handleRebuildSemanticIndex() {
+    setSemanticBusy(true); setSafetyError(null)
+    try { saveEmbeddingProvider(semanticProvider); setSemanticStatus(await rebuildSemanticIndex(semanticProvider)) } catch (error) { setSafetyError(settingsErrorMessage(error, '重建语义索引失败')) } finally { setSemanticBusy(false) }
+  }
+
+  async function handleBackupDatabase() {
+    setDatabaseBusy(true); setSafetyError(null)
+    try { setDatabaseStatus(await backupDatabase()) } catch (error) { setSafetyError(settingsErrorMessage(error, '数据库备份失败')) } finally { setDatabaseBusy(false) }
   }
 
   useEffect(() => {
@@ -1929,6 +1961,35 @@ export default function Settings() {
       {/* Data tab */}
       {topTab === 'data' && (
         <div className="space-y-6">
+          <div className="overflow-hidden rounded-2xl border border-border bg-bg">
+            <div className="border-b border-border bg-bg-elevated/50 px-5 py-3">
+              <p className="text-sm font-medium text-fg">语义检索</p>
+              <p className="mt-0.5 text-xs text-fg-faint">本地 multilingual E5-small 默认；也可使用 OpenAI-compatible embeddings。</p>
+            </div>
+            <div className="space-y-4 p-5">
+              <div className="flex gap-2">
+                {(['local', 'remote'] as const).map(kind => <button key={kind} type="button" onClick={() => setSemanticProvider(current => ({ ...current, kind }))} className={cn('rounded-lg border px-3 py-1.5 text-xs', semanticProvider.kind === kind ? 'border-accent bg-accent/10 text-accent' : 'border-border text-fg-muted')}>{kind === 'local' ? '本地模型' : '远程 Embeddings'}</button>)}
+              </div>
+              {semanticProvider.kind === 'remote' && <div className="grid gap-3 md:grid-cols-2">
+                <Field label="Embedding Base URL"><input value={semanticProvider.baseUrl ?? ''} onChange={event => setSemanticProvider(current => ({ ...current, baseUrl: event.target.value || null }))} placeholder="https://api.openai.com" className="w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm outline-none focus:border-accent" /></Field>
+                <Field label="Embedding Model"><input value={semanticProvider.model ?? ''} onChange={event => setSemanticProvider(current => ({ ...current, model: event.target.value || null }))} placeholder="text-embedding-3-small" className="w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm outline-none focus:border-accent" /></Field>
+                <Field label="API Key" hint="写入系统凭据存储，不写入普通配置"><SecretInput value={semanticApiKey} onChange={setSemanticApiKey} placeholder="留空则保留现有凭据" /></Field>
+              </div>}
+              <div className="rounded-xl border border-border bg-bg-elevated px-4 py-3 text-xs text-fg-muted">
+                <p>{semanticStatus?.modelKey ?? '尚未加载'} · {semanticStatus?.phase ?? 'unknown'}</p>
+                <p className="mt-1">就绪 {semanticStatus?.ready ?? 0} / 总计 {semanticStatus?.total ?? 0} · 待处理 {semanticStatus?.pending ?? 0} · 过期 {semanticStatus?.stale ?? 0} · 失败 {semanticStatus?.failed ?? 0}</p>
+                {semanticStatus?.lastError && <p className="mt-1 text-red-400">{semanticStatus.lastError}</p>}
+              </div>
+              <div className="flex gap-2"><button type="button" disabled={semanticBusy} onClick={() => void handleSaveSemanticSettings()} className="rounded-lg border border-border px-3 py-2 text-xs disabled:opacity-50">保存设置</button><button type="button" disabled={semanticBusy} onClick={() => void handleRebuildSemanticIndex()} className="flex items-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-xs font-medium text-white disabled:opacity-50"><RefreshCw size={12} className={cn(semanticBusy && 'animate-spin')} />{semanticProvider.kind === 'local' && !semanticStatus?.modelCached ? '下载模型并建索引' : '重建索引'}</button></div>
+            </div>
+          </div>
+
+          <div className="overflow-hidden rounded-2xl border border-border bg-bg">
+            <div className="border-b border-border bg-bg-elevated/50 px-5 py-3"><p className="text-sm font-medium text-fg">数据库安全</p><p className="mt-0.5 text-xs text-fg-faint">备份前后执行 SQLite integrity_check；恢复命令仅接受验证通过的备份。</p></div>
+            <div className="flex flex-wrap items-center gap-3 p-5 text-xs text-fg-muted"><span>完整性：{databaseStatus?.integrity ?? '未检查'}</span><span className="truncate">最近备份：{databaseStatus?.latestBackupPath ?? '无'}</span><button type="button" disabled={databaseBusy} onClick={() => void handleBackupDatabase()} className="ml-auto flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 disabled:opacity-50"><Database size={12} />{databaseBusy ? '处理中…' : '创建验证备份'}</button></div>
+          </div>
+          {safetyError && <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">{safetyError}</div>}
+
           <div className="overflow-hidden rounded-2xl border border-border bg-bg">
             <div className="border-b border-border bg-bg-elevated/50 px-5 py-3">
               <p className="text-sm font-medium text-fg">Open Data Mirror</p>

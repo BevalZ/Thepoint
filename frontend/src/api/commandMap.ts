@@ -36,6 +36,11 @@ import type {
   GalleryPromptPreview,
   GallerySourcePoint,
   GenerateSuggestionResult,
+  GroundedAnswerResult,
+  HybridSearchHit,
+  EmbeddingProviderConfig,
+  SemanticIndexStatus,
+  DatabaseSafetyStatus,
   GraphNeighborhoodInput,
   GraphNeighborhoodPreview,
   ImportDiagnosticsInput,
@@ -658,6 +663,50 @@ export interface TauriCommandMap {
   analyze_text_block: {
     args: { text: string; index: number }
     result: ChunkCard
+  }
+  get_semantic_index_status: {
+    args: { provider: EmbeddingProviderConfig | null }
+    result: SemanticIndexStatus
+  }
+  rebuild_semantic_index: {
+    args: { input: { provider: EmbeddingProviderConfig; sourceId: string | null } }
+    result: SemanticIndexStatus
+  }
+  cancel_semantic_index_rebuild: {
+    args: undefined
+    result: boolean
+  }
+  hybrid_semantic_search: {
+    args: { input: { query: string; sourceId: string | null; limit: number | null; provider: EmbeddingProviderConfig } }
+    result: HybridSearchHit[]
+  }
+  generate_grounded_answer: {
+    args: { input: { query: string; hits: HybridSearchHit[] } }
+    result: GroundedAnswerResult
+  }
+  save_grounded_answer_report: {
+    args: { input: { query: string; answer: GroundedAnswerResult } }
+    result: ReportRecord
+  }
+  check_database_integrity: {
+    args: undefined
+    result: DatabaseSafetyStatus
+  }
+  backup_database: {
+    args: undefined
+    result: DatabaseSafetyStatus
+  }
+  restore_database_backup: {
+    args: { backupPath: string }
+    result: DatabaseSafetyStatus
+  }
+  store_semantic_api_key: {
+    args: { apiKey: string }
+    result: void
+  }
+  semantic_api_key_status: {
+    args: undefined
+    result: boolean
   }
 }
 

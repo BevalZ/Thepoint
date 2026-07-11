@@ -71,10 +71,44 @@ function browserPreviewFallback<T extends TauriCommandName>(
     case 'list_report_starter_templates':
     case 'search_reports':
     case 'search_gallery':
+    case 'hybrid_semantic_search':
     case 'list_suggestions_by_date':
       return [] as TauriCommandResult<T>
     case 'get_starred_count':
       return 0 as TauriCommandResult<T>
+    case 'semantic_api_key_status':
+    case 'cancel_semantic_index_rebuild':
+      return false as TauriCommandResult<T>
+    case 'get_semantic_index_status':
+      return {
+        modelKey: 'fastembed:multilingual-e5-small',
+        phase: 'unavailable',
+        total: 0,
+        ready: 0,
+        pending: 0,
+        stale: 0,
+        failed: 0,
+        processed: 0,
+        cancellable: false,
+        modelCached: false,
+        lastError: '桌面运行时不可用',
+        updatedAt: null,
+      } as TauriCommandResult<T>
+    case 'generate_grounded_answer':
+      return {
+        content: '浏览器预览无法调用本地检索与聊天模型。',
+        citations: [],
+        invocationId: null,
+        refused: true,
+        warnings: ['桌面运行时不可用。'],
+      } as TauriCommandResult<T>
+    case 'check_database_integrity':
+      return {
+        databasePath: '',
+        integrity: 'unavailable',
+        latestBackupPath: null,
+        checkedAt: new Date(0).toISOString(),
+      } as TauriCommandResult<T>
     case 'get_analytics':
       return {
         totalPoints: 0,

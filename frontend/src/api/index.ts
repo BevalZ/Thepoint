@@ -38,6 +38,11 @@ import type {
   GalleryPromptPreview,
   GallerySourcePoint,
   GenerateSuggestionResult,
+  GroundedAnswerResult,
+  HybridSearchHit,
+  EmbeddingProviderConfig,
+  SemanticIndexStatus,
+  DatabaseSafetyStatus,
   GraphNeighborhoodInput,
   GraphNeighborhoodPreview,
   ImportDiagnosticsInput,
@@ -94,6 +99,39 @@ import type {
 import { invokeCommand } from './invoke'
 
 export const getConfig = () => invokeCommand('get_config')
+
+export const getSemanticIndexStatus = (
+  provider: EmbeddingProviderConfig | null = null
+): Promise<SemanticIndexStatus> => invokeCommand('get_semantic_index_status', { provider })
+
+export const rebuildSemanticIndex = (
+  provider: EmbeddingProviderConfig,
+  sourceId: string | null = null
+): Promise<SemanticIndexStatus> => invokeCommand('rebuild_semantic_index', { input: { provider, sourceId } })
+
+export const cancelSemanticIndexRebuild = () => invokeCommand('cancel_semantic_index_rebuild')
+
+export const hybridSemanticSearch = (
+  query: string,
+  provider: EmbeddingProviderConfig,
+  sourceId: string | null = null,
+  limit = 12
+): Promise<HybridSearchHit[]> => invokeCommand('hybrid_semantic_search', { input: { query, sourceId, limit, provider } })
+
+export const generateGroundedAnswer = (
+  query: string,
+  hits: HybridSearchHit[]
+): Promise<GroundedAnswerResult> => invokeCommand('generate_grounded_answer', { input: { query, hits } })
+
+export const saveGroundedAnswerReport = (query: string, answer: GroundedAnswerResult) =>
+  invokeCommand('save_grounded_answer_report', { input: { query, answer } })
+
+export const checkDatabaseIntegrity = (): Promise<DatabaseSafetyStatus> => invokeCommand('check_database_integrity')
+export const backupDatabase = (): Promise<DatabaseSafetyStatus> => invokeCommand('backup_database')
+export const restoreDatabaseBackup = (backupPath: string): Promise<DatabaseSafetyStatus> =>
+  invokeCommand('restore_database_backup', { backupPath })
+export const storeSemanticApiKey = (apiKey: string) => invokeCommand('store_semantic_api_key', { apiKey })
+export const semanticApiKeyStatus = () => invokeCommand('semantic_api_key_status')
 
 export const setConfig = (config: AppConfig) =>
   invokeCommand('set_config', { config })

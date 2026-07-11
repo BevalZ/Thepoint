@@ -1,7 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { AnimatePresence, motion, useReducedMotion, type Variants } from 'framer-motion'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { BarChart2, ChevronDown, Command, Compass, HelpCircle, Image, Settings as SettingsIcon, Library as LibraryIcon, Maximize2, Minus, Sparkles, X } from 'lucide-react'
+import { BarChart2, BookOpenCheck, ChevronDown, Command, Compass, HelpCircle, Image, Settings as SettingsIcon, Library as LibraryIcon, Maximize2, Minus, Sparkles, X } from 'lucide-react'
 import { CommandPalette } from '@/components/CommandPalette'
 import { StarRing } from '@/components/StarRing'
 import { StartupSplash } from '@/components/StartupSplash'
@@ -19,11 +19,13 @@ const Library = lazy(() => import('@/pages/Library'))
 const Analytics = lazy(() => import('@/pages/Analytics'))
 const Gallery = lazy(() => import('@/pages/Gallery'))
 const CapabilityCenter = lazy(() => import('@/pages/CapabilityCenter'))
+const Research = lazy(() => import('@/pages/Research'))
 
-type Page = 'explore' | 'library' | 'gallery' | 'analytics' | 'capabilities' | 'settings'
+type Page = 'explore' | 'research' | 'library' | 'gallery' | 'analytics' | 'capabilities' | 'settings'
 
 const NAV: { id: Page; label: string; icon: typeof Compass }[] = [
   { id: 'explore', label: '探索', icon: Compass },
+  { id: 'research', label: '研究问答', icon: BookOpenCheck },
   { id: 'library', label: '知识库', icon: LibraryIcon },
   { id: 'gallery', label: '画廊', icon: Image },
   { id: 'analytics', label: '统计', icon: BarChart2 },
@@ -215,6 +217,7 @@ export default function App() {
       )
     }
     if (page === 'gallery') return <Gallery />
+    if (page === 'research') return <Research onOpenSource={handleOpenSource} />
     if (page === 'analytics') return <Analytics />
     if (page === 'capabilities') return <CapabilityCenter target={capabilityTarget} />
     return <Explore sourceHighlight={sourceHighlight} onSourceHighlightConsumed={handleSourceHighlightConsumed} />

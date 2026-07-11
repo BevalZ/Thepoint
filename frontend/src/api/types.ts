@@ -1602,3 +1602,67 @@ export interface Suggestion {
   summary: string
   createdAt: string
 }
+
+export interface EmbeddingProviderConfig {
+  kind: 'local' | 'remote'
+  baseUrl: string | null
+  apiKey: string | null
+  model: string | null
+}
+
+export interface SemanticIndexStatus {
+  modelKey: string
+  phase: string
+  total: number
+  ready: number
+  pending: number
+  stale: number
+  failed: number
+  processed: number
+  cancellable: boolean
+  modelCached: boolean
+  lastError: string | null
+  updatedAt: string | null
+}
+
+export interface HybridSearchHit {
+  id: string
+  sourceId: string
+  sourceTitle: string
+  chunkIndex: number
+  headingPath: string | null
+  text: string
+  score: number
+  keywordRank: number | null
+  semanticRank: number | null
+  semanticScore: number | null
+  reason: string
+}
+
+export interface GroundedCitation {
+  kind: string
+  label: string
+  id: string
+  title: string
+  excerpt: string
+  sourceId: string | null
+  chunkIndex: number | null
+  url: string | null
+  quote: string | null
+  reason: string | null
+}
+
+export interface GroundedAnswerResult {
+  content: string
+  citations: GroundedCitation[]
+  invocationId: string | null
+  refused: boolean
+  warnings: string[]
+}
+
+export interface DatabaseSafetyStatus {
+  databasePath: string
+  integrity: string
+  latestBackupPath: string | null
+  checkedAt: string
+}
