@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 25
+- **Total Sessions**: 26
 - **Last Active**: 2026-07-11
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~878 | Active |
+| `journal-1.md` | ~913 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 26 | 2026-07-11 | Semantic retrieval and grounded research Q&A | `5cbf4e8`, `e2f9d48`, `cfe51eb` | `main` |
 | 25 | 2026-07-11 | Capability Center UI | `356d011`, `639a0a7`, `bcd6066` | `main` |
 | 24 | 2026-07-10 | 20-round capability refinement | `1e1eea2`, `235dcd5`, `c4f4dea` | `main` |
 | 23 | 2026-07-08 | Review queue planner v2 | `89a94b1`, `0983c83`, `8df24e6` | `main` |

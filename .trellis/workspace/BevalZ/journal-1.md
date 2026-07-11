@@ -876,3 +876,38 @@ Added the Capability Center, global navigation-only command palette, independent
 ### Next Steps
 
 - None - task complete
+
+
+## Session 26: Semantic retrieval and grounded research Q&A
+
+**Date**: 2026-07-11
+**Task**: Semantic retrieval and grounded research Q&A
+**Branch**: `main`
+
+### Summary
+
+Implemented local-first and OpenAI-compatible chunk embeddings, resumable SQLite semantic indexing, RRF hybrid retrieval, citation-grounded Research Q&A, Investigation audit/report persistence, OS credential migration, database safety commands, typed frontend workflow, CI parity checks, and updated architecture/spec documentation. All Rust and frontend quality gates passed.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5cbf4e8` | (see git log) |
+| `e2f9d48` | (see git log) |
+| `cfe51eb` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
