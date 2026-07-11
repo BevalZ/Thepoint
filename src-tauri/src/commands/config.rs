@@ -5,6 +5,20 @@ use tauri_plugin_store::StoreExt;
 
 use crate::ai::models::MentalModel;
 
+fn migrated_secret(store: &tauri_plugin_store::Store<Wry>, store_key: &str, account: &str) -> String {
+    if let Some(secret) = crate::semantic::commands::get_secret(account) {
+        return secret;
+    }
+    let plaintext = store.get(store_key)
+        .and_then(|value| value.as_str().map(String::from))
+        .unwrap_or_default();
+    if !plaintext.is_empty() && crate::semantic::commands::set_secret(account, &plaintext).is_ok() {
+        store.delete(store_key);
+        let _ = store.save();
+    }
+    plaintext
+}
+
 const STORE_FILE: &str = "config.json";
 const KEY_API: &str = "openai_api_key";
 const KEY_MODEL: &str = "openai_model";
@@ -259,9 +273,7 @@ pub fn get_config(app: tauri::AppHandle<Wry>) -> Result<AppConfig, String> {
         .unwrap_or_default();
 
     Ok(AppConfig {
-        openai_api_key: store.get(KEY_API)
-            .and_then(|v| v.as_str().map(String::from))
-            .unwrap_or_default(),
+        openai_api_key: migrated_secret(&store, KEY_API, "openai_api_key"),
         openai_model: store.get(KEY_MODEL)
             .and_then(|v| v.as_str().map(String::from))
             .unwrap_or_else(|| DEFAULT_MODEL.to_string()),
@@ -271,9 +283,7 @@ pub fn get_config(app: tauri::AppHandle<Wry>) -> Result<AppConfig, String> {
         image_base_url: store.get(KEY_IMAGE_BASE_URL)
             .and_then(|v| v.as_str().map(String::from))
             .unwrap_or_default(),
-        image_api_key: store.get(KEY_IMAGE_API_KEY)
-            .and_then(|v| v.as_str().map(String::from))
-            .unwrap_or_default(),
+        image_api_key: migrated_secret(&store, KEY_IMAGE_API_KEY, "image_api_key"),
         image_model: store.get(KEY_IMAGE_MODEL)
             .and_then(|v| v.as_str().map(String::from))
             .unwrap_or_default(),
@@ -304,9 +314,7 @@ pub fn get_config(app: tauri::AppHandle<Wry>) -> Result<AppConfig, String> {
         search_enabled: store.get(KEY_SEARCH_ENABLED)
             .and_then(|v| v.as_bool())
             .unwrap_or(false),
-        search_api_key: store.get(KEY_SEARCH_API_KEY)
-            .and_then(|v| v.as_str().map(String::from))
-            .unwrap_or_default(),
+        search_api_key: migrated_secret(&store, KEY_SEARCH_API_KEY, "search_api_key"),
         search_model: store.get(KEY_SEARCH_MODEL)
             .and_then(|v| v.as_str().map(String::from))
             .unwrap_or_default(),
@@ -348,11 +356,22 @@ pub fn get_config(app: tauri::AppHandle<Wry>) -> Result<AppConfig, String> {
 #[tauri::command]
 pub fn set_config(app: tauri::AppHandle<Wry>, config: AppConfig) -> Result<(), String> {
     let store = app.store(STORE_FILE).map_err(|e| e.to_string())?;
-    store.set(KEY_API, config.openai_api_key.as_str());
+    for (account, value) in [
+        ("openai_api_key", config.openai_api_key.as_str()),
+        ("image_api_key", config.image_api_key.as_str()),
+        ("search_api_key", config.search_api_key.as_str()),
+    ] {
+        if value.is_empty() {
+            crate::semantic::commands::delete_secret(account).map_err(|e| e.to_string())?;
+        } else {
+            crate::semantic::commands::set_secret(account, value).map_err(|e| e.to_string())?;
+        }
+    }
+    store.delete(KEY_API);
     store.set(KEY_MODEL, config.openai_model.as_str());
     store.set(KEY_BASE_URL, config.openai_base_url.as_str());
     store.set(KEY_IMAGE_BASE_URL, config.image_base_url.as_str());
-    store.set(KEY_IMAGE_API_KEY, config.image_api_key.as_str());
+    store.delete(KEY_IMAGE_API_KEY);
     store.set(KEY_IMAGE_MODEL, config.image_model.as_str());
     store.set(KEY_IMAGE_PROVIDER_KEY, config.image_provider_key.as_str());
     store.set(KEY_IMAGE_CUSTOM_ENDPOINT, config.image_custom_endpoint.as_str());
@@ -363,7 +382,7 @@ pub fn set_config(app: tauri::AppHandle<Wry>, config: AppConfig) -> Result<(), S
     store.set(KEY_CUSTOM_PROVIDER_NAME, config.custom_provider_name.as_str());
     store.set(KEY_EXTRA_HEADERS, config.extra_headers.as_str());
     store.set(KEY_SEARCH_ENABLED, config.search_enabled);
-    store.set(KEY_SEARCH_API_KEY, config.search_api_key.as_str());
+    store.delete(KEY_SEARCH_API_KEY);
     store.set(KEY_SEARCH_MODEL, config.search_model.as_str());
     store.set(KEY_SEARCH_BASE_URL, config.search_base_url.as_str());
     store.set(KEY_SEARCH_PROVIDER_KEY, config.search_provider_key.as_str());

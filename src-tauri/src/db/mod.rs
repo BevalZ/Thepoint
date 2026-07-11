@@ -1392,9 +1392,35 @@ pub fn db_path(app: &AppHandle<Wry>) -> Result<PathBuf> {
 
 /// Open a connection to the library DB and ensure the schema is up to date.
 pub fn open_db(path: &Path) -> Result<Connection> {
+    prepare_schema_migration_backup(path)?;
     let conn = Connection::open(path).context("failed to open library DB")?;
     init_db(&conn)?;
+    conn.pragma_update(None, "user_version", 1_i64)
+        .context("failed to record database schema version")?;
     Ok(conn)
+}
+
+fn prepare_schema_migration_backup(path: &Path) -> Result<()> {
+    if !path.exists() || fs::metadata(path).map(|meta| meta.len()).unwrap_or_default() == 0 {
+        return Ok(());
+    }
+    let conn = Connection::open(path).context("failed to inspect library DB before migration")?;
+    let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    let integrity: String = conn.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
+    drop(conn);
+    if integrity != "ok" {
+        anyhow::bail!("database integrity check failed before migration: {integrity}");
+    }
+    if version >= 1 {
+        return Ok(());
+    }
+    let backup = path.with_extension("pre-semantic-v1.db");
+    if !backup.exists() {
+        fs::copy(path, &backup).context("failed to create pre-migration database backup")?;
+        crate::semantic::storage::validate_database(&backup)
+            .context("pre-migration database backup failed validation")?;
+    }
+    Ok(())
 }
 
 /// Create / migrate the MVP schema (idempotent).
@@ -1416,6 +1442,8 @@ pub fn init_db(conn: &Connection) -> Result<()> {
         [],
     )
     .context("failed to create points table")?;
+
+    crate::semantic::storage::init_schema(conn)?;
 
     if !column_exists(conn, "points", "parent_id")? {
         conn.execute("ALTER TABLE points ADD COLUMN parent_id TEXT", [])

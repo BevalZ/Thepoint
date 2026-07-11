@@ -6,6 +6,7 @@ mod commands;
 mod db;
 mod parsers;
 mod search;
+mod semantic;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -143,6 +144,17 @@ pub fn run() {
             commands::suggestions::get_suggestion,
             commands::suggestions::delete_suggestion,
             commands::suggestions::list_marked_dates,
+            semantic::commands::get_semantic_index_status,
+            semantic::commands::rebuild_semantic_index,
+            semantic::commands::cancel_semantic_index_rebuild,
+            semantic::commands::hybrid_semantic_search,
+            semantic::commands::generate_grounded_answer,
+            semantic::commands::save_grounded_answer_report,
+            semantic::commands::check_database_integrity,
+            semantic::commands::backup_database,
+            semantic::commands::restore_database_backup,
+            semantic::commands::store_semantic_api_key,
+            semantic::commands::semantic_api_key_status,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
