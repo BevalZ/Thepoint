@@ -911,3 +911,37 @@ Implemented local-first and OpenAI-compatible chunk embeddings, resumable SQLite
 ### Next Steps
 
 - None - task complete
+
+
+## Session 27: Semantic retrieval release hardening
+
+**Date**: 2026-07-11
+**Task**: Semantic retrieval release hardening
+**Branch**: `main`
+
+### Summary
+
+Hardened semantic indexing with rebuild mutual exclusion, deterministic terminal states, actionable offline errors, complete-cache detection, strict remote response validation, bilingual Hit@5 coverage, source-scoped retry/model isolation tests, staged database restore with rollback, and a desktop release verification checklist. Automated quality gates passed; live local-model smoke was blocked by Hugging Face connection refusal.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e073227` | (see git log) |
+| `8c039cb` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
