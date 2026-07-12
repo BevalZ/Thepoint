@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 
 use anyhow::{Context, Result};
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
@@ -1392,6 +1393,11 @@ pub fn db_path(app: &AppHandle<Wry>) -> Result<PathBuf> {
 
 /// Open a connection to the library DB and ensure the schema is up to date.
 pub fn open_db(path: &Path) -> Result<Connection> {
+    static DB_INITIALIZATION_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    let _initialization_guard = DB_INITIALIZATION_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .map_err(|_| anyhow::anyhow!("database initialization lock was poisoned"))?;
     prepare_schema_migration_backup(path)?;
     let conn = Connection::open(path).context("failed to open library DB")?;
     init_db(&conn)?;
@@ -1401,18 +1407,23 @@ pub fn open_db(path: &Path) -> Result<Connection> {
 }
 
 fn prepare_schema_migration_backup(path: &Path) -> Result<()> {
-    if !path.exists() || fs::metadata(path).map(|meta| meta.len()).unwrap_or_default() == 0 {
+    if !path.exists()
+        || fs::metadata(path)
+            .map(|meta| meta.len())
+            .unwrap_or_default()
+            == 0
+    {
         return Ok(());
     }
     let conn = Connection::open(path).context("failed to inspect library DB before migration")?;
     let version: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
+    if version >= 1 {
+        return Ok(());
+    }
     let integrity: String = conn.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
     drop(conn);
     if integrity != "ok" {
         anyhow::bail!("database integrity check failed before migration: {integrity}");
-    }
-    if version >= 1 {
-        return Ok(());
     }
     let backup = path.with_extension("pre-semantic-v1.db");
     if !backup.exists() {
@@ -12277,6 +12288,87 @@ pub fn list_recent_suggestion_summaries(conn: &Connection, limit: u32) -> Result
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn temp_db_path(label: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("thepoint-{label}-{}.db", uuid::Uuid::new_v4()))
+    }
+
+    fn remove_test_db(path: &Path) {
+        let _ = fs::remove_file(path);
+        let _ = fs::remove_file(path.with_extension("pre-semantic-v1.db"));
+    }
+
+    #[test]
+    fn current_schema_skips_pre_migration_integrity_check() {
+        let path = temp_db_path("current-schema-skip");
+        let conn = Connection::open(&path).unwrap();
+        init_db(&conn).unwrap();
+        conn.pragma_update(None, "user_version", 1_i64).unwrap();
+        conn.execute(
+            "INSERT INTO points
+                (id, content, created_at, archived, starred)
+             VALUES ('point-1', 'fts integrity sentinel', '2026-07-12T00:00:00Z', 0, 0)",
+            [],
+        )
+        .unwrap();
+        conn.execute("DELETE FROM points_fts_data", []).unwrap();
+        let integrity: String = conn
+            .query_row("PRAGMA integrity_check", [], |row| row.get(0))
+            .unwrap();
+        assert_ne!(integrity, "ok");
+        drop(conn);
+
+        prepare_schema_migration_backup(&path).unwrap();
+        assert!(!path.with_extension("pre-semantic-v1.db").exists());
+        remove_test_db(&path);
+    }
+
+    #[test]
+    fn version_zero_database_still_gets_validated_backup() {
+        let path = temp_db_path("version-zero-backup");
+        let conn = Connection::open(&path).unwrap();
+        init_db(&conn).unwrap();
+        assert_eq!(
+            conn.pragma_query_value(None, "user_version", |row| row.get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        drop(conn);
+
+        prepare_schema_migration_backup(&path).unwrap();
+
+        let backup = path.with_extension("pre-semantic-v1.db");
+        assert!(backup.exists());
+        crate::semantic::storage::validate_database(&backup).unwrap();
+        remove_test_db(&path);
+    }
+
+    #[test]
+    fn concurrent_open_db_calls_initialize_without_lock_errors() {
+        let path = temp_db_path("concurrent-open");
+        open_db(&path).unwrap();
+
+        let path = std::sync::Arc::new(path);
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(8));
+        let handles = (0..8)
+            .map(|_| {
+                let path = std::sync::Arc::clone(&path);
+                let barrier = std::sync::Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    for _ in 0..10 {
+                        open_db(path.as_ref())?;
+                    }
+                    Ok::<(), anyhow::Error>(())
+                })
+            })
+            .collect::<Vec<_>>();
+
+        for handle in handles {
+            handle.join().unwrap().unwrap();
+        }
+        remove_test_db(path.as_ref());
+    }
 
     fn memory_db() -> Connection {
         let conn = Connection::open_in_memory().unwrap();
