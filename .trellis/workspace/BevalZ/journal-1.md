@@ -945,3 +945,37 @@ Hardened semantic indexing with rebuild mutual exclusion, deterministic terminal
 ### Next Steps
 
 - None - task complete
+
+
+## Session 28: Fix concurrent database migration lock
+
+**Date**: 2026-07-12
+**Task**: Fix concurrent database migration lock
+**Branch**: `main`
+
+### Summary
+
+Reordered migration-only integrity validation after user_version detection, serialized process-local database initialization, added current-schema/legacy-backup/concurrency regressions, documented the contract, and verified real Tauri startup plus backend/frontend quality gates.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `07877f6` | (see git log) |
+| `743c870` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
