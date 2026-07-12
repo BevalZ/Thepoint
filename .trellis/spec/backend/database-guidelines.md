@@ -53,6 +53,76 @@ There is no migrations directory or framework yet. Schema setup and incremental 
 
 If migration complexity outgrows this inline model, introduce a real migration strategy as a separate architecture change and update this spec before adding migration files.
 
+## Scenario: Concurrent Inline Schema Initialization
+
+### 1. Scope / Trigger
+
+- Trigger: changing `open_db`, `init_db`, `PRAGMA user_version`, pre-migration integrity validation, or migration backups.
+- Applies to process-local concurrent Tauri commands opening the same SQLite file during startup.
+
+### 2. Signatures
+
+```rust
+open_db(path: &Path) -> anyhow::Result<Connection>
+prepare_schema_migration_backup(path: &Path) -> anyhow::Result<()>
+```
+
+### 3. Contracts
+
+- `open_db` serializes the migration check, schema initialization, and `user_version` write with one process-local mutex.
+- `prepare_schema_migration_backup` reads `user_version` before any expensive integrity validation.
+- A database with `user_version >= 1` returns immediately and does not run migration-only `PRAGMA integrity_check` or create a backup.
+- A version-zero non-empty database follows `integrity_check -> copy backup -> validate backup -> schema change`.
+- The initialization mutex must convert poisoning into an `anyhow` error; production code must not `unwrap()` the lock.
+
+### 4. Validation & Error Matrix
+
+| Condition | Behavior |
+|---|---|
+| Missing or zero-byte DB file | Skip pre-migration validation; normal initialization creates the schema |
+| `user_version >= 1` | Skip migration integrity check and backup |
+| Version-zero integrity result is not `ok` | Return `database integrity check failed before migration`; do not migrate |
+| Backup copy or validation fails | Return an error; do not continue to schema changes |
+| Concurrent process-local `open_db` calls | Serialize initialization; all callers receive usable connections |
+| Initialization mutex is poisoned | Return `database initialization lock was poisoned` |
+
+### 5. Good/Base/Bad Cases
+
+- Good: eight startup commands call `open_db` concurrently against a current database and all succeed without FTS5 lock errors.
+- Base: the first launch against a new file initializes the schema and records version 1.
+- Good: a legacy version-zero database receives a validated `*.pre-semantic-v1.db` backup before migration.
+- Bad: every ordinary `open_db` runs full FTS integrity validation before checking whether migration is needed.
+- Bad: migration backup preparation is serialized but `init_db` and the version write remain outside the same critical section.
+
+### 6. Tests Required
+
+- Current-schema regression: corrupt an FTS shadow index, set `user_version = 1`, and assert migration preparation succeeds without creating a backup. This proves the migration-only integrity check was skipped.
+- Legacy migration regression: keep `user_version = 0`, run migration preparation, and assert the backup exists and passes `validate_database`.
+- Concurrency regression: synchronize multiple threads, repeatedly call `open_db` on the same file, and assert every thread succeeds without `database is locked`.
+- Full backend checks: `cargo check --manifest-path src-tauri/Cargo.toml` and `cargo test --manifest-path src-tauri/Cargo.toml`.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+prepare_schema_migration_backup(path)?;
+let conn = Connection::open(path)?;
+init_db(&conn)?;
+```
+
+when the helper runs `PRAGMA integrity_check` before reading or acting on `user_version`, and concurrent callers execute this sequence independently.
+
+#### Correct
+
+```rust
+let _guard = initialization_lock().lock().map_err(|_| anyhow!("lock poisoned"))?;
+prepare_schema_migration_backup(path)?; // returns early for current schemas
+let conn = Connection::open(path)?;
+init_db(&conn)?;
+conn.pragma_update(None, "user_version", 1_i64)?;
+```
+
 ---
 
 ## Naming Conventions
