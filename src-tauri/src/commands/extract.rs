@@ -122,19 +122,195 @@ fn parse_fact_check_content(content: &str, claim: &str, context: &str) -> FactCh
 #[tauri::command]
 pub async fn fetch_url(app: tauri::AppHandle<Wry>, url: String) -> Result<FetchedPage, String> {
     let config = crate::commands::config::get_config(app.clone())?;
-    let resp = reqwest::Client::builder()
+    let requested_url = reqwest::Url::parse(&url).map_err(|e| format!("无效网址: {e}"))?;
+    let client = reqwest::Client::builder()
         .user_agent("Mozilla/5.0 (compatible; DeepExplorer/1.0)")
         .build()
-        .map_err(|e| e.to_string())?
-        .get(&url)
+        .map_err(|e| e.to_string())?;
+    let (raw, content_base_url, public_url) = fetch_url_html(&client, &requested_url).await?;
+    let mut page = extract_page_content(&raw, &content_base_url);
+    page.url = public_url.to_string();
+    let mut page = clean_page_edges_with_ai(&config, page).await;
+    page.content_plan =
+        crate::content_chunking::plan_html(&page.html, &page.text, Some(public_url.as_str()));
+    Ok(page)
+}
+
+async fn fetch_url_html(
+    client: &reqwest::Client,
+    requested_url: &reqwest::Url,
+) -> Result<(String, reqwest::Url, reqwest::Url), String> {
+    match fetch_response_text(client, requested_url).await {
+        Ok((raw, final_url)) => return Ok((raw, final_url.clone(), final_url)),
+        Err(primary_error) => {
+            let mut fallback_errors = Vec::new();
+            for candidate in github_pages_fallback_candidates(requested_url) {
+                match fetch_github_pages_candidate(client, &candidate).await {
+                    Ok((raw, content_base_url)) => {
+                        return Ok((raw, content_base_url, requested_url.clone()));
+                    }
+                    Err(errors) => fallback_errors.extend(errors),
+                }
+            }
+            if fallback_errors.is_empty() {
+                Err(format!("请求失败: {primary_error}"))
+            } else {
+                Err(format!(
+                    "请求失败: {primary_error}; GitHub Pages 源文件回退失败: {}",
+                    fallback_errors.join("; ")
+                ))
+            }
+        }
+    }
+}
+
+async fn fetch_response_text(
+    client: &reqwest::Client,
+    url: &reqwest::Url,
+) -> Result<(String, reqwest::Url), String> {
+    let response = client
+        .get(url.clone())
         .send()
         .await
-        .map_err(|e| format!("请求失败: {e}"))?;
+        .map_err(|e| e.to_string())?;
+    let status = response.status();
+    let final_url = response.url().clone();
+    if !status.is_success() {
+        return Err(format!("{status} ({final_url})"));
+    }
+    let raw = response.text().await.map_err(|e| e.to_string())?;
+    Ok((raw, final_url))
+}
 
-    let final_url = resp.url().clone();
-    let raw = resp.text().await.map_err(|e| e.to_string())?;
-    let page = extract_page_content(&raw, &final_url);
-    Ok(clean_page_edges_with_ai(&config, page).await)
+#[derive(Clone, Debug)]
+struct GitHubPagesFallbackCandidate {
+    raw_url: reqwest::Url,
+    contents_url: reqwest::Url,
+}
+
+async fn fetch_github_pages_candidate(
+    client: &reqwest::Client,
+    candidate: &GitHubPagesFallbackCandidate,
+) -> Result<(String, reqwest::Url), Vec<String>> {
+    let raw_request = fetch_response_text(client, &candidate.raw_url);
+    let contents_request = fetch_github_contents_text(client, &candidate.contents_url);
+    tokio::pin!(raw_request, contents_request);
+
+    tokio::select! {
+        raw_result = &mut raw_request => match raw_result {
+            Ok((raw, final_url)) => Ok((raw, final_url)),
+            Err(raw_error) => match contents_request.await {
+                Ok(raw) => Ok((raw, candidate.raw_url.clone())),
+                Err(contents_error) => Err(vec![raw_error, contents_error]),
+            },
+        },
+        contents_result = &mut contents_request => match contents_result {
+            Ok(raw) => Ok((raw, candidate.raw_url.clone())),
+            Err(contents_error) => match raw_request.await {
+                Ok((raw, final_url)) => Ok((raw, final_url)),
+                Err(raw_error) => Err(vec![raw_error, contents_error]),
+            },
+        },
+    }
+}
+
+async fn fetch_github_contents_text(
+    client: &reqwest::Client,
+    url: &reqwest::Url,
+) -> Result<String, String> {
+    let response = client
+        .get(url.clone())
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await
+        .map_err(|error| format!("GitHub Contents API request failed: {error}"))?;
+    let status = response.status();
+    let final_url = response.url().clone();
+    let raw = response.text().await.map_err(|error| error.to_string())?;
+    if !status.is_success() {
+        return Err(format!(
+            "GitHub Contents API returned {status} ({final_url})"
+        ));
+    }
+    decode_github_contents_payload(&raw)
+        .map_err(|error| format!("GitHub Contents API payload invalid ({final_url}): {error}"))
+}
+
+fn decode_github_contents_payload(raw: &str) -> Result<String, String> {
+    #[derive(Deserialize)]
+    struct Payload {
+        #[serde(rename = "type")]
+        kind: String,
+        encoding: String,
+        content: Option<String>,
+    }
+
+    let payload: Payload = serde_json::from_str(raw).map_err(|error| error.to_string())?;
+    if payload.kind != "file" || payload.encoding != "base64" {
+        return Err(format!(
+            "expected a base64 file, got type={} encoding={}",
+            payload.kind, payload.encoding
+        ));
+    }
+    let encoded = payload
+        .content
+        .ok_or_else(|| "base64 content is missing".to_string())?
+        .chars()
+        .filter(|ch| !ch.is_whitespace())
+        .collect::<String>();
+    use base64::Engine as _;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(|error| error.to_string())?;
+    String::from_utf8(bytes).map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+fn github_pages_raw_candidates(url: &reqwest::Url) -> Vec<reqwest::Url> {
+    github_pages_fallback_candidates(url)
+        .into_iter()
+        .map(|candidate| candidate.raw_url)
+        .collect()
+}
+
+fn github_pages_fallback_candidates(url: &reqwest::Url) -> Vec<GitHubPagesFallbackCandidate> {
+    let Some(host) = url.host_str() else {
+        return Vec::new();
+    };
+    let Some(user) = host.strip_suffix(".github.io") else {
+        return Vec::new();
+    };
+    if user.is_empty()
+        || user.contains('.')
+        || !user
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || ch == '-')
+    {
+        return Vec::new();
+    }
+
+    let mut path = url.path().trim_start_matches('/').to_string();
+    if path.is_empty() || path.ends_with('/') {
+        path.push_str("index.html");
+    }
+    ["master", "main"]
+        .into_iter()
+        .filter_map(|branch| {
+            let raw_url = reqwest::Url::parse(&format!(
+                "https://raw.githubusercontent.com/{user}/{user}.github.io/{branch}/{path}"
+            ))
+            .ok()?;
+            let mut contents_url = reqwest::Url::parse(&format!(
+                "https://api.github.com/repos/{user}/{user}.github.io/contents/{path}"
+            ))
+            .ok()?;
+            contents_url.query_pairs_mut().append_pair("ref", branch);
+            Some(GitHubPagesFallbackCandidate {
+                raw_url,
+                contents_url,
+            })
+        })
+        .collect()
 }
 
 #[tauri::command]
@@ -1415,6 +1591,76 @@ pub async fn analyze_text_block(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn github_pages_fallback_maps_user_site_article_to_raw_index() {
+        let url =
+            reqwest::Url::parse("https://lilianweng.github.io/posts/2026-07-04-harness/").unwrap();
+        let candidates = github_pages_raw_candidates(&url);
+        assert_eq!(
+            candidates[0].as_str(),
+            "https://raw.githubusercontent.com/lilianweng/lilianweng.github.io/master/posts/2026-07-04-harness/index.html"
+        );
+        assert_eq!(
+            candidates[1].as_str(),
+            "https://raw.githubusercontent.com/lilianweng/lilianweng.github.io/main/posts/2026-07-04-harness/index.html"
+        );
+    }
+
+    #[test]
+    fn github_pages_fallback_rejects_non_user_site_hosts() {
+        for raw in [
+            "https://example.com/posts/story/",
+            "https://pages.github.com/",
+            "https://github.io/",
+            "https://evilgithub.io.example.com/",
+        ] {
+            let url = reqwest::Url::parse(raw).unwrap();
+            assert!(github_pages_raw_candidates(&url).is_empty(), "{raw}");
+        }
+    }
+
+    #[test]
+    fn github_pages_contents_fallback_maps_and_decodes_public_file() {
+        let url =
+            reqwest::Url::parse("https://lilianweng.github.io/posts/2026-07-04-harness/").unwrap();
+        let candidates = github_pages_fallback_candidates(&url);
+
+        assert_eq!(
+            candidates[0].contents_url.as_str(),
+            "https://api.github.com/repos/lilianweng/lilianweng.github.io/contents/posts/2026-07-04-harness/index.html?ref=master"
+        );
+        assert_eq!(
+            decode_github_contents_payload(
+                r#"{"type":"file","encoding":"base64","content":"PGh0bWw+SGVsbG88L2h0bWw+"}"#,
+            )
+            .unwrap(),
+            "<html>Hello</html>"
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "network smoke for the reported GitHub Pages article"]
+    async fn github_pages_fallback_fetches_reported_article() {
+        let requested =
+            reqwest::Url::parse("https://lilianweng.github.io/posts/2026-07-04-harness/").unwrap();
+        let client = reqwest::Client::builder()
+            .user_agent("Mozilla/5.0 (compatible; DeepExplorer/1.0)")
+            .build()
+            .unwrap();
+        let (raw, content_base, public_url) = fetch_url_html(&client, &requested).await.unwrap();
+        assert!(raw.len() > 100_000);
+        assert_eq!(content_base.host_str(), Some("raw.githubusercontent.com"));
+        assert_eq!(public_url, requested);
+
+        let page = extract_page_content(&raw, &content_base);
+        assert!(page.text.chars().count() > 10_000);
+        assert!(page
+            .title
+            .as_deref()
+            .unwrap_or_default()
+            .contains("Harness Engineering"));
+    }
 
     #[test]
     fn extract_page_content_deduplicates_images_by_normalized_src() {
