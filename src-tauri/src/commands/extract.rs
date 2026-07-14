@@ -7,6 +7,7 @@ use std::{
 use tauri::Wry;
 
 use crate::ai::{openai, ExtractedPoint};
+use crate::content_chunking::ContentPlan;
 use crate::db::SourceDocumentRecord;
 
 const EDGE_REVIEW_CHARS: usize = 220;
@@ -21,6 +22,7 @@ pub struct FetchedPage {
     pub author: Option<String>,
     pub published_at: Option<String>,
     pub reading_time: Option<String>,
+    pub content_plan: ContentPlan,
 }
 
 struct PagePart {
@@ -226,6 +228,7 @@ fn extract_page_content(raw: &str, base_url: &reqwest::Url) -> FetchedPage {
                     author,
                     published_at,
                     reading_time,
+                    content_plan: ContentPlan::default(),
                 };
             }
         };
@@ -324,14 +327,22 @@ fn extract_page_content(raw: &str, base_url: &reqwest::Url) -> FetchedPage {
 
     apply_deterministic_edge_trim(&mut parts, &mut text_lines);
 
+    let html = parts.into_iter().map(|part| part.html).collect::<Vec<_>>().join("\n");
+    let text = text_lines.join("\n");
+    let content_plan = crate::content_chunking::plan_html(
+        &html,
+        &text,
+        Some(base_url.as_str()),
+    );
     FetchedPage {
-        html: parts.into_iter().map(|part| part.html).collect::<Vec<_>>().join("\n"),
-        text: text_lines.join("\n"),
+        html,
+        text,
         title,
         url: base_url.to_string(),
         author,
         published_at,
         reading_time,
+        content_plan,
     }
 }
 
@@ -432,6 +443,11 @@ fn trim_fetched_page_edges(mut page: FetchedPage, trim: EdgeTrim) -> FetchedPage
     apply_edge_trim(&mut parts, &mut text_lines, trim);
     page.html = parts.into_iter().map(|part| part.html).collect::<Vec<_>>().join("\n");
     page.text = text_lines.join("\n");
+    page.content_plan = crate::content_chunking::plan_html(
+        &page.html,
+        &page.text,
+        Some(&page.url),
+    );
     page
 }
 
@@ -1271,6 +1287,23 @@ pub async fn parse_document(file_path: String) -> Result<String, String> {
         .map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+pub async fn plan_content(
+    text: String,
+    html: Option<String>,
+    source_scope: Option<String>,
+) -> Result<ContentPlan, String> {
+    tokio::task::spawn_blocking(move || {
+        let scope = source_scope.as_deref();
+        match html.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+            Some(html) => crate::content_chunking::plan_html(html, &text, scope),
+            None => crate::content_chunking::plan_text(&text, scope),
+        }
+    })
+    .await
+    .map_err(|error| error.to_string())
+}
+
 /// Extract points from raw text via the configured OpenAI model.
 #[tauri::command]
 pub async fn extract_text(
@@ -1295,25 +1328,21 @@ pub async fn analyze_text_streaming(
     app: tauri::AppHandle<Wry>,
     text: String,
     source_id: Option<String>,
+    content_plan: Option<ContentPlan>,
 ) -> Result<(), String> {
     use tauri::Emitter;
     let config = crate::commands::config::get_config(app.clone())?;
-    let chunks = openai::split_chunks(
-        &config.openai_api_key,
-        &config.openai_model,
-        &config.openai_base_url,
-        &config.extra_headers,
-        &text,
-    )
-    .await
-    .map_err(|e| e.to_string())?;
+    let content_plan = content_plan
+        .filter(|plan| !plan.chunks.is_empty())
+        .unwrap_or_else(|| crate::content_chunking::plan_text(&text, source_id.as_deref()));
+    let chunks = content_plan.chunks;
 
-    if let Some(source_id) = source_id {
+    if let Some(source_id) = source_id.clone() {
         let path = crate::db::db_path(&app).map_err(|e| e.to_string())?;
-        let chunk_texts = chunks.clone();
+        let persisted_chunks = chunks.clone();
         tokio::task::spawn_blocking(move || {
             let mut conn = crate::db::open_db(&path)?;
-            crate::db::replace_source_chunks(&mut conn, &source_id, &chunk_texts)
+            crate::db::replace_source_canonical_chunks(&mut conn, &source_id, &persisted_chunks)
         })
         .await
         .map_err(|e| e.to_string())?
@@ -1321,7 +1350,11 @@ pub async fn analyze_text_streaming(
     }
 
     let mut handles = Vec::new();
-    for (index, chunk) in chunks.into_iter().enumerate() {
+    let semaphore = std::sync::Arc::new(tokio::sync::Semaphore::new(4));
+    for chunk in chunks
+        .into_iter()
+        .filter(|chunk| openai::is_valuable_text_block(&chunk.text))
+    {
         let (api_key, model, base_url, headers, name, style, emoji, profiles) = (
             config.openai_api_key.clone(),
             config.openai_model.clone(),
@@ -1333,12 +1366,16 @@ pub async fn analyze_text_streaming(
             config.commentator_profiles.clone(),
         );
         let app = app.clone();
+        let semaphore = semaphore.clone();
         handles.push(tokio::spawn(async move {
+            let Ok(_permit) = semaphore.acquire_owned().await else {
+                return;
+            };
             if let Ok(mut card) =
-                openai::analyze_chunk(&api_key, &model, &base_url, &headers, &chunk, &name, &style, &emoji, &profiles)
+                openai::analyze_chunk(&api_key, &model, &base_url, &headers, &chunk.text, &name, &style, &emoji, &profiles)
                     .await
             {
-                card.index = index;
+                card.index = chunk.index;
                 let _ = app.emit("chunk_card", &card);
             }
         }));
@@ -1507,6 +1544,7 @@ mod tests {
             author: None,
             published_at: None,
             reading_time: None,
+            content_plan: ContentPlan::default(),
         };
 
         let cleaned = trim_fetched_page_edges(page, EdgeTrim { head: 1, tail: 1 });

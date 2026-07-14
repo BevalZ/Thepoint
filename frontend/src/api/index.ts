@@ -17,6 +17,7 @@ import type {
   CitationLocatorInput,
   CitationLocatorResult,
   ChunkCard,
+  ContentPlan,
   CommentatorProfile,
   CommandPaletteInput,
   CommandPaletteManifest,
@@ -523,6 +524,16 @@ export const setProfiles = (profiles: ConfigProfile[]) =>
 export const fetchUrl = (url: string) =>
   invokeCommand('fetch_url', { url })
 
+export const planContent = (
+  text: string,
+  html?: string | null,
+  sourceScope?: string | null
+) => invokeCommand('plan_content', {
+  text,
+  html: html ?? null,
+  sourceScope: sourceScope ?? null,
+})
+
 export const describeImage = (imageUrl: string) =>
   invokeCommand('describe_image', { imageUrl })
 
@@ -568,8 +579,15 @@ export const unstarPoint = (pointId: string) => invokeCommand('unstar_point', { 
 export const getStarredCount = () => invokeCommand('get_starred_count')
 export const listStarredPoints = () => invokeCommand('list_starred_points')
 
-export const analyzeTextStreaming = (text: string, sourceId?: string | null) =>
-  invokeCommand('analyze_text_streaming', { text, sourceId: sourceId ?? null })
+export const analyzeTextStreaming = (
+  text: string,
+  sourceId?: string | null,
+  contentPlan?: ContentPlan | null
+) => invokeCommand('analyze_text_streaming', {
+  text,
+  sourceId: sourceId ?? null,
+  contentPlan: contentPlan ?? null,
+})
 
 export const analyzeTextBlock = (text: string, index: number) =>
   invokeCommand('analyze_text_block', { text, index })

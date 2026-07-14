@@ -2092,6 +2092,36 @@ pub fn replace_source_chunks(
     Ok(())
 }
 
+pub fn replace_source_canonical_chunks(
+    conn: &mut Connection,
+    source_id: &str,
+    chunks: &[crate::content_chunking::CanonicalChunk],
+) -> Result<()> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let tx = conn.transaction()?;
+    tx.execute(
+        "DELETE FROM source_chunks WHERE source_id = ?1",
+        params![source_id],
+    )?;
+    for chunk in chunks {
+        let heading_path = (!chunk.heading_path.is_empty()).then(|| chunk.heading_path.join(" > "));
+        tx.execute(
+            "INSERT INTO source_chunks (id, source_id, chunk_index, heading_path, text, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                chunk.id,
+                source_id,
+                chunk.index as i64,
+                heading_path,
+                chunk.text,
+                now
+            ],
+        )?;
+    }
+    tx.commit()?;
+    Ok(())
+}
+
 pub fn insert_point_source_link(
     conn: &Connection,
     point_id: &str,

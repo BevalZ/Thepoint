@@ -15,6 +15,7 @@ import type {
   BuildReportStarterInput,
   CapabilityScorecard,
   ChunkCard,
+  ContentPlan,
   CitationQualityDashboard,
   CitationLocatorInput,
   CitationLocatorResult,
@@ -29,6 +30,7 @@ import type {
   ExportSyncAuditReport,
   FactCheckResult,
   FileMetadata,
+  FetchedPage,
   FrameworkRecommendation,
   GalleryFileDiagnostic,
   GalleryItem,
@@ -567,15 +569,11 @@ export interface TauriCommandMap {
   }
   fetch_url: {
     args: { url: string }
-    result: {
-      html: string
-      text: string
-      title: string | null
-      url: string
-      author: string | null
-      publishedAt: string | null
-      readingTime: string | null
-    }
+    result: FetchedPage
+  }
+  plan_content: {
+    args: { text: string; html: string | null; sourceScope: string | null }
+    result: ContentPlan
   }
   describe_image: {
     args: { imageUrl: string }
@@ -657,7 +655,7 @@ export interface TauriCommandMap {
     result: StoredPoint[]
   }
   analyze_text_streaming: {
-    args: { text: string; sourceId: string | null }
+    args: { text: string; sourceId: string | null; contentPlan: ContentPlan | null }
     result: void
   }
   analyze_text_block: {

@@ -3,6 +3,7 @@
 
 mod ai;
 mod commands;
+mod content_chunking;
 mod db;
 mod parsers;
 mod search;
@@ -20,6 +21,7 @@ pub fn run() {
             commands::config::import_commentator_from_skill,
             commands::config::get_profiles,
             commands::config::set_profiles,
+            commands::extract::plan_content,
             commands::extract::parse_document,
             commands::extract::get_file_metadata,
             commands::extract::upsert_source_document,

@@ -53,15 +53,19 @@ const CHUNK_EXTRACT_SYSTEM: &str = "你是一个观点提取助手。请从给�
 同时为每个 point 提取 anchor：原文中对应的那句话或短语（15-80字，尽量精确，不要改写）。\
 只返回 JSON 对象，格式为 {\"points\": [{\"content\": \"...\", \"tagType\": \"...\", \"anchor\": \"...\"}]}，不要包含其他文字。";
 
+#[cfg(test)]
 const LOCAL_BLOCK_SOFT_MIN_CHARS: usize = 120;
 const LOCAL_BLOCK_MIN_CHARS: usize = 200;
+#[cfg(test)]
 const LOCAL_BLOCK_MAX_CHARS: usize = 400;
+#[cfg(test)]
 const LOCAL_HEADING_BLOCK_MAX_CHARS: usize = 500;
 
 fn normalize_inline(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+#[cfg(test)]
 fn comparable_text_key(text: &str) -> String {
     normalize_inline(text)
         .chars()
@@ -70,6 +74,7 @@ fn comparable_text_key(text: &str) -> String {
         .to_lowercase()
 }
 
+#[cfg(test)]
 fn is_discardable_text_fragment(text: &str) -> bool {
     let normalized = normalize_inline(text);
     if normalized.is_empty() {
@@ -92,6 +97,7 @@ fn is_sentence_break(ch: char) -> bool {
     matches!(ch, '。' | '！' | '？' | '!' | '?' | '；' | ';' | '.')
 }
 
+#[cfg(test)]
 fn split_long_info_part(part: &str, max_chars: usize) -> Vec<String> {
     let normalized = normalize_inline(part);
     if normalized.is_empty() {
@@ -121,6 +127,7 @@ fn split_long_info_part(part: &str, max_chars: usize) -> Vec<String> {
     chunks
 }
 
+#[cfg(test)]
 fn split_candidate_chunks(text: &str) -> Vec<String> {
     let normalized = text.replace("\r\n", "\n");
     let mut seen_paragraphs = std::collections::HashSet::new();
@@ -143,6 +150,7 @@ fn split_candidate_chunks(text: &str) -> Vec<String> {
     split_paragraphs_into_info_blocks(&paragraphs, LOCAL_BLOCK_MAX_CHARS)
 }
 
+#[cfg(test)]
 fn split_explicit_sections_into_blocks(paragraphs: &[String]) -> Vec<String> {
     let mut sections: Vec<Vec<String>> = Vec::new();
     let mut current: Vec<String> = Vec::new();
@@ -178,6 +186,7 @@ fn split_explicit_sections_into_blocks(paragraphs: &[String]) -> Vec<String> {
     chunks
 }
 
+#[cfg(test)]
 fn split_paragraphs_into_info_blocks(paragraphs: &[String], max_chars: usize) -> Vec<String> {
     let mut chunks = Vec::new();
     let mut seen_chunks = std::collections::HashSet::new();
@@ -227,6 +236,7 @@ fn split_paragraphs_into_info_blocks(paragraphs: &[String], max_chars: usize) ->
     chunks
 }
 
+#[cfg(test)]
 fn push_unique_chunk(
     text: &str,
     chunks: &mut Vec<String>,
@@ -239,10 +249,12 @@ fn push_unique_chunk(
     }
 }
 
+#[cfg(test)]
 fn is_chinese_number_char(ch: char) -> bool {
     matches!(ch, '一' | '二' | '三' | '四' | '五' | '六' | '七' | '八' | '九' | '十' | '百' | '千' | '万')
 }
 
+#[cfg(test)]
 fn is_explicit_section_heading(text: &str) -> bool {
     let normalized = normalize_inline(text);
     let len = normalized.chars().count();
@@ -287,6 +299,7 @@ fn is_explicit_section_heading(text: &str) -> bool {
     false
 }
 
+#[cfg(test)]
 fn is_bare_section_marker(text: &str) -> bool {
     let normalized = normalize_inline(text);
     let chars: Vec<char> = normalized.chars().collect();
@@ -309,6 +322,7 @@ fn is_bare_section_marker(text: &str) -> bool {
         && index + 1 == chars.len()
 }
 
+#[cfg(test)]
 fn starts_new_info_block(text: &str) -> bool {
     let normalized = normalize_inline(text);
     if normalized.is_empty() {
@@ -444,7 +458,7 @@ fn looks_like_heading(normalized: &str) -> bool {
     true
 }
 
-fn is_valuable_text_block(text: &str) -> bool {
+pub(crate) fn is_valuable_text_block(text: &str) -> bool {
     let normalized = normalize_inline(&strip_leading_metadata_lines(text));
     if normalized.is_empty()
         || has_metadata_prefix(&normalized)
@@ -502,7 +516,13 @@ pub async fn split_chunks(
     text: &str,
 ) -> anyhow::Result<Vec<String>> {
     let _ = (api_key, model, base_url, extra_headers);
-    Ok(valuable_chunks(split_candidate_chunks(text)))
+    Ok(valuable_chunks(
+        crate::content_chunking::plan_text(text, None)
+            .chunks
+            .into_iter()
+            .map(|chunk| chunk.text)
+            .collect(),
+    ))
 }
 
 /// Extract 1-2 points from a single chunk.

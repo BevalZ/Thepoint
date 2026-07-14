@@ -40,6 +40,7 @@ import { DigestModal } from '@/components/DigestModal'
 import { reportKindLabel, reportMarkdownWithCitations } from '@/lib/reportArtifacts'
 import { evidenceMarkdown, markdownFileName, sourceAssetsMarkdown, sourceDisplayTitle } from '@/lib/workbenchArtifacts'
 import { splitSourceHighlight, type SourceHighlightRequest, type SourceHighlightSegment } from '@/lib/sourceHighlight'
+import { sourceBlocksFromContentPlan, type ExploreSourceBlock as SourceBlock } from '@/lib/exploreContentPlan'
 
 const URL_RE = /^https?:\/\/[^\s]+$/
 const SUPPORTED_EXTS = ['txt','md','markdown','rst','csv','docx','odt','html','htm']
@@ -99,10 +100,6 @@ const WEBSITE_NOISE_TERMS = [
 ]
 const WEBSITE_NOISE_SET = new Set(WEBSITE_NOISE_TERMS.map((term) => term.toLowerCase()))
 const LS_FACT_CHECKS = 'explore-fact-checks-v1'
-
-type SourceBlock =
-  | { type: 'text'; text: string }
-  | { type: 'image'; src: string; alt: string; caption: string | null }
 
 type SourceResultItem =
   | { block: Extract<SourceBlock, { type: 'text' }>; index: number; card: ChunkCard | null; valuable: boolean }
@@ -3013,6 +3010,7 @@ export default function Explore({ sourceHighlight = null, onSourceHighlightConsu
     text,
     richHtml,
     chunkCards,
+    contentPlan,
     analyzing,
     parsing,
     error,
@@ -3074,7 +3072,10 @@ export default function Explore({ sourceHighlight = null, onSourceHighlightConsu
   const [savedIds, setSavedIds] = useState<Record<number, string>>({})
 
   const busy = analyzing || parsing
-  const sourceBlocks = useMemo(() => parseSourceBlocks(richHtml, text, sourceUrl), [richHtml, text, sourceUrl])
+  const sourceBlocks = useMemo(() => {
+    const plannedBlocks = sourceBlocksFromContentPlan(contentPlan)
+    return plannedBlocks.length > 0 ? plannedBlocks : parseSourceBlocks(richHtml, text, sourceUrl)
+  }, [contentPlan, richHtml, sourceUrl, text])
   const hasContent = text.trim().length > 0 || sourceBlocks.length > 0 || chunkCards.length > 0 || busy
   const hasSourceBlocks = sourceBlocks.length > 0
   const valuableSourceIndexes = useMemo(() => new Set(
@@ -3084,12 +3085,16 @@ export default function Explore({ sourceHighlight = null, onSourceHighlightConsu
   ), [sourceBlocks])
   const isValuableSourceBlock = useCallback((index: number) => valuableSourceIndexes.has(index), [valuableSourceIndexes])
   const sourceResultItems = useMemo<SourceResultItem[]>(() => {
-    let textIndex = 0
+    let legacyTextIndex = 0
+    const cardsByIndex = new Map(chunkCards.map((card) => [card.index, card]))
     return sourceBlocks.map((block, index) => {
       if (block.type === 'text') {
         const valuable = isValuableTextBlock(block.text)
-        const card = valuable ? chunkCards[textIndex] ?? adHocCards[index] ?? null : adHocCards[index] ?? null
-        if (valuable) textIndex += 1
+        const canonicalCard = block.chunkIndex === undefined
+          ? (valuable ? chunkCards[legacyTextIndex] ?? null : null)
+          : cardsByIndex.get(block.chunkIndex) ?? null
+        if (block.chunkIndex === undefined && valuable) legacyTextIndex += 1
+        const card = canonicalCard ?? adHocCards[index] ?? null
         return { block, index, card, valuable }
       }
       return { block, index, card: null, valuable: false }
@@ -3630,33 +3635,37 @@ export default function Explore({ sourceHighlight = null, onSourceHighlightConsu
     setAnalysisStack((current) => current.filter((entry) => entry.id !== id))
   }, [])
 
-  const handleAnalyzeBlock = useCallback(async (index: number, blockText: string, el: HTMLButtonElement) => {
-    if (adHocAnalyzing[index]) return
+  const handleAnalyzeBlock = useCallback(async (
+    displayIndex: number,
+    chunkIndex: number,
+    blockText: string,
+    el: HTMLButtonElement
+  ) => {
+    if (adHocAnalyzing[displayIndex]) return
 
-    const existing = adHocCards[index]
+    const existing = adHocCards[displayIndex]
     if (existing) {
-      handleOpenCard(existing, index, el)
+      handleOpenCard(existing, displayIndex, el)
       return
     }
 
-    setAdHocAnalyzing((current) => ({ ...current, [index]: true }))
+    setAdHocAnalyzing((current) => ({ ...current, [displayIndex]: true }))
     setAdHocErrors((current) => {
       const next = { ...current }
-      delete next[index]
+      delete next[displayIndex]
       return next
     })
     try {
-      const analyzedCard = await analyzeTextBlock(blockText, index)
-      const card = { ...analyzedCard, index: -index - 1 }
-      setAdHocCards((current) => ({ ...current, [index]: card }))
-      handleOpenCard(card, index, el)
+      const card = await analyzeTextBlock(blockText, chunkIndex)
+      setAdHocCards((current) => ({ ...current, [displayIndex]: card }))
+      handleOpenCard(card, displayIndex, el)
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error || '生成 AI 解读失败')
-      setAdHocErrors((current) => ({ ...current, [index]: message }))
+      setAdHocErrors((current) => ({ ...current, [displayIndex]: message }))
     } finally {
       setAdHocAnalyzing((current) => {
         const next = { ...current }
-        delete next[index]
+        delete next[displayIndex]
         return next
       })
     }
@@ -4019,8 +4028,9 @@ export default function Explore({ sourceHighlight = null, onSourceHighlightConsu
 
                         const analysisCard = item.card
                         const blockText = item.block.text
+                        const canonicalChunkIndex = item.block.chunkIndex ?? item.index
                         const card = analysisCard ?? {
-                          index: -item.index - 1,
+                          index: item.block.chunkIndex ?? -item.index - 1,
                           text: blockText,
                           summary: blockText,
                           hotTake: '',
@@ -4037,7 +4047,12 @@ export default function Explore({ sourceHighlight = null, onSourceHighlightConsu
                             starred={analysisCard ? analysisCard.index in savedIds : false}
                             onOpen={analysisCard ? (el) => handleOpenCard(analysisCard, item.index, el) : undefined}
                             onToggleStar={analysisCard ? (el) => handleToggleStar(analysisCard.index, analysisCard, el) : undefined}
-                            onAnalyze={!analysisCard ? (el) => handleAnalyzeBlock(item.index, blockText, el) : undefined}
+                            onAnalyze={!analysisCard ? (el) => handleAnalyzeBlock(
+                              item.index,
+                              canonicalChunkIndex,
+                              blockText,
+                              el
+                            ) : undefined}
                             analyzing={adHocAnalyzing[item.index] === true}
                             analyzeError={adHocErrors[item.index] ?? null}
                             onFactCheck={handleFactCheck}

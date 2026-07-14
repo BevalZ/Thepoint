@@ -117,6 +117,54 @@ export interface ChunkCard {
   labels: Label[]
 }
 
+export type ContentUnitKind = 'heading' | 'paragraph' | 'list_item' | 'blockquote' | 'code' | 'table' | 'image'
+
+export type ChunkSplitReason =
+  | 'natural_paragraph'
+  | 'merged_paragraphs'
+  | 'heading_boundary'
+  | 'image_boundary'
+  | 'structural_boundary'
+  | 'oversized_paragraph'
+  | 'hard_limit'
+
+export interface ContentUnit {
+  index: number
+  kind: ContentUnitKind
+  text: string
+  headingPath: string[]
+  headingLevel: number | null
+  mediaUrl: string | null
+  caption: string | null
+}
+
+export interface CanonicalChunk {
+  id: string
+  index: number
+  unitStart: number
+  unitEnd: number
+  headingPath: string[]
+  text: string
+  estimatedTokens: number
+  splitReason: ChunkSplitReason
+}
+
+export interface ContentPlan {
+  units: ContentUnit[]
+  chunks: CanonicalChunk[]
+}
+
+export interface FetchedPage {
+  html: string
+  text: string
+  title: string | null
+  url: string
+  author: string | null
+  publishedAt: string | null
+  readingTime: string | null
+  contentPlan: ContentPlan
+}
+
 export interface FactCheckSource {
   title: string
   url: string
@@ -1561,6 +1609,7 @@ export interface ExploreHistoryItem {
   text: string
   richHtml: string | null
   chunkCards: ChunkCard[]
+  contentPlan?: ContentPlan | null
   previewImage: string | null
   createdAt: string
   updatedAt: string

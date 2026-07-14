@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { listen } from '@tauri-apps/api/event'
-import type { ChunkCard, ExploreHistoryItem, ExploreSourceMetadata, SourceSummaryRecord, SourceWorkspaceRecord } from '@/api/types'
-import { analyzeTextStreaming, fetchUrl, getFileMetadata, getSourceWorkspaceSummary, openSourceWorkspace, parseDocument, upsertSourceDocument } from '@/api'
+import type { ChunkCard, ContentPlan, ExploreHistoryItem, ExploreSourceMetadata, SourceSummaryRecord, SourceWorkspaceRecord } from '@/api/types'
+import { analyzeTextStreaming, fetchUrl, getFileMetadata, getSourceWorkspaceSummary, openSourceWorkspace, parseDocument, planContent, upsertSourceDocument } from '@/api'
 import { saveSourceMetadataRecord } from '@/lib/sourceMetadataRegistry'
 
 interface ExploreStore {
@@ -15,6 +15,7 @@ interface ExploreStore {
   sourceUrl: string | null
   sourceMetadata: ExploreSourceMetadata | null
   chunkCards: ChunkCard[]
+  contentPlan: ContentPlan | null
   analyzing: boolean
   parsing: boolean
   error: string | null
@@ -177,14 +178,50 @@ function chunkToCard(chunk: SourceWorkspaceRecord['chunks'][number]): ChunkCard 
   }
 }
 
+function contentPlanFromWorkspace(workspace: SourceWorkspaceRecord): ContentPlan {
+  const chunks = workspace.chunks.map((chunk, index) => ({
+    id: chunk.id,
+    index: chunk.chunkIndex,
+    unitStart: index,
+    unitEnd: index,
+    headingPath: chunk.headingPath?.split(' > ').map(part => part.trim()).filter(Boolean) ?? [],
+    text: chunk.text,
+    estimatedTokens: 0,
+    splitReason: 'natural_paragraph' as const,
+  }))
+  return {
+    units: chunks.map((chunk, index) => ({
+      index,
+      kind: 'paragraph' as const,
+      text: chunk.text,
+      headingPath: chunk.headingPath,
+      headingLevel: null,
+      mediaUrl: null,
+      caption: null,
+    })),
+    chunks,
+  }
+}
+
+interface AutoAnalyzeOptions {
+  html?: string | null
+  sourceScope?: string | null
+  contentPlan?: ContentPlan | null
+}
+
 async function autoAnalyze(
   set: (s: Partial<ExploreStore>) => void,
   content: string,
-  sourceId: string | null
+  sourceId: string | null,
+  options: AutoAnalyzeOptions = {}
 ) {
   if (!content.trim()) return
   set({ analyzing: true, error: null, chunkCards: [] })
   try {
+    const planned = options.contentPlan?.chunks.length
+      ? options.contentPlan
+      : await planContent(content, options.html, options.sourceScope ?? sourceId)
+    set({ contentPlan: planned.chunks.length > 0 ? planned : null })
     const unlistenCard = await listen<ChunkCard>('chunk_card', (e) => {
       useExploreStore.setState((s) => {
         const next = [
@@ -200,7 +237,7 @@ async function autoAnalyze(
       unlistenCard()
       unlistenDone()
     })
-    await analyzeTextStreaming(content, sourceId)
+    await analyzeTextStreaming(content, sourceId, planned)
   } catch (e) {
     set({ analyzing: false, error: errorMessage(e) })
   }
@@ -217,6 +254,7 @@ export const useExploreStore = create<ExploreStore>((set, get) => ({
   sourceUrl: null,
   sourceMetadata: null,
   chunkCards: [],
+  contentPlan: null,
   analyzing: false,
   parsing: false,
   error: null,
@@ -233,6 +271,7 @@ export const useExploreStore = create<ExploreStore>((set, get) => ({
       sourceUrl: null,
       sourceMetadata: metadata,
       chunkCards: [],
+      contentPlan: null,
       error: null,
     })
     saveSourceMetadataRecord('粘贴文本', metadata)
@@ -251,13 +290,14 @@ export const useExploreStore = create<ExploreStore>((set, get) => ({
       sourceUrl: url,
       sourceMetadata: metadata,
       chunkCards: [],
+      contentPlan: null,
       error: null,
     })
     saveSourceMetadataRecord(sourceName, metadata)
-    autoAnalyze(set, text, null)
+    autoAnalyze(set, text, null, { html, sourceScope: url })
   },
   parseFile: async (filePath) => {
-    set({ parsing: true, error: null, chunkCards: [], richHtml: null, sourceUrl: null, sourceMetadata: null, sourceId: null, sourceSummary: null, focusChunkIndex: null })
+    set({ parsing: true, error: null, chunkCards: [], contentPlan: null, richHtml: null, sourceUrl: null, sourceMetadata: null, sourceId: null, sourceSummary: null, focusChunkIndex: null })
     try {
       const text = await parseDocument(filePath)
       const metadata = await getFileMetadata(filePath)
@@ -283,7 +323,7 @@ export const useExploreStore = create<ExploreStore>((set, get) => ({
         parsing: false,
       })
       saveSourceMetadataRecord(metadata.fileName, sourceMetadata)
-      await autoAnalyze(set, text, source.id)
+      await autoAnalyze(set, text, source.id, { sourceScope: source.id })
       const summary = await getSourceWorkspaceSummary(source.id)
       set({ sourceSummary: summary })
     } catch (e) {
@@ -291,7 +331,7 @@ export const useExploreStore = create<ExploreStore>((set, get) => ({
     }
   },
   fetchUrlContent: async (url) => {
-    set({ parsing: true, error: null, chunkCards: [], sourceId: null, sourceSummary: null, focusChunkIndex: null })
+    set({ parsing: true, error: null, chunkCards: [], contentPlan: null, sourceId: null, sourceSummary: null, focusChunkIndex: null })
     try {
       const page = await fetchUrl(url)
       const content = page.text
@@ -310,10 +350,15 @@ export const useExploreStore = create<ExploreStore>((set, get) => ({
         sourceName,
         sourceUrl,
         sourceMetadata: metadata,
+        contentPlan: page.contentPlan,
         parsing: false,
       })
       saveSourceMetadataRecord(sourceName, metadata)
-      await autoAnalyze(set, content, source.id)
+      await autoAnalyze(set, content, source.id, {
+        contentPlan: page.contentPlan,
+        html: page.html,
+        sourceScope: sourceUrl,
+      })
       const summary = await getSourceWorkspaceSummary(source.id)
       set({ sourceSummary: summary })
     } catch (e) {
@@ -321,7 +366,7 @@ export const useExploreStore = create<ExploreStore>((set, get) => ({
     }
   },
   openSourceById: async (sourceId, focusChunkIndex = null) => {
-    set({ parsing: true, analyzing: false, error: null, chunkCards: [], focusChunkIndex: null })
+    set({ parsing: true, analyzing: false, error: null, chunkCards: [], contentPlan: null, focusChunkIndex: null })
     try {
       const workspace = await openSourceWorkspace(sourceId)
       if (!workspace) {
@@ -342,6 +387,7 @@ export const useExploreStore = create<ExploreStore>((set, get) => ({
         sourceUrl,
         sourceMetadata: metadata,
         chunkCards: workspace.chunks.map(chunkToCard),
+        contentPlan: contentPlanFromWorkspace(workspace),
         analyzing: false,
         parsing: false,
         error: null,
@@ -364,7 +410,7 @@ export const useExploreStore = create<ExploreStore>((set, get) => ({
       set({ sourceSummary: summary })
     }
   },
-  reset: () => set({ sourceId: null, sourceSummary: null, focusChunkIndex: null, text: '', sourceName: null, richHtml: null, sourceUrl: null, sourceMetadata: null, chunkCards: [], analyzing: false, parsing: false, error: null, savedChunkIds: {} }),
+  reset: () => set({ sourceId: null, sourceSummary: null, focusChunkIndex: null, text: '', sourceName: null, richHtml: null, sourceUrl: null, sourceMetadata: null, chunkCards: [], contentPlan: null, analyzing: false, parsing: false, error: null, savedChunkIds: {} }),
 }))
 
 interface ExploreHistoryStore {
@@ -393,6 +439,7 @@ export const useExploreHistoryStore = create<ExploreHistoryStore>((set, get) => 
       text: current.text,
       richHtml: current.richHtml,
       chunkCards: [...current.chunkCards].sort((a, b) => a.index - b.index),
+      contentPlan: current.contentPlan,
       previewImage: firstImageFromHtml(current.richHtml),
       createdAt: now,
       updatedAt: now,
@@ -435,6 +482,7 @@ export const useExploreHistoryStore = create<ExploreHistoryStore>((set, get) => 
       sourceUrl: item.sourceUrl,
       sourceMetadata: item.sourceMetadata ?? null,
       chunkCards: item.chunkCards,
+      contentPlan: item.contentPlan ?? null,
       analyzing: false,
       parsing: false,
       error: null,
