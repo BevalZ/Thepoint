@@ -1,0 +1,8 @@
+{"file":".trellis/spec/backend/error-handling.md","reason":"Review command failures and fallback behavior."}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Review persistence compatibility, chunk indexes, and citation round trips."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Review deterministic tests and required cargo gates."}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Review Rust/TypeScript DTO and command map parity."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Review import, reopen, history, and translation state behavior."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Review boundary compliance and frontend gates."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Audit canonical text and identity across every consumer."}
+{"file":".trellis/tasks/07-14-paragraph-aware-content-chunking/research/current-chunking-audit.md","reason":"Check that all previously identified duplicate splitters are handled."}

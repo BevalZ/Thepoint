@@ -1,0 +1,13 @@
+{"file":".trellis/spec/backend/index.md","reason":"Backend command, parser, AI, persistence, and test entrypoint guidance."}
+{"file":".trellis/spec/backend/directory-structure.md","reason":"Places the canonical chunk planner and command integration in established modules."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Defines internal anyhow and Tauri Result error/degradation contracts."}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Protects source chunk persistence, citation navigation, and historical data compatibility."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Requires deterministic abbreviation-aware chunking tests and backend gates."}
+{"file":".trellis/spec/frontend/index.md","reason":"Frontend typed API, state, component, and verification entrypoint."}
+{"file":".trellis/spec/frontend/directory-structure.md","reason":"Places reusable frontend transformations and typed API changes correctly."}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"Defines canonical chunk DTO and command map contracts."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Preserves Explore import/reopen/translation behavior while canonical chunks become state."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Requires focused helper tests and full frontend gates."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"The same chunks must survive extraction, API, store, DB, analysis, and display."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Prevents another duplicated splitter or threshold set."}
+{"file":".trellis/tasks/07-14-paragraph-aware-content-chunking/research/current-chunking-audit.md","reason":"Documents existing splitters, mismatch causes, and the selected architecture."}
