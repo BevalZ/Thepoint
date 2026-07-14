@@ -139,6 +139,68 @@ Examples:
 
 Use this pattern only when the feature can produce a correct partial result and the caller has no useful recovery action.
 
+## Scenario: GitHub User Pages Source Fallback
+
+### 1. Scope / Trigger
+
+- Trigger: URL ingestion fails for an exact `<user>.github.io` host while public GitHub repository content remains reachable.
+
+### 2. Signatures
+
+```rust
+github_pages_fallback_candidates(url: &reqwest::Url) -> Vec<GitHubPagesFallbackCandidate>
+fetch_url_html(client, requested_url) -> Result<(String, Url, Url), String>
+decode_github_contents_payload(raw: &str) -> Result<String, String>
+```
+
+### 3. Contracts
+
+- Always request the public URL first with normal TLS verification.
+- Only exact GitHub user-site hosts receive raw repository candidates.
+- Try `<user>/<user>.github.io` on `master`, then `main`; trailing-slash paths map to `index.html`.
+- Within each branch, race the raw file request against the unauthenticated GitHub Contents API. The first valid HTML result wins, so a blocked raw domain does not force a second long timeout.
+- Contents API responses must be `type=file`, `encoding=base64`, contain decodable UTF-8 text, and must never require or log a GitHub token.
+- Resolve relative HTML assets against the raw URL, but return the original public URL as Source identity.
+
+### 4. Validation & Error Matrix
+
+| Condition | Behavior |
+|---|---|
+| Public URL succeeds | Use it; do not invoke fallback |
+| GitHub user-site request resets or returns non-success | Try master raw/API, then main raw/API |
+| Raw host is blocked but `api.github.com` is reachable | Decode the same branch/path through Contents API |
+| Non-GitHub host fails | Return the original request error |
+| All repository transports fail | Return original plus fallback errors |
+| Contents payload is not a Base64 file or is not UTF-8 | Reject that candidate and continue to the next branch |
+| Host resembles GitHub Pages only as a suffix of another domain | Do not generate candidates |
+
+### 5. Good/Base/Bad Cases
+
+- Good: a blocked user-site article loads from its public raw `index.html` or Contents API representation while retaining the public citation URL.
+- Base: ordinary websites and reachable GitHub Pages behave unchanged.
+- Bad: disable TLS verification or proxy arbitrary sites through GitHub raw content.
+
+### 6. Tests Required
+
+- Pure mapping tests for valid and invalid hosts, Contents API URLs, and Base64 decoding.
+- Ignored live smoke for a reported public article, asserting substantial HTML/text and preserved URL.
+- Full backend check and tests.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+reqwest::Client::builder().danger_accept_invalid_certs(true)
+```
+
+#### Correct
+
+```rust
+let candidates = github_pages_fallback_candidates(&requested_url);
+// Keep TLS verification; race only validated raw/API URLs for this exact repository path.
+```
+
 ---
 
 ## Tests
