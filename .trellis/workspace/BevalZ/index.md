@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 28
-- **Last Active**: 2026-07-12
+- **Total Sessions**: 29
+- **Last Active**: 2026-07-14
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~981 | Active |
+| `journal-1.md` | ~1015 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 29 | 2026-07-14 | Canonical paragraph-aware content chunking | `dfa74f7`, `cfa8469` | `main` |
 | 28 | 2026-07-12 | Fix concurrent database migration lock | `07877f6`, `743c870` | `main` |
 | 27 | 2026-07-11 | Semantic retrieval release hardening | `e073227`, `8c039cb` | `main` |
 | 26 | 2026-07-11 | Semantic retrieval and grounded research Q&A | `5cbf4e8`, `e2f9d48`, `cfe51eb` | `main` |

@@ -1,0 +1,8 @@
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Defines required typecheck, boundary, test, and production-build gates."}
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Checks motion lifetime, off-screen rendering, interaction, and accessibility contracts."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Checks selector scope and navigation-safe Explore workflow state."}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"Defines Rust check/test and database regression expectations."}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Checks open_db caching, path keys, concurrency, restore invalidation, and migration safety."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Checks database lock and command errors remain actionable."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Checks end-to-end behavior across React, typed API wrappers, Tauri commands, and SQLite."}
+{"file":".trellis/tasks/07-13-optimize-runtime-performance/research/performance-baseline.md","reason":"Checks before/after measurements use comparable process-tree sampling and state caveats."}

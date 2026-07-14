@@ -979,3 +979,37 @@ Reordered migration-only integrity validation after user_version detection, seri
 ### Next Steps
 
 - None - task complete
+
+
+## Session 29: Canonical paragraph-aware content chunking
+
+**Date**: 2026-07-14
+**Task**: Canonical paragraph-aware content chunking
+**Branch**: `main`
+
+### Summary
+
+Implemented a deterministic backend content planner with typed units, natural-paragraph repair, protected oversized splitting, stable chunk identity, canonical persistence and Explore rendering; added CJK, numbered-heading, orphan-marker, HTML/media, abbreviation and cross-layer regression coverage; backend and frontend quality gates passed.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `dfa74f7` | (see git log) |
+| `cfa8469` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

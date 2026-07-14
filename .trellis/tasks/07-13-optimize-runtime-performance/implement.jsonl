@@ -1,0 +1,9 @@
+{"file":".trellis/spec/frontend/component-guidelines.md","reason":"Owns component motion, off-screen rendering, accessibility, and runtime performance contracts."}
+{"file":".trellis/spec/frontend/hook-guidelines.md","reason":"Owns RAF, observer, timer, and event-listener cleanup rules."}
+{"file":".trellis/spec/frontend/state-management.md","reason":"Owns Zustand selector scope and remount-safe long-running Explore workflows."}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"Defines frontend verification commands and regression expectations."}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"Owns SQLite open, initialization-cache, migration, and restore behavior."}
+{"file":".trellis/spec/backend/error-handling.md","reason":"Defines actionable database and command failure handling."}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"Covers frontend API to Rust command and SQLite data-flow checks."}
+{"file":".trellis/spec/guides/code-reuse-thinking-guide.md","reason":"Prevents duplicate performance helpers and divergent grouping logic."}
+{"file":".trellis/tasks/07-13-optimize-runtime-performance/research/performance-baseline.md","reason":"Provides measured baseline, known hot paths, caveats, and verification targets."}
