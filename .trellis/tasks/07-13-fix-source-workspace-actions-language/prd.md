@@ -27,11 +27,11 @@ Make Source Workspace actions reliable, provide a persisted Chinese/English UI l
 
 * [x] Thin Mint Grok Investigation responses parse successfully.
 * [x] Related returns/render empty independently of Journal.
-* [ ] Settings persists Chinese/English choice across restart.
+* [x] Settings persists Chinese/English choice across restart.
 * [x] Source Workspace panel does not mix Chinese and English labels within either mode.
-* [ ] Capability Center fixed scorecard copy follows the selected language.
-* [ ] Double-clicking an analyzed Star regenerates only that block and refreshes its open detail card.
-* [ ] Failed regeneration keeps the previous card usable and provides a retry message.
+* [x] Capability Center fixed scorecard copy follows the selected language.
+* [x] Double-clicking an analyzed Star regenerates only that block and refreshes its open detail card.
+* [x] Failed regeneration keeps the previous card usable and provides a retry message.
 * [x] A thin Source shows its missing Investigation context and can run Prepare + Investigate without requiring manual Point or image generation.
 * [x] Preparation targets five deduplicated Points and two Evidence items while bounding automatic block analysis and tolerating individual candidate failures.
 * [x] Source Investigation uses deep-mode guidance and requests a substantially richer, citation-grounded report.

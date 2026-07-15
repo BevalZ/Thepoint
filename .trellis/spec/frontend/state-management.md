@@ -158,3 +158,158 @@ Use `beforeEach` to reset store state when tests mutate global store singletons.
 - Do not keep cross-page selections in component local state.
 - Do not update local state as if a backend mutation succeeded before the awaited command resolves.
 - Do not leave duplicate records in selection stores; preserve stable order and dedupe by id.
+
+## Scenario: Persisted UI Language And Independent Panel Requests
+
+### 1. Scope / Trigger
+
+- Trigger: a settings-backed language preference changes copy in a data panel that loads multiple backend resources.
+- Applies to `AppConfig`, `useConfigStore`, Settings controls, Source Workspace asset requests, and every Capability Center view.
+
+### 2. Signatures
+
+```ts
+interface AppConfig {
+  uiLanguage: 'zh-CN' | 'en-US'
+}
+
+commandPresentation(item, language = 'zh-CN'): CommandPresentation
+localizeCapabilityScorecard(scorecard, language): CapabilityScorecard
+
+Promise.allSettled([
+  listRecentJournalEntries(),
+  discoverRelatedAssets('source', sourceId),
+])
+```
+
+The Rust config contract persists the camel-case field as the store key `ui_language`. `normalize_ui_language(value)` accepts only the exact value `en-US`; a missing, empty, `zh-CN`, or otherwise unsupported value resolves to `zh-CN` on both read and write.
+
+### 3. Contracts
+
+- `uiLanguage` has exactly two supported values: `zh-CN` and `en-US`.
+- Existing installations and browser preview default to `zh-CN`.
+- Settings saves the preference through the existing typed `get_config` / `set_config` boundary; UI code must not create a second localStorage language source.
+- A panel must select all owned headings, actions, empty states, titles, and fallback errors from the same current language.
+- Capability Center Overview, diagnostics, and command catalog must use the same preference. Localize backend scorecard labels through `localizeCapabilityScorecard`, and pass the preference into `commandPresentation`; do not translate stable command identifiers or search metadata.
+- Journal and Related are independent resources. Either fulfilled result is rendered even when the other rejects.
+- An empty fulfilled Related array is a valid empty state, not an error.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+|---|---|
+| Stored language key missing | Return `zh-CN` |
+| Stored or submitted language is empty/unsupported | Normalize to `zh-CN`; never expose an invalid value through `AppConfig` |
+| Journal succeeds, Related fails | Render Journal; clear only Related; show Related error |
+| Journal fails, Related succeeds empty | Render Related empty state; clear only Journal; show Journal error |
+| Both requests succeed empty | Render both empty states without an error |
+| Language changes while panel is open | Re-render all panel-owned copy in the selected language |
+
+### 5. Good/Base/Bad Cases
+
+- Good: English mode shows English Source Workspace and Capability Center labels and errors while successfully loaded Journal entries remain visible after a Related failure.
+- Base: a new installation opens in Chinese and both resource lists may be empty without warnings.
+- Bad: `Promise.all` rejects the combined load and clears both lists, an unsupported persisted language leaks into frontend state, or Capability diagnostics retain hard-coded Chinese copy in English mode.
+
+### 6. Tests Required
+
+- Frontend type-check asserts the exact `AppConfig.uiLanguage` union crosses the typed API boundary.
+- Backend tests/checks assert missing and unsupported configuration values use `zh-CN`, exact `en-US` is preserved, and config serialization remains camel-case.
+- Pure frontend tests assert `commandPresentation` returns language-matched risk/input labels and `localizeCapabilityScorecard` translates Chinese mode while preserving the English scorecard object.
+- Manual Tauri verification switches language, saves, restarts, and confirms persistence plus single-language Source Workspace and Capability Center copy.
+- Manual failure/empty verification confirms Journal and Related do not erase or mislabel one another.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```ts
+const [journal, related] = await Promise.all([loadJournal(), loadRelated()])
+```
+
+#### Correct
+
+```ts
+const [journal, related] = await Promise.allSettled([loadJournal(), loadRelated()])
+// Apply each result to only the state that it owns.
+```
+
+## Scenario: Bounded Source Investigation Preparation
+
+### 1. Scope / Trigger
+
+- Trigger: Source Workspace Investigation would otherwise run with too few source-linked Points or Evidence and produce a shallow report.
+- Applies to Explore workflow state, `getSourceAssets`, existing Point/Evidence commands, and `generateInvestigation`.
+
+### 2. Signatures
+
+```ts
+investigationReadinessForAssets(assets): InvestigationReadiness | null
+investigationMissingLabel(kind, language): string
+
+const INVESTIGATION_MIN_POINTS = 3
+const INVESTIGATION_MIN_EVIDENCE_OR_REPORTS = 1
+const INVESTIGATION_TARGET_POINTS = 5
+const INVESTIGATION_TARGET_EVIDENCE = 2
+const INVESTIGATION_MAX_AUTO_ANALYSIS_BLOCKS = 8
+
+analyzeTextBlock(text, index): Promise<ChunkCard>
+savePoints(points, sourceName, excerpt, sourceLink): Promise<string[]>
+factCheckClaim(claim, context): Promise<FactCheckResult>
+saveEvidence(result, context): Promise<EvidenceRecord>
+generateInvestigation({ mode: 'deep', scope, query }): Promise<DigestResult>
+```
+
+### 3. Contracts
+
+- A Source is ready when it has at least three linked Points and at least one linked Evidence item or prior Report.
+- Readiness calculation is a pure asset-count contract: unloaded assets return `null`, and language affects only `investigationMissingLabel`, never readiness thresholds or candidate selection.
+- Preparation targets five deduplicated Points and two Evidence items while analyzing at most eight valuable source blocks.
+- Reuse an existing `ChunkCard` before requesting new block analysis. Persist prepared Points with Source/Chunk links and refresh `SourceAssetsRecord` before generation.
+- AI image generation is optional output and is never an Investigation prerequisite.
+- One candidate analysis, Point save, or fact-check failure must not discard successful preparation or stop later candidates. Fail only when refreshed assets still miss readiness, and include a useful first-failure hint.
+- The normal Source action uses deep Investigation mode after readiness. A visible explicit action may still let the user generate from thin context.
+- Loading guards prevent duplicate preparation/generation requests, and Explore page keep-alive preserves the Promise chain across navigation.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+|---|---|
+| Assets have enough context | Generate directly in deep mode |
+| Points or evidence are below readiness | Show missing categories and route the primary action to Prepare + Investigate |
+| Source has no analyzable blocks | Stop preparation with an actionable text-model/source-content error |
+| One candidate analysis or fact check fails | Record the failure and continue with remaining candidates |
+| Partial successes reach readiness | Refresh assets and generate; do not surface stale candidate failures as a fatal error |
+| Partial successes remain below readiness | Preserve saved assets and show counts plus the first failure hint |
+| User switches pages during preparation | Continue work; hidden Explore does not intercept global input |
+
+### 5. Good/Base/Bad Cases
+
+- Good: a thin Source automatically gains five linked Points and two Evidence items, then opens a deep citation-grounded Investigation.
+- Base: a Source already has enough context, so no preparation calls are made and deep generation starts immediately.
+- Base: one fact check fails, another succeeds, refreshed assets reach readiness, and generation continues.
+- Bad: requiring the user to generate AI artwork before Investigation, retrying the same duplicate Point indefinitely, or aborting the whole workflow on the first candidate failure.
+
+### 6. Tests Required
+
+- Pure frontend tests: unloaded assets return `null`; empty assets report both missing categories; three Points plus Evidence or a prior Report are ready; `investigationMissingLabel` returns Chinese and English labels from the same thresholds.
+- Frontend gates: `npm run typecheck`, `npm run check:boundaries`, `npm run test:run`, and `npm run build`.
+- Backend tests: deep prompt requirements and citation labels remain present; full `cargo check` and `cargo test` pass.
+- Manual desktop E2E: run Prepare + Investigate on a thin Source, navigate away and back, confirm progress survives, prepared assets remain linked, and the result is materially richer without image generation.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```ts
+// Thin context goes straight to the report model and produces a shallow result.
+generateInvestigation({ mode: 'standard', scope, query })
+```
+
+#### Correct
+
+```ts
+const readiness = investigationReadinessForAssets(assets)
+if (!readiness?.ready) await prepareBoundedSourceContext()
+await generateInvestigation({ mode: 'deep', scope: refreshedScope, query })
+```
