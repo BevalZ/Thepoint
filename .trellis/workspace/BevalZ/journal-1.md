@@ -1013,3 +1013,37 @@ Implemented a deterministic backend content planner with typed units, natural-pa
 ### Next Steps
 
 - None - task complete
+
+
+## Session 30: GitHub Pages resilient source fallback
+
+**Date**: 2026-07-15
+**Task**: GitHub Pages resilient source fallback
+**Branch**: `main`
+
+### Summary
+
+Added exact GitHub user-site fallback with master/main branch priority, raw/unauthenticated Contents API racing, Base64 decoding, public URL preservation, mapping/unit coverage, and a live article smoke test; documented the backend fallback contract and validation matrix.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ad41b7a` | (see git log) |
+| `1559ca0` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete

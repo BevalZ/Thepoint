@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 29
-- **Last Active**: 2026-07-14
+- **Total Sessions**: 30
+- **Last Active**: 2026-07-15
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1015 | Active |
+| `journal-1.md` | ~1049 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 30 | 2026-07-15 | GitHub Pages resilient source fallback | `ad41b7a`, `1559ca0` | `main` |
 | 29 | 2026-07-14 | Canonical paragraph-aware content chunking | `dfa74f7`, `cfa8469` | `main` |
 | 28 | 2026-07-12 | Fix concurrent database migration lock | `07877f6`, `743c870` | `main` |
 | 27 | 2026-07-11 | Semantic retrieval release hardening | `e073227`, `8c039cb` | `main` |
