@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { FileText, Image, Loader2, Sparkles, Star, Trash2, X } from 'lucide-react'
+import { FileText, Image, Loader2, Sparkles, Trash2, X } from 'lucide-react'
 import { useEvidenceDigestStore, useExploreHistoryStore, useExploreStore, useGalleryStore, useStarStore } from '@/store'
 import { generateDigest } from '@/api'
 import { DigestModal } from './DigestModal'
@@ -18,12 +18,6 @@ const SIZE = 56
 const R = 22
 const CIRC = 2 * Math.PI * R
 const SOURCE_COLORS = ['#38bdf8', '#a78bfa', '#f59e0b', '#34d399', '#f472b6', '#60a5fa', '#facc15', '#22d3ee']
-const ORBITING_STARS = [
-  { size: 8, distance: 35, duration: 5.6, delay: 0, opacity: 0.95 },
-  { size: 6, distance: 32, duration: 7.2, delay: -1.9, opacity: 0.72 },
-  { size: 5, distance: 38, duration: 9.4, delay: -4.1, opacity: 0.58 },
-]
-
 function ringParams(count: number) {
   if (count <= 0) return { progress: 0, strokeW: 3, fillOpacity: 0 }
   if (count <= 10) return { progress: count / 10, strokeW: 3, fillOpacity: 0 }
@@ -58,18 +52,29 @@ function groupPoints(
   const groups = new Map<string, StoredPoint[]>()
   for (const point of points) {
     const name = sourceName(point)
-    groups.set(name, [...(groups.get(name) ?? []), point])
+    const group = groups.get(name)
+    if (group) group.push(point)
+    else groups.set(name, [point])
   }
+  const historyBySourceName = new Map<string, ExploreHistoryItem>()
+  for (const item of historyItems) {
+    const key = comparableSourceName(item.sourceName)
+    if (key && !historyBySourceName.has(key)) historyBySourceName.set(key, item)
+  }
+  const currentSourceKey = comparableSourceName(currentSourceName)
 
   return Array.from(groups.entries())
     .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
-    .map(([name, groupPoints], index) => ({
-      name,
-      points: groupPoints,
-      color: SOURCE_COLORS[index % SOURCE_COLORS.length],
-      historyItem: historyItems.find((item) => comparableSourceName(item.sourceName) === comparableSourceName(name)) ?? null,
-      isCurrent: comparableSourceName(currentSourceName) === comparableSourceName(name),
-    }))
+    .map(([name, groupPoints], index) => {
+      const sourceKey = comparableSourceName(name)
+      return {
+        name,
+        points: groupPoints,
+        color: SOURCE_COLORS[index % SOURCE_COLORS.length],
+        historyItem: historyBySourceName.get(sourceKey) ?? null,
+        isCurrent: currentSourceKey === sourceKey,
+      }
+    })
 }
 
 function preview(text: string): string {
@@ -155,24 +160,23 @@ interface StarRingProps {
 }
 
 export function StarRing({ onNavigateGallery, onOpenSource }: StarRingProps) {
-  const { count: pointCount, points, init, clear } = useStarStore()
-  const { records: selectedEvidence, remove: removeEvidenceInput, clear: clearEvidenceInput } = useEvidenceDigestStore()
-  const {
-    preparePrompt,
-    generateFromPrompt,
-    cancel: cancelImageGeneration,
-    preparingPrompt,
-    generating: imageGenerating,
-    error: imageError,
-    promptPreview,
-  } = useGalleryStore()
-  const {
-    sourceName: currentSourceName,
-    sourceUrl: currentSourceUrl,
-    text: currentText,
-    chunkCards: currentChunkCards,
-  } = useExploreStore()
-  const history = useExploreHistoryStore()
+  const pointCount = useStarStore((state) => state.count)
+  const points = useStarStore((state) => state.points)
+  const init = useStarStore((state) => state.init)
+  const clear = useStarStore((state) => state.clear)
+  const selectedEvidence = useEvidenceDigestStore((state) => state.records)
+  const removeEvidenceInput = useEvidenceDigestStore((state) => state.remove)
+  const clearEvidenceInput = useEvidenceDigestStore((state) => state.clear)
+  const preparePrompt = useGalleryStore((state) => state.preparePrompt)
+  const generateFromPrompt = useGalleryStore((state) => state.generateFromPrompt)
+  const cancelImageGeneration = useGalleryStore((state) => state.cancel)
+  const preparingPrompt = useGalleryStore((state) => state.preparingPrompt)
+  const imageGenerating = useGalleryStore((state) => state.generating)
+  const imageError = useGalleryStore((state) => state.error)
+  const promptPreview = useGalleryStore((state) => state.promptPreview)
+  const currentSourceName = useExploreStore((state) => state.sourceName)
+  const historyItems = useExploreHistoryStore((state) => state.items)
+  const activateHistory = useExploreHistoryStore((state) => state.activate)
   const [generating, setGenerating] = useState(false)
   const [clearing, setClearing] = useState(false)
   const [digest, setDigest] = useState<DigestResult | null>(null)
@@ -206,21 +210,12 @@ export function StarRing({ onNavigateGallery, onOpenSource }: StarRingProps) {
   }, [panelOpen])
 
   const groups = useMemo(
-    () => groupPoints(points, history.items, currentSourceName),
-    [currentSourceName, history.items, points]
+    () => groupPoints(points, historyItems, currentSourceName),
+    [currentSourceName, historyItems, points]
   )
   const currentStarKey = useMemo(
     () => pointIdKey(points.map(point => point.id)),
     [points]
-  )
-  const knowledgeContexts = useMemo(
-    () => buildKnowledgeContexts(groups, {
-      sourceName: currentSourceName,
-      sourceUrl: currentSourceUrl,
-      text: currentText,
-      chunkCards: currentChunkCards,
-    }),
-    [currentChunkCards, currentSourceName, currentSourceUrl, currentText, groups]
   )
   const evidenceCount = selectedEvidence.length
   const totalCount = pointCount + evidenceCount
@@ -291,9 +286,22 @@ export function StarRing({ onNavigateGallery, onOpenSource }: StarRingProps) {
     try {
       const canReusePreview = promptPreview?.mode === imageMode
         && pointIdKey(promptPreview.pointIds) === currentStarKey
+      const activeExplore = useExploreStore.getState()
+      const currentGroups = groupPoints(
+        useStarStore.getState().points,
+        useExploreHistoryStore.getState().items,
+        activeExplore.sourceName
+      )
       const preview = canReusePreview
         ? promptPreview
-        : await preparePrompt(imageMode, imageMode === 'knowledge' ? knowledgeContexts : undefined)
+        : await preparePrompt(imageMode, imageMode === 'knowledge'
+          ? buildKnowledgeContexts(currentGroups, {
+              sourceName: activeExplore.sourceName,
+              sourceUrl: activeExplore.sourceUrl,
+              text: activeExplore.text,
+              chunkCards: activeExplore.chunkCards,
+            })
+          : undefined)
       setImagePromptDraft(preview.prompt)
       setImagePromptOpen(true)
     } catch {
@@ -325,7 +333,7 @@ export function StarRing({ onNavigateGallery, onOpenSource }: StarRingProps) {
 
   const handleSourceClick = (group: SourceGroup) => {
     if (group.isCurrent || group.historyItem === null) return
-    history.activate(group.historyItem.id)
+    activateHistory(group.historyItem.id)
     setPanelOpen(false)
   }
 
@@ -346,37 +354,14 @@ export function StarRing({ onNavigateGallery, onOpenSource }: StarRingProps) {
               style={{ width: SIZE, height: SIZE, cursor: canGenerate ? 'pointer' : 'default' }}
               title="单击查看来源，双击圆环生成研报"
             >
-              <motion.span
+              <span
                 aria-hidden
                 className="absolute inset-[-12px] rounded-full bg-amber-300/10 blur-xl"
-                animate={{ opacity: [0.28, 0.72, 0.36], scale: [0.82, 1.18, 0.9] }}
-                transition={{ duration: 2.4, repeat: Infinity, ease: 'easeInOut' }}
               />
-              <motion.span
+              <span
                 aria-hidden
                 className="absolute inset-[-5px] rounded-full border border-amber-200/25"
-                animate={{ opacity: [0.22, 0.82, 0.18], scale: [0.86, 1.12, 0.92] }}
-                transition={{ duration: 1.8, repeat: Infinity, ease: 'easeInOut' }}
               />
-              {ORBITING_STARS.map((star, index) => (
-                <motion.span
-                  key={index}
-                  aria-hidden
-                  className="absolute left-1/2 top-1/2 text-amber-200"
-                  style={{ width: 0, height: 0 }}
-                  animate={{ rotate: 360 }}
-                  transition={{ duration: star.duration, delay: star.delay, repeat: Infinity, ease: 'linear' }}
-                >
-                  <motion.span
-                    className="block"
-                    style={{ transform: `translate(${star.distance}px, -50%)` }}
-                    animate={{ opacity: [star.opacity * 0.55, star.opacity, star.opacity * 0.62], scale: [0.74, 1.18, 0.86] }}
-                    transition={{ duration: 1.25 + index * 0.22, repeat: Infinity, ease: 'easeInOut' }}
-                  >
-                    <Star size={star.size} fill="currentColor" className="drop-shadow-[0_0_8px_rgba(255,236,160,0.95)]" />
-                  </motion.span>
-                </motion.span>
-              ))}
               <svg width={SIZE} height={SIZE} className="absolute inset-0 overflow-visible">
                 <defs>
                   <filter id="star-ring-glow" x="-70%" y="-70%" width="240%" height="240%">
@@ -387,7 +372,7 @@ export function StarRing({ onNavigateGallery, onOpenSource }: StarRingProps) {
                     </feMerge>
                   </filter>
                 </defs>
-                <motion.circle
+                <circle
                   cx={SIZE/2}
                   cy={SIZE/2}
                   r={R + 5}
@@ -395,9 +380,7 @@ export function StarRing({ onNavigateGallery, onOpenSource }: StarRingProps) {
                   stroke="rgba(255,255,255,0.28)"
                   strokeWidth={1}
                   strokeDasharray="2 8"
-                  animate={{ rotate: 360, opacity: [0.28, 0.72, 0.36] }}
-                  transition={{ rotate: { duration: 8, repeat: Infinity, ease: 'linear' }, opacity: { duration: 1.7, repeat: Infinity, ease: 'easeInOut' } }}
-                  style={{ transformOrigin: 'center' }}
+                  opacity={0.52}
                 />
                 <circle cx={SIZE/2} cy={SIZE/2} r={R} fill="none" stroke="var(--color-border)" strokeWidth={2} opacity={0.55} />
                 <circle cx={SIZE/2} cy={SIZE/2} r={R}
@@ -408,7 +391,7 @@ export function StarRing({ onNavigateGallery, onOpenSource }: StarRingProps) {
                   const length = totalCount > 0 ? coloredLength * (group.points.length / totalCount) : 0
                   const offset = -before / totalCount * coloredLength
                   return (
-                    <motion.circle
+                    <circle
                       key={group.name}
                       cx={SIZE/2}
                       cy={SIZE/2}
@@ -421,34 +404,18 @@ export function StarRing({ onNavigateGallery, onOpenSource }: StarRingProps) {
                       strokeLinecap="butt"
                       transform={`rotate(-90 ${SIZE/2} ${SIZE/2})`}
                       filter="url(#star-ring-glow)"
-                      animate={{
-                        opacity: generating ? [0.7, 1, 0.7] : [0.76, 1, 0.82],
-                        strokeWidth: generating ? [strokeW, strokeW + 1.8, strokeW] : [strokeW, strokeW + 0.9, strokeW],
-                      }}
-                      transition={{
-                        opacity: { duration: 1.6 + index * 0.18, repeat: Infinity, ease: 'easeInOut' },
-                        strokeWidth: { duration: 2.2 + index * 0.12, repeat: Infinity, ease: 'easeInOut' },
-                      }}
-                      style={{ transition: 'stroke-dasharray 0.4s ease, stroke-dashoffset 0.4s ease' }}
+                      opacity={generating ? 1 : 0.9}
+                      style={{ transition: 'stroke-dasharray 0.16s ease, stroke-dashoffset 0.16s ease, opacity 0.16s ease' }}
                     />
                   )
                 })}
               </svg>
-              <motion.span
+              <span
                 className="relative flex h-8 w-8 items-center justify-center rounded-full border border-amber-200/25 bg-bg/80 text-xs font-semibold text-amber-100 shadow-[0_0_18px_rgba(251,191,36,0.28)]"
                 style={{ fontSize: 11 }}
-                animate={{
-                  boxShadow: [
-                    '0 0 12px rgba(251,191,36,0.22)',
-                    '0 0 26px rgba(251,191,36,0.52)',
-                    '0 0 16px rgba(255,255,255,0.18)',
-                  ],
-                  scale: generating ? [1, 1.08, 1] : [1, 1.04, 1],
-                }}
-                transition={{ duration: 1.55, repeat: Infinity, ease: 'easeInOut' }}
               >
                 {generating ? <Loader2 size={14} className="animate-spin" /> : totalCount}
-              </motion.span>
+              </span>
             </motion.button>
 
             <AnimatePresence>

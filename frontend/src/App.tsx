@@ -1,5 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useState, type PointerEvent as ReactPointerEvent } from 'react'
-import { AnimatePresence, motion, useReducedMotion, type Variants } from 'framer-motion'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import { BarChart2, BookOpenCheck, ChevronDown, Command, Compass, HelpCircle, Image, Settings as SettingsIcon, Library as LibraryIcon, Maximize2, Minus, Sparkles, X } from 'lucide-react'
 import { CommandPalette } from '@/components/CommandPalette'
@@ -20,6 +20,7 @@ const Analytics = lazy(() => import('@/pages/Analytics'))
 const Gallery = lazy(() => import('@/pages/Gallery'))
 const CapabilityCenter = lazy(() => import('@/pages/CapabilityCenter'))
 const Research = lazy(() => import('@/pages/Research'))
+void useThemeStore.getState()
 
 type Page = 'explore' | 'research' | 'library' | 'gallery' | 'analytics' | 'capabilities' | 'settings'
 
@@ -32,24 +33,6 @@ const NAV: { id: Page; label: string; icon: typeof Compass }[] = [
   { id: 'capabilities', label: '能力', icon: Command },
   { id: 'settings', label: '设置', icon: SettingsIcon },
 ]
-
-const NAV_ITEM_VARIANTS: Variants = {
-  rest: { x: 0, rotateY: 0 },
-  hover: {
-    x: 4,
-    rotateY: -4,
-    transition: { duration: 0.18, ease: 'easeOut' },
-  },
-}
-
-const NAV_SWEEP_VARIANTS: Variants = {
-  rest: { opacity: 0, x: 0 },
-  hover: {
-    opacity: [0, 0.62, 0],
-    x: 230,
-    transition: { duration: 0.46, ease: 'easeOut' },
-  },
-}
 
 function UsageGuide({ open }: { open: boolean }) {
   return (
@@ -162,9 +145,9 @@ export default function App() {
   const [capabilityTarget, setCapabilityTarget] = useState<CapabilityCenterTarget>({ view: 'overview' })
   const [sourceHighlight, setSourceHighlight] = useState<SourceHighlightRequest | null>(null)
   const prefersReducedMotion = useReducedMotion()
-  const { loaded, fetchConfig } = useConfigStore()
+  const loaded = useConfigStore((state) => state.loaded)
+  const fetchConfig = useConfigStore((state) => state.fetchConfig)
   const openSourceById = useExploreStore((state) => state.openSourceById)
-  useThemeStore()
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -205,7 +188,8 @@ export default function App() {
     if (opened) setPage('explore')
   }, [openSourceById])
 
-  const renderPage = () => {
+  const renderTransientPage = () => {
+    if (page === 'explore') return null
     if (page === 'settings') return <Settings />
     if (page === 'library') {
       return (
@@ -220,8 +204,10 @@ export default function App() {
     if (page === 'research') return <Research onOpenSource={handleOpenSource} />
     if (page === 'analytics') return <Analytics />
     if (page === 'capabilities') return <CapabilityCenter target={capabilityTarget} />
-    return <Explore sourceHighlight={sourceHighlight} onSourceHighlightConsumed={handleSourceHighlightConsumed} />
+    return null
   }
+
+  const transientPage = renderTransientPage()
 
   return (
     <div className="relative flex h-screen flex-col overflow-hidden bg-bg text-fg ring-1 ring-inset ring-border-strong">
@@ -233,111 +219,89 @@ export default function App() {
       <AppTitleBar />
 
       <div className="relative z-10 flex min-h-0 flex-1 overflow-hidden">
-        <motion.nav
+        <nav
           className="flex w-52 shrink-0 flex-col border-r border-border bg-bg-elevated px-3 py-5"
-          initial={prefersReducedMotion ? false : { opacity: 0, x: -14 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.28, ease: 'easeOut' }}
         >
           {NAV.map(({ id, label, icon: Icon }) => (
             <div key={id}>
-              <motion.button
+              <button
                 onClick={() => setPage(id)}
-                variants={NAV_ITEM_VARIANTS}
-                initial="rest"
-                whileHover={prefersReducedMotion ? undefined : 'hover'}
-                whileTap={prefersReducedMotion ? undefined : { scale: 0.98 }}
                 aria-current={page === id ? 'page' : undefined}
                 className={cn(
                   'group/nav relative isolate flex w-full items-center gap-2.5 overflow-hidden rounded-md px-2.5 py-2 text-sm transition-colors',
-                  page === id ? 'text-fg' : 'text-fg-muted hover:text-fg'
+                  page === id ? 'bg-bg-hover text-fg' : 'text-fg-muted hover:bg-bg-hover/60 hover:text-fg'
                 )}
               >
-                <motion.span
-                  aria-hidden
-                  className="pointer-events-none absolute inset-y-1 -left-12 w-12 bg-accent/20"
-                  variants={NAV_SWEEP_VARIANTS}
-                />
                 {page === id && (
-                  <>
-                    <motion.span
-                      layoutId="active-nav"
-                      className="absolute inset-0 rounded-md bg-bg-hover"
-                      transition={{ type: 'spring', stiffness: 420, damping: 34 }}
-                    />
-                    <motion.span
-                      layoutId="active-nav-rail"
-                      className="absolute left-1 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-accent"
-                      transition={{ type: 'spring', stiffness: 520, damping: 36 }}
-                    />
-                  </>
+                  <span className="absolute left-1 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-full bg-accent" />
                 )}
                 <Icon className="relative" size={16} />
                 <span className="relative">{label}</span>
-              </motion.button>
+              </button>
               {id === 'settings' && (
                 <div>
-                  <motion.button
+                  <button
                     type="button"
                     onClick={() => setUsageOpen(value => !value)}
-                    variants={NAV_ITEM_VARIANTS}
-                    initial="rest"
-                    whileHover={prefersReducedMotion ? undefined : 'hover'}
-                    whileTap={prefersReducedMotion ? undefined : { scale: 0.98 }}
                     className={cn(
                       'group/nav relative isolate mt-1 flex w-full items-center gap-2.5 overflow-hidden rounded-md px-2.5 py-2 text-sm transition-colors',
-                      usageOpen ? 'text-fg' : 'text-fg-muted hover:text-fg'
+                      usageOpen ? 'bg-bg-hover text-fg' : 'text-fg-muted hover:bg-bg-hover/60 hover:text-fg'
                     )}
                   >
-                    <motion.span
-                      aria-hidden
-                      className="pointer-events-none absolute inset-y-1 -left-12 w-12 bg-accent/20"
-                      variants={NAV_SWEEP_VARIANTS}
-                    />
-                    {usageOpen && (
-                      <motion.span
-                        layoutId="active-usage-guide"
-                        className="absolute inset-0 rounded-md bg-bg-hover"
-                        transition={{ type: 'spring', stiffness: 420, damping: 34 }}
-                      />
-                    )}
                     <HelpCircle className="relative" size={16} />
                     <span className="relative min-w-0 flex-1 text-left">使用说明</span>
                     <ChevronDown size={13} className={cn('relative transition-transform', usageOpen && 'rotate-180')} />
-                  </motion.button>
+                  </button>
                   <UsageGuide open={usageOpen} />
                 </div>
               )}
             </div>
           ))}
-        </motion.nav>
+        </nav>
 
         <main className="relative min-w-0 flex-1 overflow-y-auto">
-          <AnimatePresence mode="wait">
-            <motion.section
-              key={page}
-              className="relative h-full min-h-full"
-              initial={prefersReducedMotion ? false : { opacity: 0, y: 8, scale: 0.995 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: -6, scale: 0.995 }}
-              transition={{ duration: 0.2, ease: 'easeOut' }}
+          <section className={cn('relative h-full min-h-full', page !== 'explore' && 'hidden')}>
+            <Suspense
+              fallback={(
+                <div className="flex h-full min-h-full items-center justify-center text-sm text-fg-faint">
+                  加载页面…
+                </div>
+              )}
             >
-              <motion.div
-                className="pointer-events-none absolute inset-x-0 top-0 z-10 h-px origin-left bg-accent"
-                initial={{ opacity: 0.7, scaleX: 0 }}
-                animate={{ opacity: 0, scaleX: 1 }}
-                transition={{ duration: 0.44, ease: 'easeOut' }}
+              <Explore
+                active={page === 'explore'}
+                sourceHighlight={sourceHighlight}
+                onSourceHighlightConsumed={handleSourceHighlightConsumed}
               />
-              <Suspense
-                fallback={(
-                  <div className="flex h-full min-h-full items-center justify-center text-sm text-fg-faint">
-                    加载页面…
-                  </div>
-                )}
+            </Suspense>
+          </section>
+          <AnimatePresence mode="wait">
+            {transientPage && (
+              <motion.section
+                key={page}
+                className="relative h-full min-h-full"
+                initial={prefersReducedMotion ? false : { opacity: 0, y: 2 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.12, ease: 'easeOut' }}
               >
-                {renderPage()}
-              </Suspense>
-            </motion.section>
+                <motion.div
+                  className="pointer-events-none absolute inset-x-0 top-0 z-10 h-px origin-left bg-accent"
+                  initial={{ opacity: 0.7, scaleX: 0 }}
+                  animate={{ opacity: 0, scaleX: 1 }}
+                  transition={{ duration: 0.16, ease: 'easeOut' }}
+                />
+                <Suspense
+                  fallback={(
+                    <div className="flex h-full min-h-full items-center justify-center text-sm text-fg-faint">
+                      加载页面…
+                    </div>
+                  )}
+                >
+                  {transientPage}
+                </Suspense>
+              </motion.section>
+            )}
           </AnimatePresence>
         </main>
       </div>

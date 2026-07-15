@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
 use anyhow::{Context, Result};
@@ -11,6 +11,7 @@ use tauri::{AppHandle, Manager, Wry};
 const DB_FILE: &str = "deep_explorer.db";
 const REVIEW_QUEUE_DEFAULT_LIMIT: i64 = 12;
 const REVIEW_QUEUE_MAX_LIMIT: i64 = 50;
+static INITIALIZED_DB_PATHS: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
 
 /// A point persisted in the local SQLite library, returned to the frontend.
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -1393,17 +1394,64 @@ pub fn db_path(app: &AppHandle<Wry>) -> Result<PathBuf> {
 
 /// Open a connection to the library DB and ensure the schema is up to date.
 pub fn open_db(path: &Path) -> Result<Connection> {
-    static DB_INITIALIZATION_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    let _initialization_guard = DB_INITIALIZATION_LOCK
-        .get_or_init(|| Mutex::new(()))
+    let initialization_key = db_initialization_key(path);
+    let initialized_paths = INITIALIZED_DB_PATHS.get_or_init(|| Mutex::new(HashSet::new()));
+    let mut initialized = initialized_paths
         .lock()
         .map_err(|_| anyhow::anyhow!("database initialization lock was poisoned"))?;
+    if initialized.contains(&initialization_key)
+        && path.exists()
+        && fs::metadata(path).map(|metadata| metadata.len()).unwrap_or(0) > 0
+    {
+        drop(initialized);
+        return Connection::open(path).context("failed to open library DB");
+    }
+
+    initialized.remove(&initialization_key);
     prepare_schema_migration_backup(path)?;
     let conn = Connection::open(path).context("failed to open library DB")?;
     init_db(&conn)?;
     conn.pragma_update(None, "user_version", 1_i64)
         .context("failed to record database schema version")?;
+    initialized.insert(initialization_key);
     Ok(conn)
+}
+
+fn db_initialization_key(path: &Path) -> PathBuf {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map(|cwd| cwd.join(path))
+            .unwrap_or_else(|_| path.to_path_buf())
+    };
+
+    let mut normalized = PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                normalized.pop();
+            }
+            Component::Prefix(_) | Component::RootDir | Component::Normal(_) => {
+                normalized.push(component.as_os_str());
+            }
+        }
+    }
+    normalized
+}
+
+/// Force the next `open_db` call for this path through schema initialization.
+/// Database restore replaces the file while the process remains alive, so it
+/// must invalidate the process-local fast path after a successful swap.
+pub fn invalidate_db_initialization(path: &Path) -> Result<()> {
+    let initialization_key = db_initialization_key(path);
+    let initialized_paths = INITIALIZED_DB_PATHS.get_or_init(|| Mutex::new(HashSet::new()));
+    initialized_paths
+        .lock()
+        .map_err(|_| anyhow::anyhow!("database initialization lock was poisoned"))?
+        .remove(&initialization_key);
+    Ok(())
 }
 
 fn prepare_schema_migration_backup(path: &Path) -> Result<()> {
@@ -12324,8 +12372,19 @@ mod tests {
     }
 
     fn remove_test_db(path: &Path) {
+        let _ = invalidate_db_initialization(path);
         let _ = fs::remove_file(path);
         let _ = fs::remove_file(path.with_extension("pre-semantic-v1.db"));
+    }
+
+    #[test]
+    fn db_initialization_key_is_stable_for_relative_paths() {
+        let relative = PathBuf::from("target").join("..").join("thepoint-key-test.db");
+        let key = db_initialization_key(&relative);
+
+        assert!(key.is_absolute());
+        assert_eq!(key, db_initialization_key(&key));
+        assert!(!key.components().any(|component| component.as_os_str() == ".."));
     }
 
     #[test]
@@ -12398,6 +12457,38 @@ mod tests {
             handle.join().unwrap().unwrap();
         }
         remove_test_db(path.as_ref());
+    }
+
+    #[test]
+    fn invalidating_open_db_fast_path_reapplies_schema() {
+        let path = temp_db_path("open-cache-invalidation");
+        let conn = open_db(&path).unwrap();
+        conn.execute("DROP TABLE suggestions", []).unwrap();
+        drop(conn);
+
+        let conn = open_db(&path).unwrap();
+        let suggestions_exist: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'suggestions'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(suggestions_exist, 0, "ordinary opens must use the initialized fast path");
+        drop(conn);
+
+        invalidate_db_initialization(&path).unwrap();
+        let conn = open_db(&path).unwrap();
+        let suggestions_exist: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'suggestions'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(suggestions_exist, 1, "invalidation must restore full schema initialization");
+        drop(conn);
+        remove_test_db(&path);
     }
 
     fn memory_db() -> Connection {

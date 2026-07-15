@@ -23,7 +23,7 @@ interface Particle {
   duration: number
 }
 
-const PARTICLES: Particle[] = Array.from({ length: 58 }, (_, id) => {
+const PARTICLES: Particle[] = Array.from({ length: 24 }, (_, id) => {
   const angle = id * 2.399963
   const distance = 90 + (id % 9) * 18
   return {
@@ -33,7 +33,7 @@ const PARTICLES: Particle[] = Array.from({ length: 58 }, (_, id) => {
     rotate: (id % 2 === 0 ? 1 : -1) * (45 + id * 7),
     scale: 0.6 + (id % 5) * 0.16,
     delay: (id % 10) * 0.012,
-    duration: 0.7 + (id % 6) * 0.04,
+    duration: 0.24 + (id % 5) * 0.025,
   }
 })
 
@@ -116,7 +116,7 @@ function SignalRings({ phase }: { phase: SplashPhase }) {
           key={ring}
           className="absolute h-32 w-32 rounded-full border border-border-strong"
           animate={active ? { opacity: [0, 0.5, 0], scale: [0.72, 1.45, 1.9] } : { opacity: 0, scale: 0.72 }}
-          transition={{ duration: 1.05, delay: ring * 0.12, ease: 'easeOut' }}
+          transition={{ duration: 0.34, delay: ring * 0.04, ease: 'easeOut' }}
         />
       ))}
     </div>
@@ -134,7 +134,7 @@ function SignalText({ text, phase }: { text: string; phase: SplashPhase }) {
             aria-hidden
             className="absolute inset-0 text-accent/60"
             animate={{ opacity: [0.5, 0.15, 0.45], x: [-3, 2, -1] }}
-            transition={{ duration: 0.22, ease: 'easeOut' }}
+            transition={{ duration: 0.1, ease: 'easeOut' }}
           >
             {text}
           </motion.span>
@@ -142,7 +142,7 @@ function SignalText({ text, phase }: { text: string; phase: SplashPhase }) {
             aria-hidden
             className="absolute inset-0 text-fg-muted/40"
             animate={{ opacity: [0.25, 0.45, 0.2], x: [3, -2, 1] }}
-            transition={{ duration: 0.18, ease: 'easeOut' }}
+            transition={{ duration: 0.09, ease: 'easeOut' }}
           >
             {text}
           </motion.span>
@@ -163,8 +163,8 @@ function ClaimText() {
           initial={{ opacity: 0, y: 18, rotateX: -60 }}
           animate={{ opacity: 1, y: 0, rotateX: 0 }}
           transition={{
-            duration: 0.38,
-            delay: index * 0.028,
+            duration: 0.14,
+            delay: index * 0.01,
             ease: [0.2, 0.9, 0.2, 1],
           }}
         >
@@ -184,19 +184,19 @@ export function StartupSplash({ onComplete, className }: StartupSplashProps) {
   useEffect(() => {
     if (prefersReducedMotion) {
       setPhase('claim')
-      const completeTimer = window.setTimeout(onComplete, 900)
+      const completeTimer = window.setTimeout(onComplete, 240)
       return () => window.clearTimeout(completeTimer)
     }
 
-    const tickTimer = window.setInterval(() => setTick((value) => value + 1), 48)
+    const tickTimer = window.setInterval(() => setTick((value) => value + 1), 32)
     const timers = [
-      window.setTimeout(() => setPhase('scrambling'), 520),
+      window.setTimeout(() => setPhase('scrambling'), 120),
       window.setTimeout(() => {
-        setBurstText(buildScramble(28))
+        setBurstText(buildScramble(10))
         setPhase('burst')
-      }, 1520),
-      window.setTimeout(() => setPhase('claim'), 2350),
-      window.setTimeout(onComplete, 3900),
+      }, 320),
+      window.setTimeout(() => setPhase('claim'), 520),
+      window.setTimeout(onComplete, 850),
     ]
 
     return () => {
@@ -217,7 +217,9 @@ export function StartupSplash({ onComplete, className }: StartupSplashProps) {
       className={cn('fixed inset-x-0 bottom-0 top-11 z-40 bg-bg text-fg', className)}
       initial={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      transition={{ duration: 0.42, ease: 'easeInOut' }}
+      transition={{ duration: 0.14, ease: 'easeOut' }}
+      onPointerDown={onComplete}
+      title="点击跳过"
     >
       <div className="absolute inset-x-10 top-10 h-px bg-border" />
       <div className="absolute inset-x-10 bottom-10 h-px bg-border" />
@@ -228,7 +230,7 @@ export function StartupSplash({ onComplete, className }: StartupSplashProps) {
         <motion.div
           className="mb-8 h-2 w-2 rounded-full bg-accent"
           animate={prefersReducedMotion ? undefined : { scale: [1, 1.8, 1], opacity: [0.5, 1, 0.5] }}
-          transition={{ duration: 1.1, repeat: Infinity, ease: 'easeInOut' }}
+          transition={{ duration: 0.42, repeat: Infinity, ease: 'easeInOut' }}
         />
 
         <div className="relative flex min-h-28 items-center justify-center text-center font-mono text-3xl font-semibold tracking-normal sm:text-5xl">
@@ -244,7 +246,7 @@ export function StartupSplash({ onComplete, className }: StartupSplashProps) {
               key="signal"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.26, ease: 'easeOut' }}
+              transition={{ duration: 0.12, ease: 'easeOut' }}
             >
               <SignalText text={displayText} phase={phase} />
             </motion.span>
@@ -256,7 +258,7 @@ export function StartupSplash({ onComplete, className }: StartupSplashProps) {
             className="h-full origin-left bg-accent"
             initial={{ scaleX: 0 }}
             animate={{ scaleX: phase === 'claim' ? 1 : phase === 'burst' ? 0.82 : 0.42 }}
-            transition={{ duration: 0.42, ease: 'easeOut' }}
+            transition={{ duration: 0.16, ease: 'easeOut' }}
           />
         </div>
       </div>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { FileText, Image, RefreshCw, Trash2, X, ChevronDown, ChevronRight } from 'lucide-react'
 import { useGalleryStore } from '@/store'
@@ -16,10 +16,14 @@ function groupBy<T>(items: T[], key: (item: T) => string): Record<string, T[]> {
 }
 
 function autoGranularity(items: GalleryItem[]): Granularity {
-  const days = new Set(items.map(i => i.generatedAt.slice(0, 10))).size
-  if (days <= 7) return 'day'
-  const months = new Set(items.map(i => i.generatedAt.slice(0, 7))).size
-  if (months <= 12) return 'month'
+  const days = new Set<string>()
+  const months = new Set<string>()
+  for (const item of items) {
+    days.add(item.generatedAt.slice(0, 10))
+    months.add(item.generatedAt.slice(0, 7))
+  }
+  if (days.size <= 7) return 'day'
+  if (months.size <= 12) return 'month'
   return 'year'
 }
 
@@ -63,15 +67,17 @@ async function logImageLoadFailure(
 
 // ── Image tile ───────────────────────────────────────────────────────────────
 function Tile({ item, onDelete, onClick }: { item: GalleryItem; onDelete: () => void; onClick: () => void }) {
-  const { log } = useGalleryStore()
+  const log = useGalleryStore((state) => state.log)
   const src = convertFileSrc(item.downloadStatus === 'ok' ? item.thumbnailPath : '')
   return (
-    <div className="group relative rounded-lg overflow-hidden cursor-pointer bg-bg-elevated border border-border"
+    <div className="perf-content-auto group relative rounded-lg overflow-hidden cursor-pointer bg-bg-elevated border border-border"
       onClick={onClick}>
       {item.downloadStatus === 'ok'
         ? <img
             src={src}
             alt={item.prompt}
+            loading="lazy"
+            decoding="async"
             className="w-full aspect-video object-cover"
             onError={() => { void logImageLoadFailure(log, '缩略图', item, item.thumbnailPath, src) }}
           />
@@ -95,7 +101,9 @@ function Tile({ item, onDelete, onClick }: { item: GalleryItem; onDelete: () => 
 // ── Day stack ────────────────────────────────────────────────────────────────
 function DayStack({ date, items, onSelect }: { date: string; items: GalleryItem[]; onSelect: (item: GalleryItem) => void }) {
   const [open, setOpen] = useState(false)
-  const { remove, retry, log } = useGalleryStore()
+  const remove = useGalleryStore((state) => state.remove)
+  const retry = useGalleryStore((state) => state.retry)
+  const log = useGalleryStore((state) => state.log)
 
   return (
     <div>
@@ -126,6 +134,8 @@ function DayStack({ date, items, onSelect }: { date: string; items: GalleryItem[
                 <img
                   src={convertFileSrc(item.thumbnailPath)}
                   alt=""
+                  loading="lazy"
+                  decoding="async"
                   className="w-full h-20 object-cover"
                   onError={() => { void logImageLoadFailure(log, '堆叠缩略图', item, item.thumbnailPath, convertFileSrc(item.thumbnailPath)) }}
                 />
@@ -141,7 +151,7 @@ function DayStack({ date, items, onSelect }: { date: string; items: GalleryItem[
 // ── Lightbox ─────────────────────────────────────────────────────────────────
 function Lightbox({ item, onClose, onDelete }: { item: GalleryItem; onClose: () => void; onDelete: () => void }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
-  const { log } = useGalleryStore()
+  const log = useGalleryStore((state) => state.log)
   const src = convertFileSrc(item.filePath)
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
@@ -202,21 +212,25 @@ function Lightbox({ item, onClose, onDelete }: { item: GalleryItem; onClose: () 
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 export default function Gallery() {
-  const { items, fetch, logs, clearLogs } = useGalleryStore()
+  const items = useGalleryStore((state) => state.items)
+  const fetch = useGalleryStore((state) => state.fetch)
+  const logs = useGalleryStore((state) => state.logs)
+  const clearLogs = useGalleryStore((state) => state.clearLogs)
+  const remove = useGalleryStore((state) => state.remove)
   const [granularity, setGranularity] = useState<Granularity | null>(null)
   const [selected, setSelected] = useState<GalleryItem | null>(null)
   const [showLogs, setShowLogs] = useState(false)
-  const { remove } = useGalleryStore()
 
   useEffect(() => { fetch() }, [fetch])
 
-  const effective = granularity ?? autoGranularity(items)
-
-  const groups = (() => {
-    if (effective === 'day') return groupBy(items, i => i.generatedAt.slice(0, 10))
-    if (effective === 'month') return groupBy(items, i => i.generatedAt.slice(0, 7))
-    return groupBy(items, i => i.generatedAt.slice(0, 4))
-  })()
+  const effective = useMemo(() => granularity ?? autoGranularity(items), [granularity, items])
+  const sortedGroups = useMemo(() => {
+    let groups: Record<string, GalleryItem[]>
+    if (effective === 'day') groups = groupBy(items, i => i.generatedAt.slice(0, 10))
+    else if (effective === 'month') groups = groupBy(items, i => i.generatedAt.slice(0, 7))
+    else groups = groupBy(items, i => i.generatedAt.slice(0, 4))
+    return Object.entries(groups).sort((a, b) => b[0].localeCompare(a[0]))
+  }, [effective, items])
 
   return (
     <div className="flex h-full flex-col">
@@ -297,7 +311,7 @@ export default function Gallery() {
               <p className="text-xs">采集 ≥10 个 star 后，在圆环面板里生成图片</p>
             </div>
           </div>
-        ) : Object.entries(groups).sort((a, b) => b[0].localeCompare(a[0])).map(([key, groupItems]) => (
+        ) : sortedGroups.map(([key, groupItems]) => (
           <div key={key}>
             {effective === 'day'
               ? <DayStack date={key} items={groupItems} onSelect={setSelected} />

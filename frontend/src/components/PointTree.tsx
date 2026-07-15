@@ -1,7 +1,7 @@
 import { motion } from 'framer-motion'
 import { Archive, ChevronRight, CornerDownRight, LocateFixed, Trash2, X } from 'lucide-react'
 import { useState } from 'react'
-import type { StoredPoint } from '@/api/types'
+import type { AppConfig, StoredPoint } from '@/api/types'
 import { useLibraryStore } from '@/store'
 import { cn } from '@/lib/utils'
 import { DeepenActions } from './DeepenActions'
@@ -39,7 +39,17 @@ interface DigestReference {
   body: string
 }
 
-function digestReferences(sourceExcerpt: string | null): DigestReference[] {
+type UiLanguage = AppConfig['uiLanguage']
+
+function isZh(language: UiLanguage): boolean {
+  return language !== 'en-US'
+}
+
+function copy(language: UiLanguage, zh: string, en: string): string {
+  return isZh(language) ? zh : en
+}
+
+function digestReferences(sourceExcerpt: string | null, language: UiLanguage): DigestReference[] {
   const excerpt = sourceExcerpt?.trim()
   if (!excerpt) return []
 
@@ -51,7 +61,7 @@ function digestReferences(sourceExcerpt: string | null): DigestReference[] {
     if (!Number.isFinite(index)) return []
     return [{
       index,
-      title: `Star [${index}]`,
+      title: copy(language, `星标 [${index}]`, `Star [${index}]`),
       body: section.replace(/^### Star (?:\[\d+\]|\d+)\s*/, '').trim(),
     }]
   })
@@ -79,12 +89,12 @@ function shouldCollapsePoint(point: StoredPoint): boolean {
   return point.content.length > 360 || point.content.split(/\r?\n/).length > 5
 }
 
-function PointContent({ point }: { point: StoredPoint }) {
+function PointContent({ point, language }: { point: StoredPoint; language: UiLanguage }) {
   const [expanded, setExpanded] = useState(false)
   const [openRef, setOpenRef] = useState<DigestReference | null>(null)
   const renderMarkdown = shouldRenderMarkdown(point)
   const collapsible = shouldCollapsePoint(point)
-  const refs = point.tagType === '研报摘要' ? digestReferences(point.sourceExcerpt) : []
+  const refs = point.tagType === '研报摘要' ? digestReferences(point.sourceExcerpt, language) : []
   const content = renderMarkdown
     ? linkDigestReferences(normalizePointMarkdown(point.content), refs)
     : point.content
@@ -124,7 +134,7 @@ function PointContent({ point }: { point: StoredPoint }) {
           onClick={() => setExpanded(value => !value)}
           className="mt-2 rounded-md border border-border px-2 py-1 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg"
         >
-          {expanded ? '收起' : '展开全文'}
+          {expanded ? copy(language, '收起', 'Collapse') : copy(language, '展开全文', 'Expand')}
         </button>
       )}
       {openRef && (
@@ -146,13 +156,13 @@ function PointContent({ point }: { point: StoredPoint }) {
             <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
               <div>
                 <p className="text-sm font-medium text-fg">{openRef.title}</p>
-                <p className="mt-0.5 text-xs text-fg-faint">研报引用来源</p>
+                <p className="mt-0.5 text-xs text-fg-faint">{copy(language, '研报引用来源', 'Report citation source')}</p>
               </div>
               <button
                 type="button"
                 onClick={() => setOpenRef(null)}
                 className="rounded-md p-1 text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg"
-                aria-label="关闭"
+                aria-label={copy(language, '关闭', 'Close')}
               >
                 <X size={15} />
               </button>
@@ -174,15 +184,16 @@ interface PointTreeProps {
   onArchive?: (id: string) => void
   onOpenSource?: (point: StoredPoint) => void
   onOpenEvidenceSource?: (sourceId: string, chunkIndex: number | null) => void
+  language?: UiLanguage
   className?: string
 }
 
-export function PointTree({ points, onArchive, onOpenSource, onOpenEvidenceSource, className }: PointTreeProps) {
+export function PointTree({ points, onArchive, onOpenSource, onOpenEvidenceSource, language = 'zh-CN', className }: PointTreeProps) {
   const roots = buildTree(points)
   return (
     <div className={cn('space-y-3', className)}>
-      {roots.map((node, i) => (
-        <TreeRow key={node.point.id} node={node} depth={0} index={i} onArchive={onArchive} onOpenSource={onOpenSource} onOpenEvidenceSource={onOpenEvidenceSource} />
+      {roots.map((node) => (
+        <TreeRow key={node.point.id} node={node} depth={0} onArchive={onArchive} onOpenSource={onOpenSource} onOpenEvidenceSource={onOpenEvidenceSource} language={language} />
       ))}
     </div>
   )
@@ -191,17 +202,18 @@ export function PointTree({ points, onArchive, onOpenSource, onOpenEvidenceSourc
 interface TreeRowProps {
   node: TreeNode
   depth: number
-  index: number
   onArchive?: (id: string) => void
   onOpenSource?: (point: StoredPoint) => void
   onOpenEvidenceSource?: (sourceId: string, chunkIndex: number | null) => void
+  language: UiLanguage
 }
 
-function TreeRow({ node, depth, index, onArchive, onOpenSource, onOpenEvidenceSource }: TreeRowProps) {
+function TreeRow({ node, depth, onArchive, onOpenSource, onOpenEvidenceSource, language }: TreeRowProps) {
   const { point, children } = node
-  const { expanded, toggleExpanded, deletePoint } = useLibraryStore()
+  const isOpen = useLibraryStore((state) => state.expanded[point.id] ?? false)
+  const toggleExpanded = useLibraryStore((state) => state.toggleExpanded)
+  const deletePoint = useLibraryStore((state) => state.deletePoint)
   const hasChildren = children.length > 0
-  const isOpen = expanded[point.id] ?? false
   const tagClass = (point.tagType && TAG_STYLES[point.tagType]) || TAG_FALLBACK
 
   const handleDelete = () => {
@@ -212,24 +224,22 @@ function TreeRow({ node, depth, index, onArchive, onOpenSource, onOpenEvidenceSo
 
   return (
     <div>
-      <motion.div
+      <div
         data-point-id={point.id}
-        initial={{ opacity: 0, y: 4 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.18, delay: Math.min(index * 0.02, 0.2) }}
-        className="group relative rounded-lg border border-border bg-bg-elevated p-4"
+        className="perf-content-auto group relative rounded-lg border border-border bg-bg-elevated p-4"
       >
         <div className="flex items-start gap-2">
           <SourceExcerptButton
             point={point}
+            language={language}
             className="absolute right-20 top-3 text-fg-faint opacity-0 transition-opacity hover:text-accent group-hover:opacity-100"
           />
           {onOpenSource && (
             <button
               onClick={() => onOpenSource(point)}
               className="absolute right-14 top-3 text-fg-faint opacity-0 transition-opacity hover:text-accent group-hover:opacity-100"
-              aria-label="定位来源"
-              title="定位来源"
+              aria-label={copy(language, '定位来源', 'Locate source')}
+              title={copy(language, '定位来源', 'Locate source')}
             >
               <LocateFixed size={14} />
             </button>
@@ -237,7 +247,7 @@ function TreeRow({ node, depth, index, onArchive, onOpenSource, onOpenEvidenceSo
           <button
             onClick={handleDelete}
             className="absolute right-3 top-3 opacity-0 group-hover:opacity-100 transition-opacity text-fg-faint hover:text-red-400"
-            aria-label="删除"
+            aria-label={copy(language, '删除', 'Delete')}
           >
             <Trash2 size={14} />
           </button>
@@ -245,7 +255,7 @@ function TreeRow({ node, depth, index, onArchive, onOpenSource, onOpenEvidenceSo
             <button
               onClick={() => onArchive(point.id)}
               className="absolute right-9 top-3 opacity-0 group-hover:opacity-100 transition-opacity text-fg-faint hover:text-fg-muted"
-              aria-label="归档"
+              aria-label={copy(language, '归档', 'Archive')}
             >
               <Archive size={14} />
             </button>
@@ -254,7 +264,7 @@ function TreeRow({ node, depth, index, onArchive, onOpenSource, onOpenEvidenceSo
             <button
               onClick={() => toggleExpanded(point.id)}
               className="mt-0.5 shrink-0 text-fg-faint transition-colors hover:text-fg"
-              aria-label={isOpen ? '收起' : '展开'}
+              aria-label={isOpen ? copy(language, '收起', 'Collapse') : copy(language, '展开', 'Expand')}
             >
               <ChevronRight
                 size={16}
@@ -280,8 +290,8 @@ function TreeRow({ node, depth, index, onArchive, onOpenSource, onOpenEvidenceSo
                 {point.tagType}
               </span>
             )}
-            <PointContent point={point} />
-            <PointEvidence pointId={point.id} onOpenSource={onOpenEvidenceSource} />
+            <PointContent point={point} language={language} />
+            <PointEvidence pointId={point.id} language={language} onOpenSource={onOpenEvidenceSource} />
             {(point.sourceDocName || point.createdAt) && (
               <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-fg-faint">
                 {point.sourceDocName && (
@@ -294,19 +304,19 @@ function TreeRow({ node, depth, index, onArchive, onOpenSource, onOpenEvidenceSo
             <DeepenActions point={point} />
           </div>
         </div>
-      </motion.div>
+      </div>
 
       {hasChildren && isOpen && (
         <div className="mt-3 space-y-3 border-l border-border pl-4 sm:pl-5">
-          {children.map((child, i) => (
+          {children.map((child) => (
             <TreeRow
               key={child.point.id}
               node={child}
               depth={depth + 1}
-              index={i}
               onArchive={onArchive}
               onOpenSource={onOpenSource}
               onOpenEvidenceSource={onOpenEvidenceSource}
+              language={language}
             />
           ))}
         </div>

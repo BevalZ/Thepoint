@@ -599,6 +599,8 @@ fn restore_database_files(path: &Path, backup: &Path, safety: &Path) -> Result<(
     if previous.exists() {
         fs::remove_file(previous).context("failed to remove restore swap file")?;
     }
+    db::invalidate_db_initialization(path)
+        .context("failed to invalidate database initialization after restore")?;
     Ok(())
 }
 

@@ -33,14 +33,17 @@ const BASIC_ACTIONS = [
 ] as const
 
 export function DeepenActions({ point, className }: DeepenActionsProps) {
-  const { deepen, addManualThought, addFactCheck, findSimilarFor, deepening, similar } = useLibraryStore()
-  const {
-    mentalModels,
-    recommendations,
-    recommending,
-    fetchMentalModels,
-    fetchRecommendations,
-  } = useDeepenStore()
+  const deepen = useLibraryStore((state) => state.deepen)
+  const addManualThought = useLibraryStore((state) => state.addManualThought)
+  const addFactCheck = useLibraryStore((state) => state.addFactCheck)
+  const findSimilarFor = useLibraryStore((state) => state.findSimilarFor)
+  const busy = useLibraryStore((state) => state.deepening[point.id] ?? false)
+  const matches = useLibraryStore((state) => state.similar[point.id] ?? [])
+  const mentalModels = useDeepenStore((state) => state.mentalModels)
+  const recs = useDeepenStore((state) => state.recommendations[point.id] ?? [])
+  const loadingRecs = useDeepenStore((state) => state.recommending[point.id] ?? false)
+  const fetchMentalModels = useDeepenStore((state) => state.fetchMentalModels)
+  const fetchRecommendations = useDeepenStore((state) => state.fetchRecommendations)
 
   const [panelOpen, setPanelOpen] = useState(false)
   const [showAll, setShowAll] = useState(false)
@@ -55,10 +58,6 @@ export function DeepenActions({ point, className }: DeepenActionsProps) {
   const [factChecking, setFactChecking] = useState(false)
   const [factError, setFactError] = useState<string | null>(null)
 
-  const busy = deepening[point.id] ?? false
-  const recs = recommendations[point.id] ?? []
-  const loadingRecs = recommending[point.id] ?? false
-  const matches = similar[point.id] ?? []
   const sourceExcerpt = point.sourceExcerpt ? point.sourceExcerpt.trim() : ''
   const factCheckContext = sourceExcerpt
     ? `【提取出的事实陈述】\n${point.content}\n\n【解析块原文】\n${sourceExcerpt}`

@@ -60,7 +60,7 @@ function applyTheme(mode: ThemeMode, accent: string, uiFont: UiFontKey, codeFont
 export const useThemeStore = create<ThemeStore>((set) => {
   const mode     = (localStorage.getItem(LS_THEME)     ?? 'dark')   as ThemeMode
   const accent   =  localStorage.getItem(LS_ACCENT)    ?? '#6366f1'
-  const uiFont   = (localStorage.getItem(LS_UI_FONT)   ?? 'noto')   as UiFontKey
+  const uiFont   = (localStorage.getItem(LS_UI_FONT)   ?? 'system') as UiFontKey
   const codeFont = (localStorage.getItem(LS_CODE_FONT) ?? 'monaco') as CodeFontKey
   const fontSize = (localStorage.getItem(LS_FONT_SIZE) ?? 'md')     as FontSize
   applyTheme(mode, accent, uiFont, codeFont, fontSize)

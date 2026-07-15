@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect } from 'react'
-import { motion, type Variants } from 'framer-motion'
 import { Pencil, Trash2, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { ExtractedPoint } from '@/api/types'
@@ -22,26 +21,6 @@ const TAG_STYLES: Record<string, string> = {
 
 const TAG_FALLBACK = 'border-border-strong bg-bg-hover text-fg-muted'
 const TAG_OPTIONS = ['事实陈述', '作者观点', '待验证疑问'] as const
-const CARD_INTERACTION_VARIANTS: Variants = {
-  hover: {
-    y: -3,
-    scale: 1.008,
-    transition: { duration: 0.16, ease: 'easeOut' },
-  },
-  tap: {
-    scale: 0.996,
-    transition: { duration: 0.1, ease: 'easeOut' },
-  },
-}
-const CARD_SWEEP_VARIANTS: Variants = {
-  rest: { opacity: 0, x: 0 },
-  hover: {
-    opacity: [0, 0.42, 0],
-    x: 420,
-    transition: { duration: 0.52, ease: 'easeOut' },
-  },
-}
-
 function formatDate(value: string): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
@@ -90,27 +69,13 @@ export function PointCard({
   }
 
   return (
-    <motion.div
-      variants={CARD_INTERACTION_VARIANTS}
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      whileHover={editing ? undefined : 'hover'}
-      whileTap={editing ? undefined : 'tap'}
-      transition={{ duration: 0.2, delay: index * 0.03 }}
+    <div
+      data-point-index={index}
       className={cn(
-        'group relative isolate overflow-hidden rounded-lg border border-border bg-bg-elevated p-4 transition-colors hover:border-border-strong',
+        'perf-content-auto group relative isolate overflow-hidden rounded-lg border border-border bg-bg-elevated p-4 transition-colors hover:border-border-strong',
         className
       )}
     >
-      {!editing && (
-        <motion.span
-          aria-hidden
-          className="pointer-events-none absolute inset-y-2 -left-24 w-20 rounded-full bg-accent/15"
-          initial="rest"
-          variants={CARD_SWEEP_VARIANTS}
-        />
-      )}
-
       {!editing && (onEdit || onRemove) && (
         <div className="absolute right-3 top-3 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100">
           {onEdit && (
@@ -181,6 +146,6 @@ export function PointCard({
           {createdAt && <span>{formatDate(createdAt)}</span>}
         </div>
       ) : null}
-    </motion.div>
+    </div>
   )
 }

@@ -34,6 +34,7 @@ import { useConfigStore, useExploreHistoryStore, useExploreStore, useStarStore }
 import { cn } from '@/lib/utils'
 import { initialExplorePresentation } from '@/lib/explorePresentation'
 import { useStarFly } from '@/hooks/useStarFly'
+import { useNearViewport } from '@/hooks/useNearViewport'
 import { addReviewItem, analyzeTextBlock, describeImage, discoverRelatedAssets, factCheckClaim, generateInvestigation, getSourceAssets, listRecentJournalEntries, listRecentSources, saveEvidence, savePoints } from '@/api'
 import type { AppConfig, AssetRelationRecord, ChunkCard, DigestResult, EvidenceRecord, ExploreHistoryItem, ExploreSourceMetadata, FactCheckResult, JournalEntry, ReportRecord, SourceAssetsRecord, SourceSummaryRecord, StoredPoint } from '@/api/types'
 import { ExternalLinkPreview } from '@/components/ExternalLinkPreview'
@@ -63,19 +64,7 @@ const STAGE_ADVANCE_MS = 720
 const STAGE_CATCHUP_MS = 260
 const RESULT_REVEAL_START_MS = 180
 const RESULT_REVEAL_MS = 180
-const ORBIT_DOTS = [
-  'rotate-0',
-  'rotate-[36deg]',
-  'rotate-[72deg]',
-  'rotate-[108deg]',
-  'rotate-[144deg]',
-  'rotate-180',
-  'rotate-[216deg]',
-  'rotate-[252deg]',
-  'rotate-[288deg]',
-  'rotate-[324deg]',
-]
-const STATUS_DOTS = Array.from({ length: 5 }, (_, index) => index)
+
 const STAR_BURST = [
   { x: -24, y: -16, rotate: -28, size: 7 },
   { x: 18, y: -22, rotate: 22, size: 6 },
@@ -376,21 +365,9 @@ function ScrollMoreHint({ visible, className }: { visible: boolean; className?: 
           exit={{ opacity: 0, y: 4 }}
           className={cn('pointer-events-none absolute bottom-3 left-1/2 z-10 -translate-x-1/2', className)}
         >
-          <motion.div
-            animate={{
-              y: [0, 6, 0],
-              opacity: [0.62, 1, 0.68],
-              boxShadow: [
-                '0 0 14px rgba(226,232,240,0.32), 0 0 22px rgba(56,189,248,0.18)',
-                '0 0 24px rgba(226,232,240,0.82), 0 0 38px rgba(56,189,248,0.45)',
-                '0 0 16px rgba(226,232,240,0.38), 0 0 24px rgba(56,189,248,0.22)',
-              ],
-            }}
-            transition={{ duration: 0.95, repeat: Infinity, ease: 'easeInOut' }}
-            className="flex h-8 w-8 items-center justify-center rounded-full border border-cyan-100/55 bg-bg-elevated/75 text-cyan-50 backdrop-blur-sm"
-          >
+          <div className="flex h-8 w-8 items-center justify-center rounded-full border border-cyan-100/55 bg-bg-elevated/75 text-cyan-50 backdrop-blur-sm">
             <ChevronDown size={17} strokeWidth={2.4} />
-          </motion.div>
+          </div>
         </motion.div>
       )}
     </AnimatePresence>
@@ -1650,19 +1627,39 @@ function AnalysisLink({ sourceElement }: AnalysisLinkProps) {
       if (!alive) return
       const rect = sourceElement.getBoundingClientRect()
       const cardWidth = Math.min(320, window.innerWidth - 32)
-      setPoints({
+      const next = {
         x: rect.right + 8,
         y: rect.top + rect.height / 2,
         targetX: window.innerWidth - cardWidth - 16,
         targetY: window.innerHeight / 2,
+      }
+      setPoints((previous) => (
+        previous
+          && previous.x === next.x
+          && previous.y === next.y
+          && previous.targetX === next.targetX
+          && previous.targetY === next.targetY
+          ? previous
+          : next
+      ))
+    }
+
+    const scheduleUpdate = () => {
+      if (frame !== 0) return
+      frame = window.requestAnimationFrame(() => {
+        frame = 0
+        update()
       })
-      frame = window.requestAnimationFrame(update)
     }
 
     update()
+    window.addEventListener('resize', scheduleUpdate)
+    document.addEventListener('scroll', scheduleUpdate, true)
     return () => {
       alive = false
-      window.cancelAnimationFrame(frame)
+      window.removeEventListener('resize', scheduleUpdate)
+      document.removeEventListener('scroll', scheduleUpdate, true)
+      if (frame !== 0) window.cancelAnimationFrame(frame)
     }
   }, [sourceElement])
 
@@ -1695,11 +1692,11 @@ function AnalysisLink({ sourceElement }: AnalysisLinkProps) {
         strokeWidth="9"
         strokeLinecap="round"
         initial={{ pathLength: 0, opacity: 0 }}
-        animate={{ pathLength: 1, opacity: [0.28, 0.58, 0.32] }}
+        animate={{ pathLength: 1, opacity: 0.38 }}
         exit={{ pathLength: 0, opacity: 0 }}
         transition={{
           pathLength: { duration: 0.22, ease: 'easeOut' },
-          opacity: { duration: 0.95, repeat: Infinity, ease: 'easeInOut' },
+          opacity: { duration: 0.18, ease: 'easeOut' },
         }}
       />
       <motion.path
@@ -1711,12 +1708,11 @@ function AnalysisLink({ sourceElement }: AnalysisLinkProps) {
         strokeDasharray="9 11"
         filter="url(#analysis-link-glow)"
         initial={{ pathLength: 0, opacity: 0 }}
-        animate={{ pathLength: 1, opacity: [0.55, 1, 0.66], strokeDashoffset: [0, -56] }}
+        animate={{ pathLength: 1, opacity: 0.82 }}
         exit={{ pathLength: 0, opacity: 0 }}
         transition={{
           pathLength: { duration: 0.26, ease: 'easeOut' },
-          opacity: { duration: 0.82, repeat: Infinity, ease: 'easeInOut' },
-          strokeDashoffset: { duration: 0.9, repeat: Infinity, ease: 'linear' },
+          opacity: { duration: 0.18, ease: 'easeOut' },
         }}
       />
       <motion.circle
@@ -1725,9 +1721,9 @@ function AnalysisLink({ sourceElement }: AnalysisLinkProps) {
         r="5.5"
         fill="rgba(255,255,255,0.92)"
         initial={{ scale: 0, opacity: 0 }}
-        animate={{ scale: [0.75, 1.65, 0.75], opacity: [0.48, 1, 0.48] }}
+        animate={{ scale: 1, opacity: 0.84 }}
         exit={{ scale: 0, opacity: 0 }}
-        transition={{ duration: 0.72, repeat: Infinity, ease: 'easeInOut' }}
+        transition={{ duration: 0.22, ease: 'easeOut' }}
         filter="url(#analysis-link-glow)"
       />
       <motion.circle
@@ -1736,9 +1732,9 @@ function AnalysisLink({ sourceElement }: AnalysisLinkProps) {
         r="4"
         fill="rgba(226,232,240,0.9)"
         initial={{ scale: 0, opacity: 0 }}
-        animate={{ scale: [0.8, 1.4, 0.8], opacity: [0.42, 0.95, 0.42] }}
+        animate={{ scale: 1, opacity: 0.8 }}
         exit={{ scale: 0, opacity: 0 }}
-        transition={{ duration: 0.78, repeat: Infinity, ease: 'easeInOut' }}
+        transition={{ duration: 0.22, ease: 'easeOut' }}
         filter="url(#analysis-link-glow)"
       />
     </svg>
@@ -1889,12 +1885,9 @@ function CommentAnnotationMark({ claim, annotation, colors }: {
             aria-label="查看 Comment"
             className="relative -top-1 ml-0.5 inline-flex align-super text-[0.5em] text-zinc-200 drop-shadow-[0_0_5px_rgba(226,232,240,0.85)] transition-transform hover:scale-125"
           >
-            <motion.span
-              animate={{ opacity: [0.45, 1, 0.6], scale: [0.88, 1.22, 0.96] }}
-              transition={{ duration: 1.35, repeat: Infinity, ease: 'easeInOut' }}
-            >
+            <span>
               <Star size={10} fill="currentColor" />
-            </motion.span>
+            </span>
           </button>
           <AnimatePresence>
             {open && (
@@ -1917,6 +1910,8 @@ function CommentAnnotationMark({ claim, annotation, colors }: {
 }
 
 function FactCheckInlineStar({ loading, onOpen }: { loading: boolean; onOpen: (anchor: HTMLElement) => void }) {
+  const star = <Star size={11} fill="currentColor" />
+
   return (
     <button
       type="button"
@@ -1928,22 +1923,24 @@ function FactCheckInlineStar({ loading, onOpen }: { loading: boolean; onOpen: (a
       aria-label={loading ? '事实审查运行中，点击展开' : '查看事实审查'}
       className="relative -top-1 ml-0.5 inline-flex align-super text-[0.52em] text-cyan-100 transition-transform hover:scale-125"
     >
-      <motion.span
-        animate={loading
-          ? {
-              opacity: [0.35, 1, 0.42],
-              scale: [0.78, 1.34, 0.9],
-              filter: [
-                'drop-shadow(0 0 4px rgba(103,232,249,0.45))',
-                'drop-shadow(0 0 12px rgba(103,232,249,0.95))',
-                'drop-shadow(0 0 5px rgba(103,232,249,0.5))',
-              ],
-            }
-          : { opacity: [0.52, 0.9, 0.52], scale: [0.92, 1.12, 0.92] }}
-        transition={{ duration: loading ? 0.88 : 1.45, repeat: Infinity, ease: 'easeInOut' }}
-      >
-        <Star size={11} fill="currentColor" />
-      </motion.span>
+      {loading ? (
+        <motion.span
+          animate={{
+            opacity: [0.35, 1, 0.42],
+            scale: [0.78, 1.34, 0.9],
+            filter: [
+              'drop-shadow(0 0 4px rgba(103,232,249,0.45))',
+              'drop-shadow(0 0 12px rgba(103,232,249,0.95))',
+              'drop-shadow(0 0 5px rgba(103,232,249,0.5))',
+            ],
+          }}
+          transition={{ duration: 0.88, repeat: Infinity, ease: 'easeInOut' }}
+        >
+          {star}
+        </motion.span>
+      ) : (
+        <span>{star}</span>
+      )}
     </button>
   )
 }
@@ -2389,26 +2386,14 @@ function ThemeBlock({ card, index, starred, onOpen, onToggleStar, onAnalyze, onR
   const highlightSegments = splitSourceHighlight(selectableText, sourceHighlight)
   const shouldRenderAnnotations = displayText !== undefined || userAnnotations.length > 0 || activeFactCheck?.blockIndex === index
   return (
-    <motion.div
+    <div
       ref={blockRef}
-      initial={{ opacity: 0, y: 58, scale: 0.96 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ type: 'spring', stiffness: 250, damping: 24 }}
-      className="group relative flex items-center gap-3"
+      className="perf-content-auto group relative flex items-center gap-3"
     >
       <div className={cn(
         'relative min-h-0 flex-1 overflow-hidden rounded-xl border border-border px-4 py-3 text-sm leading-relaxed shadow-[0_12px_34px_rgba(0,0,0,0.18)]',
         muted ? 'bg-bg/70 text-fg-muted' : 'bg-bg-elevated text-fg'
       )}>
-        {!muted && (
-          <motion.span
-            aria-hidden
-            className="pointer-events-none absolute inset-y-0 -left-28 w-20 bg-accent/20"
-            initial={{ x: 0, skewX: -18 }}
-            animate={{ x: 720, skewX: -18 }}
-            transition={{ duration: 0.62, ease: 'easeOut', delay: 0.08 }}
-          />
-        )}
         <div className="relative" data-selectable-text="true" data-block-index={index}>
           {shouldRenderAnnotations ? (
             highlightSegments ? (
@@ -2473,7 +2458,7 @@ function ThemeBlock({ card, index, starred, onOpen, onToggleStar, onAnalyze, onR
           {analyzing ? <Loader2 size={20} className="animate-spin" /> : <Star size={20} fill={starred ? 'currentColor' : 'none'} />}
         </motion.button>
       ) : null}
-    </motion.div>
+    </div>
   )
 }
 
@@ -2487,6 +2472,7 @@ function SourceImageBlock({ block, active, shouldDescribe, descriptions, setDesc
   onImageError?: () => void
 }) {
   const [failed, setFailed] = useState(false)
+  const { ref, nearViewport } = useNearViewport<HTMLDivElement>('640px')
   const caption = block.caption ?? meaningfulCaption(block.alt)
   const generated = descriptions[block.src]
   const canDescribe = shouldDescribe && !caption && isRemoteImageSrc(block.src)
@@ -2496,7 +2482,7 @@ function SourceImageBlock({ block, active, shouldDescribe, descriptions, setDesc
   }, [block.src])
 
   useEffect(() => {
-    if (!active || !canDescribe || block.src in descriptions) return
+    if (!active || !nearViewport || !canDescribe || block.src in descriptions) return
     setDescriptions((current) => ({ ...current, [block.src]: undefined }))
     describeImage(block.src)
       .then((text) => {
@@ -2505,14 +2491,14 @@ function SourceImageBlock({ block, active, shouldDescribe, descriptions, setDesc
       .catch(() => {
         setDescriptions((current) => ({ ...current, [block.src]: null }))
       })
-  }, [active, block.src, canDescribe, descriptions, setDescriptions])
+  }, [active, block.src, canDescribe, descriptions, nearViewport, setDescriptions])
 
   const visibleCaption = caption ?? (generated && generated.length > 0 ? generated : null)
 
   if (failed) return null
 
   return (
-    <div className="relative">
+    <div ref={ref} className="relative">
       <div
         className={cn(
           'overflow-hidden rounded-xl border border-border bg-bg',
@@ -2528,8 +2514,9 @@ function SourceImageBlock({ block, active, shouldDescribe, descriptions, setDesc
         <img
           src={block.src}
           alt={block.alt || caption || '原文图片'}
-          className="aspect-video w-full object-contain"
           loading="lazy"
+          decoding="async"
+          className="aspect-video w-full object-contain"
           onError={() => {
             setFailed(true)
             onImageError?.()
@@ -2574,22 +2561,8 @@ function ProcessingStage({ blocks, completedIndexes, parsing, analyzing, shouldD
     <div className="relative flex-1 overflow-hidden px-6">
       <div className="pointer-events-none absolute left-0 right-0 top-1/2 h-px bg-border" />
       <div className="pointer-events-none absolute inset-0">
-        <motion.div
-          className="absolute left-1/2 top-1/2 h-72 w-72 -translate-x-1/2 -translate-y-1/2 rounded-full border border-accent/15"
-          animate={{ rotate: 360 }}
-          transition={{ duration: 18, repeat: Infinity, ease: 'linear' }}
-        >
-          {ORBIT_DOTS.map((dot) => (
-            <span key={dot} className={cn('absolute left-1/2 top-1/2 h-0 w-0', dot)}>
-              <span className="block h-1.5 w-1.5 translate-x-36 rounded-full bg-accent/50" />
-            </span>
-          ))}
-        </motion.div>
-        <motion.div
-          className="absolute left-1/2 top-1/2 h-96 w-96 -translate-x-1/2 -translate-y-1/2 rounded-full border border-border"
-          animate={{ rotate: -360 }}
-          transition={{ duration: 26, repeat: Infinity, ease: 'linear' }}
-        />
+        <div className="absolute left-1/2 top-1/2 h-72 w-72 -translate-x-1/2 -translate-y-1/2 rounded-full border border-accent/15" />
+        <div className="absolute left-1/2 top-1/2 h-96 w-96 -translate-x-1/2 -translate-y-1/2 rounded-full border border-border" />
       </div>
 
       {!hasBlocks ? (
@@ -2641,33 +2614,9 @@ function ProcessingStage({ blocks, completedIndexes, parsing, analyzing, shouldD
                         <div aria-hidden className="pointer-events-none absolute inset-0 bg-[linear-gradient(transparent_0,transparent_22px,var(--color-border)_23px)] bg-[length:100%_24px] opacity-20" />
                         <motion.div
                           aria-hidden
-                          className="pointer-events-none absolute inset-y-0 -left-40 w-36 bg-accent/45"
+                          className="pointer-events-none absolute inset-y-0 -left-40 w-24 bg-accent/35"
                           animate={{ x: [0, 900] }}
-                          transition={{ duration: 0.72, repeat: Infinity, ease: 'easeInOut' }}
-                        />
-                        <motion.div
-                          aria-hidden
-                          className="pointer-events-none absolute inset-y-0 -left-24 w-10 bg-white/25"
-                          animate={{ x: [0, 900] }}
-                          transition={{ duration: 0.72, repeat: Infinity, ease: 'easeInOut' }}
-                        />
-                        <motion.div
-                          aria-hidden
-                          className="pointer-events-none absolute inset-0 rounded-2xl border border-accent/70"
-                          animate={{ opacity: [0.25, 1, 0.25], scale: [1, 1.012, 1] }}
-                          transition={{ duration: 0.9, repeat: Infinity, ease: 'easeInOut' }}
-                        />
-                        <motion.div
-                          aria-hidden
-                          className="pointer-events-none absolute left-0 top-0 h-px w-full bg-accent"
-                          animate={{ y: [0, 220], opacity: [0, 1, 0] }}
-                          transition={{ duration: 0.95, repeat: Infinity, ease: 'easeInOut' }}
-                        />
-                        <motion.div
-                          aria-hidden
-                          className="pointer-events-none absolute bottom-0 left-0 h-0.5 bg-accent"
-                          animate={{ width: ['0%', '100%', '0%'], x: ['0%', '0%', '100%'] }}
-                          transition={{ duration: 1.25, repeat: Infinity, ease: 'easeInOut' }}
+                          transition={{ duration: 1.15, repeat: Infinity, ease: 'linear' }}
                         />
                         <div aria-hidden className="pointer-events-none absolute left-3 top-3 h-4 w-4 border-l border-t border-accent/80" />
                         <div aria-hidden className="pointer-events-none absolute right-3 top-3 h-4 w-4 border-r border-t border-accent/80" />
@@ -2684,18 +2633,6 @@ function ProcessingStage({ blocks, completedIndexes, parsing, analyzing, shouldD
                         <div className="mb-2 flex items-center gap-2 text-xs text-fg-faint">
                           <span>{statusText}</span>
                           {active && valuable && <Loader2 size={11} className="animate-spin text-accent" />}
-                          {active && valuable && (
-                            <span className="flex items-center gap-1">
-                              {STATUS_DOTS.map((dot) => (
-                                <motion.span
-                                  key={dot}
-                                  className="h-1 w-1 rounded-full bg-accent"
-                                  animate={{ opacity: [0.2, 1, 0.2], y: [0, -3, 0] }}
-                                  transition={{ duration: 0.62, delay: dot * 0.08, repeat: Infinity, ease: 'easeInOut' }}
-                                />
-                              ))}
-                            </span>
-                          )}
                         </div>
                         {block.type === 'image' ? (
                           <SourceImageBlock
@@ -2706,17 +2643,7 @@ function ProcessingStage({ blocks, completedIndexes, parsing, analyzing, shouldD
                             setDescriptions={setImageDescriptions}
                           />
                         ) : (
-                          <p className="relative text-sm leading-relaxed">
-                            {preview}
-                            {active && (
-                              <motion.span
-                                aria-hidden
-                                className="pointer-events-none absolute inset-0 bg-bg-elevated"
-                                animate={{ x: ['0%', '105%'] }}
-                                transition={{ duration: 1.2, repeat: Infinity, repeatDelay: 0.2, ease: 'easeInOut' }}
-                              />
-                            )}
-                          </p>
+                          <p className="relative text-sm leading-relaxed">{preview}</p>
                         )}
                       </div>
                       <AnimatePresence>
@@ -2778,20 +2705,10 @@ function SourceImageResultBlock({ block, index, shouldDescribeImages, imageDescr
   if (hidden) return null
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 58, scale: 0.96 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ type: 'spring', stiffness: 250, damping: 24, delay: index * 0.02 }}
-      className="group relative flex items-center gap-3"
+    <div
+      className="perf-content-auto group relative flex items-center gap-3"
     >
       <div className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-border bg-bg-elevated px-4 py-3 shadow-[0_12px_34px_rgba(0,0,0,0.18)]">
-        <motion.span
-          aria-hidden
-          className="pointer-events-none absolute inset-y-0 -left-28 w-20 bg-accent/20"
-          initial={{ x: 0, skewX: -18 }}
-          animate={{ x: 720, skewX: -18 }}
-          transition={{ duration: 0.62, ease: 'easeOut', delay: 0.08 }}
-        />
         <SourceImageBlock
           block={block}
           active
@@ -2803,7 +2720,7 @@ function SourceImageResultBlock({ block, index, shouldDescribeImages, imageDescr
         />
       </div>
       <div aria-hidden className="h-10 w-10 shrink-0" />
-    </motion.div>
+    </div>
   )
 }
 
@@ -2878,7 +2795,7 @@ function HistoryStackPreview({ item }: { item: ExploreHistoryItem }) {
           style={{ zIndex: 3 - offset, opacity: 1 - offset * 0.2 }}
         >
           {offset === 0 && item.previewImage ? (
-            <img src={item.previewImage} alt="" className="h-full w-full object-cover" loading="lazy" />
+            <img src={item.previewImage} alt="" className="h-full w-full object-cover" loading="lazy" decoding="async" />
           ) : (
             <div className="p-3">
               <div className="mb-2 h-1.5 w-16 rounded-full bg-accent/50" />
@@ -3133,11 +3050,12 @@ function RecentSourcesDrawer({ sources, loading, onClose, onOpen }: {
 
 // ── Main ────────────────────────────────────────────────────────────────────
 interface ExploreProps {
+  active?: boolean
   sourceHighlight?: SourceHighlightRequest | null
   onSourceHighlightConsumed?: () => void
 }
 
-export default function Explore({ sourceHighlight = null, onSourceHighlightConsumed }: ExploreProps) {
+export default function Explore({ active = true, sourceHighlight = null, onSourceHighlightConsumed }: ExploreProps) {
   const {
     text,
     richHtml,
@@ -3450,6 +3368,11 @@ export default function Explore({ sourceHighlight = null, onSourceHighlightConsu
   }, [generationInProgress, resultTargetCount, showProcessing])
 
   useEffect(() => {
+    if (!active) {
+      setSelectionToolbar(null)
+      return
+    }
+
     const updateSelectionToolbar = () => {
       window.setTimeout(() => {
         const selection = window.getSelection()
@@ -3512,7 +3435,7 @@ export default function Explore({ sourceHighlight = null, onSourceHighlightConsu
       document.removeEventListener('keyup', updateSelectionToolbar)
       window.removeEventListener('scroll', hideSelectionToolbar, true)
     }
-  }, [])
+  }, [active])
 
   const runFactCheck = useCallback((claim: string, context: string, x: number, y: number, range?: FactCheckTextRange) => {
     const anchorState = {
@@ -4269,6 +4192,8 @@ export default function Explore({ sourceHighlight = null, onSourceHighlightConsu
   }, [parseFile])
 
   useEffect(() => {
+    if (!active) return
+
     document.body.addEventListener('dragover', handleDragOver as EventListener)
     document.body.addEventListener('dragleave', handleDragLeave as EventListener)
     document.body.addEventListener('drop', handleDrop as EventListener)
@@ -4277,10 +4202,12 @@ export default function Explore({ sourceHighlight = null, onSourceHighlightConsu
       document.body.removeEventListener('dragleave', handleDragLeave as EventListener)
       document.body.removeEventListener('drop', handleDrop as EventListener)
     }
-  }, [handleDragOver, handleDragLeave, handleDrop])
+  }, [active, handleDragOver, handleDragLeave, handleDrop])
 
   // ── Paste ────────────────────────────────────────────────────────────────
   useEffect(() => {
+    if (!active) return
+
     const handlePaste = async (e: ClipboardEvent) => {
       const plain = e.clipboardData?.getData('text/plain')?.trim() ?? ''
       const html = e.clipboardData?.getData('text/html') ?? ''
@@ -4298,7 +4225,9 @@ export default function Explore({ sourceHighlight = null, onSourceHighlightConsu
     }
     document.addEventListener('paste', handlePaste)
     return () => document.removeEventListener('paste', handlePaste)
-  }, [fetchUrlContent, setRichContent, setText])
+  }, [active, fetchUrlContent, setRichContent, setText])
+
+  if (!active) return null
 
   return (
     <div className="relative flex h-full overflow-hidden">

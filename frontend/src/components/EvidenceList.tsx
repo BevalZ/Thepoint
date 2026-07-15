@@ -2,14 +2,25 @@ import { ExternalLink, LocateFixed } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { listEvidenceForPoint } from '@/api'
-import type { EvidenceRecord } from '@/api/types'
+import type { AppConfig, EvidenceRecord } from '@/api/types'
 import { cn } from '@/lib/utils'
+import { useNearViewport } from '@/hooks/useNearViewport'
 
-const VERDICT_LABELS: Record<EvidenceRecord['verdict'], string> = {
-  supported: '支持',
-  contradicted: '反驳',
-  mixed: '混合',
-  uncertain: '不确定',
+type UiLanguage = AppConfig['uiLanguage']
+
+const VERDICT_LABELS: Record<UiLanguage, Record<EvidenceRecord['verdict'], string>> = {
+  'zh-CN': {
+    supported: '支持',
+    contradicted: '反驳',
+    mixed: '混合',
+    uncertain: '不确定',
+  },
+  'en-US': {
+    supported: 'Supported',
+    contradicted: 'Contradicted',
+    mixed: 'Mixed',
+    uncertain: 'Uncertain',
+  },
 }
 
 const VERDICT_CLASSES: Record<EvidenceRecord['verdict'], string> = {
@@ -19,10 +30,18 @@ const VERDICT_CLASSES: Record<EvidenceRecord['verdict'], string> = {
   uncertain: 'border-border bg-bg-hover text-fg-muted',
 }
 
-function formatEvidenceDate(value: string): string {
+function isZh(language: UiLanguage): boolean {
+  return language !== 'en-US'
+}
+
+function copy(language: UiLanguage, zh: string, en: string): string {
+  return isZh(language) ? zh : en
+}
+
+function formatEvidenceDate(value: string, language: UiLanguage): string {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString('zh-CN', {
+  return date.toLocaleString(isZh(language) ? 'zh-CN' : 'en-US', {
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
@@ -33,18 +52,20 @@ function formatEvidenceDate(value: string): string {
 interface EvidenceListProps {
   records: EvidenceRecord[]
   title?: string
+  language?: UiLanguage
   className?: string
   onOpenSource?: (sourceId: string, chunkIndex: number | null) => void
   renderAction?: (record: EvidenceRecord) => ReactNode
 }
 
-export function EvidenceList({ records, title = 'Evidence', className, onOpenSource, renderAction }: EvidenceListProps) {
+export function EvidenceList({ records, title, language = 'zh-CN', className, onOpenSource, renderAction }: EvidenceListProps) {
   if (records.length === 0) return null
+  const resolvedTitle = title ?? copy(language, '证据', 'Evidence')
 
   return (
     <section className={cn('border-t border-border pt-3', className)}>
       <div className="mb-2 flex items-center justify-between text-xs text-fg-faint">
-        <span>{title}</span>
+        <span>{resolvedTitle}</span>
         <span>{records.length}</span>
       </div>
       <div className="space-y-3">
@@ -52,14 +73,14 @@ export function EvidenceList({ records, title = 'Evidence', className, onOpenSou
           const openSource = onOpenSource
           const canOpenSource = Boolean(record.sourceId && openSource)
           return (
-            <article key={record.id} className="space-y-2">
+            <article key={record.id} className="perf-content-auto space-y-2">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className={cn('rounded-full border px-2 py-0.5 text-[11px] font-medium', VERDICT_CLASSES[record.verdict])}>
-                      {VERDICT_LABELS[record.verdict]}
+                      {VERDICT_LABELS[language][record.verdict]}
                     </span>
-                    <span className="text-[11px] text-fg-faint">{formatEvidenceDate(record.checkedAt)}</span>
+                    <span className="text-[11px] text-fg-faint">{formatEvidenceDate(record.checkedAt, language)}</span>
                   </div>
                   <p className="mt-1 line-clamp-2 text-xs font-medium leading-relaxed text-fg">{record.claim}</p>
                 </div>
@@ -70,12 +91,12 @@ export function EvidenceList({ records, title = 'Evidence', className, onOpenSou
                       type="button"
                       onClick={() => openSource?.(record.sourceId!, record.chunkIndex)}
                       className="rounded-md border border-border px-2 py-1 text-[11px] text-fg-muted transition-colors hover:bg-bg-hover hover:text-accent"
-                      title="回到来源块"
+                      title={copy(language, '回到来源块', 'Open source chunk')}
                     >
                       <LocateFixed size={12} className="inline" />
                     </button>
                   ) : (
-                    <span className="mt-0.5 text-[11px] text-fg-faint">无来源定位</span>
+                    <span className="mt-0.5 text-[11px] text-fg-faint">{copy(language, '无来源定位', 'No source location')}</span>
                   )}
                 </div>
               </div>
@@ -92,7 +113,7 @@ export function EvidenceList({ records, title = 'Evidence', className, onOpenSou
                       title={[source.title, source.url, source.snippet].filter(Boolean).join('\n')}
                     >
                       <ExternalLink size={11} />
-                      {source.title?.trim() || `来源 ${index + 1}`}
+                      {source.title?.trim() || copy(language, `来源 ${index + 1}`, `Source ${index + 1}`)}
                     </a>
                   ))}
                 </div>
@@ -108,23 +129,33 @@ export function EvidenceList({ records, title = 'Evidence', className, onOpenSou
 export function PointEvidence({
   pointId,
   title = '证据',
+  language = 'zh-CN',
   className,
   onOpenSource,
 }: {
   pointId: string
   title?: string
+  language?: UiLanguage
   className?: string
   onOpenSource?: (sourceId: string, chunkIndex: number | null) => void
 }) {
   const [records, setRecords] = useState<EvidenceRecord[]>([])
+  const { ref, nearViewport } = useNearViewport<HTMLDivElement>()
 
   useEffect(() => {
+    if (!nearViewport) return
     let alive = true
     listEvidenceForPoint(pointId)
       .then((next) => { if (alive) setRecords(next) })
       .catch(() => { if (alive) setRecords([]) })
     return () => { alive = false }
-  }, [pointId])
+  }, [nearViewport, pointId])
 
-  return <EvidenceList records={records} title={title} className={className} onOpenSource={onOpenSource} />
+  return (
+    <div ref={ref}>
+      {nearViewport && (
+        <EvidenceList records={records} title={title} language={language} className={className} onOpenSource={onOpenSource} />
+      )}
+    </div>
+  )
 }

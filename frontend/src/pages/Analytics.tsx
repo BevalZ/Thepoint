@@ -1,18 +1,11 @@
 import { useEffect, useState } from 'react'
 import { AnimatePresence, motion, type Variants } from 'framer-motion'
-import ReactEChartsCore from 'echarts-for-react/lib/core'
-import * as echarts from 'echarts/core'
-import { RadarChart } from 'echarts/charts'
-import { TooltipComponent } from 'echarts/components'
-import { CanvasRenderer } from 'echarts/renderers'
 import { Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getAnalytics, getExploreSuggestions, listMarkedDates } from '@/api'
 import type { AnalyticsData } from '@/api/types'
 import { HeatmapChart } from '@/components/HeatmapChart'
 import { ExploreSuggestions, SuggestionDayList, SuggestionViewModal } from '@/pages/ExploreSuggestions'
-
-echarts.use([RadarChart, TooltipComponent, CanvasRenderer])
 
 const RADAR_NAMES = ['深度指数', '反方关注度', '追问率', '解释偏好', '框架使用率']
 const ACTION_LABELS = {
@@ -23,36 +16,97 @@ const ACTION_LABELS = {
   framework: '框架',
 } as const
 
-function radarOption(data: AnalyticsData) {
+function radarValues(data: AnalyticsData): number[] {
   const total = data.totalActions || 1
   const rootPoints = data.totalPoints - data.totalChildPoints || 1
-  const values = [
+  return [
     Math.min(data.totalChildPoints / rootPoints, 1),
     data.counterCount / total,
     data.followupCount / total,
     data.explainCount / total,
     data.frameworkCount / total,
-  ]
+  ].map((value) => Math.max(0, Math.min(value, 1)))
+}
+
+const RADAR_CENTER = { x: 150, y: 124 }
+const RADAR_RADIUS = 78
+
+function radarPoint(scale: number, index: number, radius = RADAR_RADIUS) {
+  const angle = -Math.PI / 2 + index * (Math.PI * 2 / RADAR_NAMES.length)
   return {
-    backgroundColor: 'transparent',
-    tooltip: {},
-    radar: {
-      indicator: RADAR_NAMES.map((name) => ({ name, max: 1 })),
-      center: ['50%', '52%'],
-      radius: '68%',
-      axisLine: { lineStyle: { color: '#2a2a3a' } },
-      splitLine: { lineStyle: { color: '#2a2a3a' } },
-      splitArea: { areaStyle: { color: ['rgba(255,255,255,0.035)', 'rgba(255,255,255,0.018)'] } },
-      name: { textStyle: { color: '#a0a0b0' } },
-    },
-    series: [{
-      type: 'radar',
-      data: [{ value: values }],
-      areaStyle: { color: 'rgba(99,102,241,0.15)' },
-      lineStyle: { color: '#6366f1' },
-      itemStyle: { color: '#6366f1' },
-    }],
+    x: RADAR_CENTER.x + Math.cos(angle) * radius * scale,
+    y: RADAR_CENTER.y + Math.sin(angle) * radius * scale,
   }
+}
+
+function radarPolygon(values: number[]) {
+  return values
+    .map((value, index) => radarPoint(value, index))
+    .map((point) => `${point.x.toFixed(1)},${point.y.toFixed(1)}`)
+    .join(' ')
+}
+
+function ExplorationRadar({ data }: { data: AnalyticsData }) {
+  const values = radarValues(data)
+  const dataPoints = values.map((value, index) => radarPoint(value, index))
+  const labelPoints = RADAR_NAMES.map((_, index) => radarPoint(1, index, 105))
+
+  return (
+    <svg
+      viewBox="0 0 300 250"
+      role="img"
+      aria-label={`探索模式雷达：${RADAR_NAMES.map((name, index) => `${name} ${Math.round(values[index] * 100)}%`).join('，')}`}
+      className="h-[250px] min-w-[260px] w-full text-fg-muted"
+    >
+      {[0.25, 0.5, 0.75, 1].map((scale) => (
+        <polygon
+          key={scale}
+          points={radarPolygon(RADAR_NAMES.map(() => scale))}
+          fill={scale === 0.5 || scale === 1 ? 'rgba(255,255,255,0.018)' : 'none'}
+          stroke="var(--color-border)"
+          strokeWidth="1"
+        />
+      ))}
+      {RADAR_NAMES.map((_, index) => {
+        const edge = radarPoint(1, index)
+        return (
+          <line
+            key={index}
+            x1={RADAR_CENTER.x}
+            y1={RADAR_CENTER.y}
+            x2={edge.x}
+            y2={edge.y}
+            stroke="var(--color-border)"
+            strokeWidth="1"
+          />
+        )
+      })}
+      <polygon
+        points={radarPolygon(values)}
+        fill="color-mix(in srgb, var(--color-accent) 18%, transparent)"
+        stroke="var(--color-accent)"
+        strokeWidth="2"
+      />
+      {dataPoints.map((point, index) => (
+        <circle key={RADAR_NAMES[index]} cx={point.x} cy={point.y} r="3" fill="var(--color-accent)">
+          <title>{RADAR_NAMES[index]}：{Math.round(values[index] * 100)}%</title>
+        </circle>
+      ))}
+      {labelPoints.map((point, index) => (
+        <text
+          key={RADAR_NAMES[index]}
+          x={point.x}
+          y={point.y}
+          textAnchor={point.x < RADAR_CENTER.x - 4 ? 'end' : point.x > RADAR_CENTER.x + 4 ? 'start' : 'middle'}
+          dominantBaseline="middle"
+          className="fill-current text-[10px]"
+        >
+          <tspan x={point.x}>{RADAR_NAMES[index]}</tspan>
+          <tspan x={point.x} dy="12" className="fill-fg-faint">{Math.round(values[index] * 100)}%</tspan>
+        </text>
+      ))}
+    </svg>
+  )
 }
 
 function actionRows(data: AnalyticsData) {
@@ -252,7 +306,7 @@ export default function Analytics() {
                 <span className="text-xs text-fg-faint">5 维倾向</span>
               </div>
               <div className="grid min-h-[260px] items-center gap-4 lg:grid-cols-[minmax(260px,0.62fr)_minmax(220px,0.38fr)]">
-                <ReactEChartsCore echarts={echarts} option={radarOption(data)} style={{ height: 250, minWidth: 260 }} />
+                <ExplorationRadar data={data} />
                 <div className="space-y-3 text-sm leading-relaxed text-fg-muted">
                   <p>
                     当前记录更集中在

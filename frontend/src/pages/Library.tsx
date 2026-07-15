@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Loader2, AlertCircle, BookMarked, Search, X, LayoutList, Table2, Columns3, FolderOpen, Archive, FileText, LocateFixed, BookmarkPlus, Check, Sparkles, ShieldCheck, RefreshCw, ScrollText, Trash2, Images, Link2, Clock, Ban, Plus } from 'lucide-react'
-import { useDeepenStore, useEvidenceDigestStore, useLibraryStore, useStarStore, useSynthesisStore } from '@/store'
+import { useConfigStore, useDeepenStore, useEvidenceDigestStore, useLibraryStore, useStarStore, useSynthesisStore } from '@/store'
 import { EvidenceList } from '@/components/EvidenceList'
 import { DigestModal } from '@/components/DigestModal'
 import { ReportModal } from '@/components/ReportModal'
@@ -12,10 +12,10 @@ import { SourceExcerptButton } from '@/components/SourceExcerptButton'
 import { cn } from '@/lib/utils'
 import { EVIDENCE_VERDICT_FILTERS, filterEvidenceByVerdict } from '@/lib/evidenceLedger'
 import type { EvidenceVerdictFilter } from '@/lib/evidenceLedger'
-import { REPORT_KIND_FILTERS, filterReportsByKind, reportKindLabel } from '@/lib/reportArtifacts'
+import { REPORT_KIND_FILTERS, filterReportsByKind } from '@/lib/reportArtifacts'
 import type { ReportKindFilter } from '@/lib/reportArtifacts'
 import type { SourceHighlightRequest } from '@/lib/sourceHighlight'
-import type { AssetKind, AssetRelationRecord, DigestResult, EvidenceRecord, GalleryItem, InvestigationInput, JournalEntry, ReportRecord, ReviewItem, ReviewQueuePlan, ReviewQueuePlanItem, ReviewRating, ReviewTargetKind, SearchAssetResult, SourceSummaryRecord, WorkspaceSearchResult } from '@/api/types'
+import type { AppConfig, AssetKind, AssetRelationRecord, DigestResult, EvidenceRecord, GalleryItem, InvestigationInput, JournalEntry, ReportRecord, ReviewItem, ReviewQueuePlan, ReviewQueuePlanItem, ReviewRating, ReviewTargetKind, SearchAssetResult, SourceSummaryRecord, WorkspaceSearchResult } from '@/api/types'
 import { addReviewItem, buildReviewQueuePlan, completeReviewItem, deleteReport, dismissReviewItem, discoverRelatedAssets, generateInvestigation, generateSynthesis, getReport, listAllReviewItems, listGallery, listRecentEvidence, listRecentJournalEntries, listRecentReports, listRecentSources, rebuildAssetRelations, searchAssets, searchEvidence, searchGallery, searchJournalEntries, searchReports, searchWorkspace, snoozeReviewItem, invalidateJournalEntry } from '@/api'
 
 const LS_VIEW = 'lib-view-mode'
@@ -23,30 +23,30 @@ const LS_LIBRARY_MODE = 'lib-content-mode'
 type ViewMode = 'grouped' | 'list' | 'table' | 'kanban'
 type LibraryMode = 'sources' | 'points' | 'evidence' | 'reports' | 'investigations' | 'journal' | 'review' | 'gallery' | 'related'
 
-const VIEW_OPTS: { id: ViewMode; icon: React.ReactNode; label: string }[] = [
-  { id: 'grouped', icon: <FolderOpen size={14} />, label: '折叠栏' },
-  { id: 'list',    icon: <LayoutList size={14} />, label: '列表' },
-  { id: 'table',   icon: <Table2 size={14} />,    label: '表格' },
-  { id: 'kanban',  icon: <Columns3 size={14} />,  label: '看板' },
+const VIEW_OPTS: { id: ViewMode; icon: React.ReactNode; labelZh: string; labelEn: string }[] = [
+  { id: 'grouped', icon: <FolderOpen size={14} />, labelZh: '折叠栏', labelEn: 'Grouped' },
+  { id: 'list',    icon: <LayoutList size={14} />, labelZh: '列表', labelEn: 'List' },
+  { id: 'table',   icon: <Table2 size={14} />,    labelZh: '表格', labelEn: 'Table' },
+  { id: 'kanban',  icon: <Columns3 size={14} />,  labelZh: '看板', labelEn: 'Kanban' },
 ]
 
-const LIBRARY_MODE_OPTS: { id: LibraryMode; icon: React.ReactNode; label: string }[] = [
-  { id: 'sources', icon: <FileText size={14} />, label: 'Sources' },
-  { id: 'points', icon: <BookMarked size={14} />, label: '观点' },
-  { id: 'evidence', icon: <ShieldCheck size={14} />, label: 'Evidence' },
-  { id: 'reports', icon: <ScrollText size={14} />, label: 'Reports' },
-  { id: 'investigations', icon: <Sparkles size={14} />, label: 'Investigations' },
-  { id: 'journal', icon: <FileText size={14} />, label: 'Journal' },
-  { id: 'review', icon: <RefreshCw size={14} />, label: 'Review' },
-  { id: 'gallery', icon: <Images size={14} />, label: 'Gallery' },
-  { id: 'related', icon: <LocateFixed size={14} />, label: 'Related' },
+const LIBRARY_MODE_OPTS: { id: LibraryMode; icon: React.ReactNode; labelZh: string; labelEn: string }[] = [
+  { id: 'sources', icon: <FileText size={14} />, labelZh: '来源', labelEn: 'Sources' },
+  { id: 'points', icon: <BookMarked size={14} />, labelZh: '观点', labelEn: 'Points' },
+  { id: 'evidence', icon: <ShieldCheck size={14} />, labelZh: '证据', labelEn: 'Evidence' },
+  { id: 'reports', icon: <ScrollText size={14} />, labelZh: '报告', labelEn: 'Reports' },
+  { id: 'investigations', icon: <Sparkles size={14} />, labelZh: '调查', labelEn: 'Investigations' },
+  { id: 'journal', icon: <FileText size={14} />, labelZh: '日志', labelEn: 'Journal' },
+  { id: 'review', icon: <RefreshCw size={14} />, labelZh: '复习', labelEn: 'Review' },
+  { id: 'gallery', icon: <Images size={14} />, labelZh: '画廊', labelEn: 'Gallery' },
+  { id: 'related', icon: <LocateFixed size={14} />, labelZh: '相关', labelEn: 'Related' },
 ]
 
-const REVIEW_RATINGS: { id: ReviewRating; label: string }[] = [
-  { id: 'again', label: 'Again' },
-  { id: 'hard', label: 'Hard' },
-  { id: 'good', label: 'Good' },
-  { id: 'easy', label: 'Easy' },
+const REVIEW_RATINGS: { id: ReviewRating; labelZh: string; labelEn: string }[] = [
+  { id: 'again', labelZh: '再来', labelEn: 'Again' },
+  { id: 'hard', labelZh: '困难', labelEn: 'Hard' },
+  { id: 'good', labelZh: '良好', labelEn: 'Good' },
+  { id: 'easy', labelZh: '简单', labelEn: 'Easy' },
 ]
 
 const RELATED_KIND_OPTIONS: AssetKind[] = ['source', 'point', 'evidence', 'report', 'journal', 'gallery', 'review']
@@ -55,6 +55,148 @@ const REVIEW_TARGET_OPTIONS: ReviewTargetKind[] = ['source', 'point', 'evidence'
 
 const INVESTIGATION_MODES: InvestigationInput['mode'][] = ['quick', 'standard', 'deep']
 
+type UiLanguage = AppConfig['uiLanguage']
+
+function isZh(language: UiLanguage): boolean {
+  return language !== 'en-US'
+}
+
+function copy(language: UiLanguage, zh: string, en: string): string {
+  return isZh(language) ? zh : en
+}
+
+function optionLabel(option: { labelZh: string; labelEn: string }, language: UiLanguage): string {
+  return isZh(language) ? option.labelZh : option.labelEn
+}
+
+function assetKindLabel(kind: AssetKind | SearchAssetResult['kind'] | ReviewTargetKind, language: UiLanguage): string {
+  const zh: Record<string, string> = {
+    source: '来源',
+    point: '观点',
+    evidence: '证据',
+    report: '报告',
+    journal: '日志',
+    gallery: '画廊',
+    review: '复习',
+    indexed_file: '索引文件',
+  }
+  const en: Record<string, string> = {
+    source: 'Source',
+    point: 'Point',
+    evidence: 'Evidence',
+    report: 'Report',
+    journal: 'Journal',
+    gallery: 'Gallery',
+    review: 'Review',
+    indexed_file: 'Indexed File',
+  }
+  return (isZh(language) ? zh[kind] : en[kind]) ?? kind
+}
+
+function assetKindPluralLabel(kind: SearchAssetResult['kind'] | 'indexed-file', language: UiLanguage): string {
+  const normalized = kind === 'indexed-file' ? 'indexed_file' : kind
+  if (isZh(language)) return assetKindLabel(normalized, language)
+  if (normalized === 'source') return 'Sources'
+  if (normalized === 'point') return 'Points'
+  if (normalized === 'report') return 'Reports'
+  if (normalized === 'indexed_file') return 'Indexed Files'
+  return assetKindLabel(normalized, language)
+}
+
+function reportKindDisplay(kind: ReportRecord['kind'] | ReportKindFilter, language: UiLanguage): string {
+  if (kind === 'all') return copy(language, '全部', 'All')
+  if (kind === 'digest') return copy(language, '知识研报', 'Digest')
+  if (kind === 'synthesis') return copy(language, '多来源综合', 'Synthesis')
+  return copy(language, '调查报告', 'Investigation')
+}
+
+function evidenceVerdictDisplay(verdict: EvidenceVerdictFilter, language: UiLanguage): string {
+  const zh: Record<EvidenceVerdictFilter, string> = {
+    all: '全部',
+    supported: '支持',
+    contradicted: '反驳',
+    mixed: '混合',
+    uncertain: '不确定',
+  }
+  const en: Record<EvidenceVerdictFilter, string> = {
+    all: 'All',
+    supported: 'Supported',
+    contradicted: 'Contradicted',
+    mixed: 'Mixed',
+    uncertain: 'Uncertain',
+  }
+  return isZh(language) ? zh[verdict] : en[verdict]
+}
+
+function reviewRatingLabel(rating: { labelZh: string; labelEn: string }, language: UiLanguage): string {
+  return optionLabel(rating, language)
+}
+
+function reviewStatusLabel(status: string, language: UiLanguage): string {
+  const zh: Record<string, string> = {
+    active: '进行中',
+    completed: '已完成',
+    dismissed: '已移除',
+  }
+  return isZh(language) ? zh[status] ?? status : status
+}
+
+function investigationModeLabel(mode: InvestigationInput['mode'], language: UiLanguage): string {
+  const zh: Record<InvestigationInput['mode'], string> = {
+    quick: '快速',
+    standard: '标准',
+    deep: '深入',
+  }
+  return isZh(language) ? zh[mode] : mode
+}
+
+function reviewPriorityLabel(priority: ReviewItem['priority'], language: UiLanguage): string {
+  const zh: Record<ReviewItem['priority'], string> = {
+    low: '低',
+    normal: '普通',
+    high: '高',
+  }
+  return isZh(language) ? zh[priority] ?? priority : priority
+}
+
+function reviewPlanModeLabel(mode: ReviewQueuePlan['mode'], language: UiLanguage): string {
+  if (mode === 'due') return copy(language, '到期', 'due')
+  if (mode === 'catchup') return copy(language, '补进度', 'catchup')
+  return mode
+}
+
+function reviewPlanReasonLabel(reason: string, language: UiLanguage): string {
+  const zh: Record<string, string> = {
+    due: '已到期',
+    overdue: '已逾期',
+    priority: '高优先级',
+    catchup: '补进度',
+    scheduled: '已排期',
+  }
+  return isZh(language) ? zh[reason] ?? reason : reason
+}
+
+function relationLabel(relation: AssetRelationRecord['relation'], language: UiLanguage): string {
+  const zh: Record<AssetRelationRecord['relation'], string> = {
+    co_cited: '共同引用',
+    same_source: '同一来源',
+    supports: '支持',
+    contradicts: '反驳',
+    same_topic: '同一主题',
+    derived_from: '派生自',
+    review_related: '复习相关',
+  }
+  return isZh(language) ? zh[relation] ?? relation : relation
+}
+
+function relationSourceKindLabel(kind: string, language: UiLanguage): string {
+  const zh: Record<string, string> = {
+    auto: '自动',
+    manual: '手动',
+  }
+  return isZh(language) ? zh[kind] ?? kind : kind
+}
+
 interface LibraryProps {
   onOpenPointSource?: (pointId: string) => void
   onOpenSource?: (sourceId: string, focusChunkIndex?: number | null, highlight?: SourceHighlightRequest | null) => void
@@ -62,17 +204,25 @@ interface LibraryProps {
 }
 
 export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery }: LibraryProps) {
-  const { points, archivedPoints, loading, error, fetch, fetchArchived, archivePoint, unarchivePoint } = useLibraryStore()
-  const { fetchMentalModels } = useDeepenStore()
-  const { has: hasEvidenceForDigest, toggle: toggleEvidenceForDigest } = useEvidenceDigestStore()
-  const { count: starredCount, init: initStars } = useStarStore()
-  const {
-    sources: synthesisSources,
-    hasSource: hasSynthesisSource,
-    toggleSource: toggleSynthesisSource,
-    removeSource: removeSynthesisSource,
-    clearSources: clearSynthesisSources,
-  } = useSynthesisStore()
+  const points = useLibraryStore((state) => state.points)
+  const archivedPoints = useLibraryStore((state) => state.archivedPoints)
+  const loading = useLibraryStore((state) => state.loading)
+  const error = useLibraryStore((state) => state.error)
+  const fetch = useLibraryStore((state) => state.fetch)
+  const fetchArchived = useLibraryStore((state) => state.fetchArchived)
+  const archivePoint = useLibraryStore((state) => state.archivePoint)
+  const unarchivePoint = useLibraryStore((state) => state.unarchivePoint)
+  const language = useConfigStore((state) => state.config?.uiLanguage ?? 'zh-CN')
+  const fetchMentalModels = useDeepenStore((state) => state.fetchMentalModels)
+  const hasEvidenceForDigest = useEvidenceDigestStore((state) => state.has)
+  const toggleEvidenceForDigest = useEvidenceDigestStore((state) => state.toggle)
+  const starredCount = useStarStore((state) => state.count)
+  const initStars = useStarStore((state) => state.init)
+  const synthesisSources = useSynthesisStore((state) => state.sources)
+  const hasSynthesisSource = useSynthesisStore((state) => state.hasSource)
+  const toggleSynthesisSource = useSynthesisStore((state) => state.toggleSource)
+  const removeSynthesisSource = useSynthesisStore((state) => state.removeSource)
+  const clearSynthesisSources = useSynthesisStore((state) => state.clearSources)
   const [query, setQuery] = useState('')
   const [searchResults, setSearchResults] = useState<WorkspaceSearchResult[] | null>(null)
   const [assetSearchResults, setAssetSearchResults] = useState<SearchAssetResult[] | null>(null)
@@ -143,11 +293,11 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
       setRecentEvidence(await listRecentEvidence())
     } catch (error) {
       setRecentEvidence([])
-      setEvidenceError(error instanceof Error ? error.message : '加载 Evidence 失败，请稍后重试。')
+      setEvidenceError(error instanceof Error ? error.message : copy(language, '加载证据失败，请稍后重试。', 'Failed to load evidence. Please try again.'))
     } finally {
       setEvidenceLoading(false)
     }
-  }, [])
+  }, [language])
 
   const loadRecentReports = useCallback(async () => {
     setReportsLoading(true)
@@ -156,11 +306,11 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
       setRecentReports(await listRecentReports())
     } catch (error) {
       setRecentReports([])
-      setReportsError(error instanceof Error ? error.message : '加载 Reports 失败，请稍后重试。')
+      setReportsError(error instanceof Error ? error.message : copy(language, '加载报告失败，请稍后重试。', 'Failed to load reports. Please try again.'))
     } finally {
       setReportsLoading(false)
     }
-  }, [])
+  }, [language])
 
   const loadRecentSources = useCallback(async () => {
     setSourcesLoading(true)
@@ -169,11 +319,11 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
       setRecentSources(await listRecentSources())
     } catch (error) {
       setRecentSources([])
-      setSourcesError(error instanceof Error ? error.message : '加载 Sources 失败，请稍后重试。')
+      setSourcesError(error instanceof Error ? error.message : copy(language, '加载来源失败，请稍后重试。', 'Failed to load sources. Please try again.'))
     } finally {
       setSourcesLoading(false)
     }
-  }, [])
+  }, [language])
 
   const loadJournalEntries = useCallback(async () => {
     setJournalLoading(true)
@@ -182,11 +332,11 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
       setJournalEntries(await listRecentJournalEntries())
     } catch (error) {
       setJournalEntries([])
-      setJournalError(error instanceof Error ? error.message : '加载 Journal 失败，请稍后重试。')
+      setJournalError(error instanceof Error ? error.message : copy(language, '加载日志失败，请稍后重试。', 'Failed to load journal entries. Please try again.'))
     } finally {
       setJournalLoading(false)
     }
-  }, [])
+  }, [language])
 
   const loadReviewItems = useCallback(async () => {
     setReviewLoading(true)
@@ -201,11 +351,11 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
     } catch (error) {
       setReviewItems([])
       setReviewPlan(null)
-      setReviewError(error instanceof Error ? error.message : '加载 Review Queue 失败，请稍后重试。')
+      setReviewError(error instanceof Error ? error.message : copy(language, '加载复习队列失败，请稍后重试。', 'Failed to load the review queue. Please try again.'))
     } finally {
       setReviewLoading(false)
     }
-  }, [])
+  }, [language])
 
   const loadGalleryItems = useCallback(async () => {
     setGalleryLoading(true)
@@ -214,11 +364,11 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
       setGalleryItems(await listGallery())
     } catch (error) {
       setGalleryItems([])
-      setGalleryError(error instanceof Error ? error.message : '加载 Gallery 失败，请稍后重试。')
+      setGalleryError(error instanceof Error ? error.message : copy(language, '加载画廊失败，请稍后重试。', 'Failed to load gallery items. Please try again.'))
     } finally {
       setGalleryLoading(false)
     }
-  }, [])
+  }, [language])
 
   useEffect(() => {
     if (showArchived) fetchArchived()
@@ -367,7 +517,11 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
 
   const handleDeleteReport = async (report: ReportRecord) => {
     if (deletingReportId) return
-    const confirmed = window.confirm(`删除 Report「${report.title}」？此操作不会删除来源、观点或 Evidence。`)
+    const confirmed = window.confirm(copy(
+      language,
+      `删除报告「${report.title}」？此操作不会删除来源、观点或证据。`,
+      `Delete report "${report.title}"? This will not delete sources, points, or evidence.`
+    ))
     if (!confirmed) return
 
     setDeletingReportId(report.id)
@@ -378,7 +532,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
       setReportResults((records) => records?.filter((item) => item.id !== report.id) ?? null)
       setSelectedReport((current) => current?.id === report.id ? null : current)
     } catch (error) {
-      setReportsError(error instanceof Error ? error.message : '删除 Report 失败，请稍后重试。')
+      setReportsError(error instanceof Error ? error.message : copy(language, '删除报告失败，请稍后重试。', 'Failed to delete report. Please try again.'))
     } finally {
       setDeletingReportId(null)
     }
@@ -421,7 +575,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
       }
       setInvestigationResult(await generateInvestigation(input))
     } catch (error) {
-      setInvestigationError(errorMessage(error, '生成 Investigation 失败，请稍后重试。'))
+      setInvestigationError(errorMessage(error, copy(language, '生成调查失败，请稍后重试。', 'Failed to generate the investigation. Please try again.')))
     } finally {
       setInvestigationGenerating(false)
     }
@@ -455,7 +609,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
       setJournalEntries((records) => records.map(updateEntry))
       setJournalResults((records) => records?.map(updateEntry) ?? null)
     } catch (error) {
-      setJournalError(errorMessage(error, '标记 Journal 失效失败，请稍后重试。'))
+      setJournalError(errorMessage(error, copy(language, '标记日志失效失败，请稍后重试。', 'Failed to invalidate the journal entry. Please try again.')))
     } finally {
       setInvalidatingJournalId(null)
     }
@@ -465,7 +619,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
     const targetId = reviewDraftId.trim()
     const title = reviewDraftTitle.trim()
     if (!targetId || !title || reviewMutatingId) {
-      if (!targetId || !title) setReviewError('Review 需要 target id 和标题。')
+      if (!targetId || !title) setReviewError(copy(language, '复习项需要目标 ID 和标题。', 'Review items require a target ID and title.'))
       return
     }
 
@@ -482,7 +636,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
       setReviewDraftTitle('')
       await loadReviewItems()
     } catch (error) {
-      setReviewError(errorMessage(error, '加入 Review Queue 失败，请稍后重试。'))
+      setReviewError(errorMessage(error, copy(language, '加入复习队列失败，请稍后重试。', 'Failed to add to the review queue. Please try again.')))
     } finally {
       setReviewMutatingId(null)
     }
@@ -501,7 +655,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
       })
       await loadReviewItems()
     } catch (error) {
-      setReviewError(errorMessage(error, '加入 Review Queue 失败，请稍后重试。'))
+      setReviewError(errorMessage(error, copy(language, '加入复习队列失败，请稍后重试。', 'Failed to add to the review queue. Please try again.')))
     } finally {
       setReviewMutatingId(null)
     }
@@ -515,7 +669,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
       await completeReviewItem(item.id, rating)
       await loadReviewItems()
     } catch (error) {
-      setReviewError(errorMessage(error, '完成 Review 失败，请稍后重试。'))
+      setReviewError(errorMessage(error, copy(language, '完成复习失败，请稍后重试。', 'Failed to complete the review. Please try again.')))
     } finally {
       setReviewMutatingId(null)
     }
@@ -529,7 +683,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
       await snoozeReviewItem(item.id, 3)
       await loadReviewItems()
     } catch (error) {
-      setReviewError(errorMessage(error, '推迟 Review 失败，请稍后重试。'))
+      setReviewError(errorMessage(error, copy(language, '推迟复习失败，请稍后重试。', 'Failed to snooze the review. Please try again.')))
     } finally {
       setReviewMutatingId(null)
     }
@@ -543,7 +697,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
       await dismissReviewItem(item.id)
       await loadReviewItems()
     } catch (error) {
-      setReviewError(errorMessage(error, '移除 Review 失败，请稍后重试。'))
+      setReviewError(errorMessage(error, copy(language, '移除复习项失败，请稍后重试。', 'Failed to dismiss the review item. Please try again.')))
     } finally {
       setReviewMutatingId(null)
     }
@@ -565,12 +719,12 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
     setRelatedError(null)
     try {
       const count = await rebuildAssetRelations()
-      setRelatedError(`已重建 ${count} 条关系。`)
+      setRelatedError(copy(language, `已重建 ${count} 条关系。`, `Rebuilt ${count} relations.`))
       if (relatedId.trim()) {
         setRelatedRecords(await discoverRelatedAssets(relatedKind, relatedId.trim()))
       }
     } catch (error) {
-      setRelatedError(errorMessage(error, '重建关系失败，请稍后重试。'))
+      setRelatedError(errorMessage(error, copy(language, '重建关系失败，请稍后重试。', 'Failed to rebuild relations. Please try again.')))
     } finally {
       setRelatedLoading(false)
     }
@@ -588,14 +742,14 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
       const report = await getReport(reportId)
       if (report) setSelectedReport(report)
     } catch (error) {
-      setReportsError(errorMessage(error, '打开关联 Report 失败，请稍后重试。'))
+      setReportsError(errorMessage(error, copy(language, '打开关联报告失败，请稍后重试。', 'Failed to open the linked report. Please try again.')))
     }
   }
 
   const handleDiscoverRelatedAssets = async () => {
     const id = relatedId.trim()
     if (!id || relatedLoading) {
-      if (!id) setRelatedError('Related 查询需要资产 id。')
+      if (!id) setRelatedError(copy(language, '相关查询需要资产 ID。', 'Related lookup requires an asset ID.'))
       return
     }
     setRelatedLoading(true)
@@ -604,7 +758,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
       setRelatedRecords(await discoverRelatedAssets(relatedKind, id))
     } catch (error) {
       setRelatedRecords([])
-      setRelatedError(errorMessage(error, '查询 Related assets 失败，请稍后重试。'))
+      setRelatedError(errorMessage(error, copy(language, '查询相关资产失败，请稍后重试。', 'Failed to query related assets. Please try again.')))
     } finally {
       setRelatedLoading(false)
     }
@@ -625,13 +779,13 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
     indexedFile: assetResults.filter((result) => result.kind === 'indexed_file'),
   }
   const assetResultSections = [
-    { key: 'source', label: 'Sources', results: groupedAssetResults.source },
-    { key: 'point', label: 'Points', results: groupedAssetResults.point },
-    { key: 'evidence', label: 'Evidence', results: groupedAssetResults.evidence },
-    { key: 'report', label: 'Reports', results: groupedAssetResults.report },
-    { key: 'journal', label: 'Journal', results: groupedAssetResults.journal },
-    { key: 'gallery', label: 'Gallery', results: groupedAssetResults.gallery },
-    { key: 'indexed-file', label: 'Indexed Files', results: groupedAssetResults.indexedFile },
+    { key: 'source' as const, kind: 'source' as const, results: groupedAssetResults.source },
+    { key: 'point' as const, kind: 'point' as const, results: groupedAssetResults.point },
+    { key: 'evidence' as const, kind: 'evidence' as const, results: groupedAssetResults.evidence },
+    { key: 'report' as const, kind: 'report' as const, results: groupedAssetResults.report },
+    { key: 'journal' as const, kind: 'journal' as const, results: groupedAssetResults.journal },
+    { key: 'gallery' as const, kind: 'gallery' as const, results: groupedAssetResults.gallery },
+    { key: 'indexed-file' as const, kind: 'indexed-file' as const, results: groupedAssetResults.indexedFile },
   ].filter((section) => section.results.length > 0)
   const totalSearchResults = assetResults.length
   const ledgerEvidenceRecords = searchActive ? (evidenceResults ?? []) : recentEvidence
@@ -652,22 +806,22 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
     (libraryMode === 'gallery' && galleryLoading)
   const libraryDescription =
     libraryMode === 'sources'
-      ? '已导入或索引的材料入口，可进入 Source Workspace 或加入综合输入。'
+      ? copy(language, '已导入或索引的材料入口，可进入来源工作区或加入综合输入。', 'Imported or indexed materials. Open them in Source Workspace or add them to synthesis input.')
       : libraryMode === 'reports'
-        ? '已保存的研报和多来源综合，保留结构化引用。'
+        ? copy(language, '已保存的研报和多来源综合，保留结构化引用。', 'Saved digests and synthesis reports with structured citations.')
         : libraryMode === 'investigations'
-          ? '围绕问题生成带引用调查报告，并保存为 Investigation Report。'
+          ? copy(language, '围绕问题生成带引用调查报告，并保存为调查报告。', 'Generate cited investigation reports around a question and save them as investigation reports.')
           : libraryMode === 'journal'
-            ? '调查记忆作为未来召回线索，失效后不再默认参与 Investigation。'
+            ? copy(language, '调查记忆作为未来召回线索，失效后不再默认参与调查。', 'Investigation memories are future recall signals; invalidated entries are excluded by default.')
             : libraryMode === 'review'
-              ? '把关键资产加入复习队列，按 again / hard / good / easy 推进。'
+              ? copy(language, '把关键资产加入复习队列，按“再来 / 困难 / 良好 / 简单”推进。', 'Add key assets to the review queue and progress them with again / hard / good / easy.')
               : libraryMode === 'gallery'
-                ? '已生成图片资产及其关联 Points。'
+                ? copy(language, '已生成图片资产及其关联观点。', 'Generated image assets and their linked points.')
                 : libraryMode === 'related'
-                  ? '按共同引用、来源、Journal、Gallery 和 Review 信号发现相关资产。'
+                  ? copy(language, '按共同引用、来源、日志、画廊和复习信号发现相关资产。', 'Discover related assets from co-citation, source, journal, gallery, and review signals.')
                   : libraryMode === 'evidence'
-                    ? '已保存的事实审查证据，按时间、搜索和 verdict 复查。'
-                    : '已保存的全部观点，按来源文档分组。'
+                    ? copy(language, '已保存的事实审查证据，按时间、搜索和结论复查。', 'Saved fact-check evidence reviewed by time, search, and verdict.')
+                    : copy(language, '已保存的全部观点，按来源文档分组。', 'All saved points grouped by source document.')
 
   const handleOpenSearchResult = (result: WorkspaceSearchResult) => {
     if (result.kind === 'source') {
@@ -717,30 +871,9 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
       )
       setSynthesisResult(result)
     } catch (error) {
-      setSynthesisError(error instanceof Error ? error.message : '生成综合报告失败，请稍后重试。')
+      setSynthesisError(error instanceof Error ? error.message : copy(language, '生成综合报告失败，请稍后重试。', 'Failed to generate the synthesis report. Please try again.'))
     } finally {
       setSynthesisGenerating(false)
-    }
-  }
-
-  const assetKindLabel = (kind: SearchAssetResult['kind']) => {
-    switch (kind) {
-      case 'source':
-        return 'Source'
-      case 'point':
-        return 'Point'
-      case 'evidence':
-        return 'Evidence'
-      case 'report':
-        return 'Report'
-      case 'journal':
-        return 'Journal'
-      case 'gallery':
-        return 'Gallery'
-      case 'indexed_file':
-        return 'Indexed File'
-      default:
-        return kind
     }
   }
 
@@ -787,7 +920,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
             <span className="flex min-w-0 items-center gap-2">
               <span className="truncate text-sm font-medium text-fg">{result.title}</span>
               <span className="shrink-0 rounded-md border border-border px-2 py-0.5 text-[11px] text-fg-faint">
-                {assetKindLabel(result.kind)}
+                {assetKindLabel(result.kind, language)}
               </span>
             </span>
             <span className="mt-1 line-clamp-2 text-xs leading-relaxed text-fg-muted">
@@ -806,10 +939,10 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
                 ? 'border-accent/40 bg-accent/10 text-accent'
                 : 'border-border text-fg-muted hover:bg-bg-hover hover:text-accent'
             )}
-            title={hasSynthesisSource(result.id) ? '从综合输入移除' : '加入综合输入'}
+            title={hasSynthesisSource(result.id) ? copy(language, '从综合输入移除', 'Remove from synthesis input') : copy(language, '加入综合输入', 'Add to synthesis input')}
           >
             {hasSynthesisSource(result.id) ? <Check size={11} /> : <BookmarkPlus size={11} />}
-            {hasSynthesisSource(result.id) ? '已加入' : '加入综合'}
+            {hasSynthesisSource(result.id) ? copy(language, '已加入', 'Added') : copy(language, '加入综合', 'Add')}
           </button>
         )}
       </article>
@@ -828,10 +961,10 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
             ? 'border-accent/40 bg-accent/10 text-accent'
             : 'border-border text-fg-muted hover:bg-bg-hover hover:text-accent'
         )}
-        title={selected ? '从研报输入移除' : '加入研报输入'}
+        title={selected ? copy(language, '从研报输入移除', 'Remove from digest input') : copy(language, '加入研报输入', 'Add to digest input')}
       >
         {selected ? <Check size={11} /> : <BookmarkPlus size={11} />}
-        {selected ? '已加入' : '加入研报'}
+        {selected ? copy(language, '已加入', 'Added') : copy(language, '加入研报', 'Add')}
       </button>
     )
   }
@@ -851,7 +984,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
           <span className="flex min-w-0 items-center gap-2">
             <span className="truncate text-sm font-medium text-fg">{report.title}</span>
             <span className="shrink-0 rounded-md border border-border px-2 py-0.5 text-[11px] text-fg-faint">
-              {reportKindLabel(report.kind)}
+              {reportKindDisplay(report.kind, language)}
             </span>
           </span>
           <span className="mt-1 line-clamp-2 text-xs leading-relaxed text-fg-muted">{report.summary}</span>
@@ -863,7 +996,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
         onClick={() => void handleDeleteReport(report)}
         disabled={deletingReportId !== null}
         className="mt-0.5 shrink-0 rounded-md border border-border px-2 py-1.5 text-fg-muted transition-colors hover:bg-red-500/10 hover:text-red-300 disabled:opacity-50"
-        title="删除 Report"
+        title={copy(language, '删除报告', 'Delete report')}
       >
         {deletingReportId === report.id ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
       </button>
@@ -885,7 +1018,11 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
           <span className="block truncate text-sm font-medium text-fg">{source.title ?? source.canonicalUri}</span>
           <span className="mt-1 block truncate text-xs text-fg-faint">{source.canonicalUri}</span>
           <span className="mt-2 block text-[11px] text-fg-faint">
-            {source.chunkCount} chunks · {source.pointCount} Points · {source.starCount} Stars
+            {copy(
+              language,
+              `${source.chunkCount} 块 · ${source.pointCount} 个观点 · ${source.starCount} 颗星`,
+              `${source.chunkCount} chunks · ${source.pointCount} Points · ${source.starCount} Stars`
+            )}
           </span>
         </span>
       </button>
@@ -898,20 +1035,20 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
             ? 'border-accent/40 bg-accent/10 text-accent'
             : 'border-border text-fg-muted hover:bg-bg-hover hover:text-accent'
         )}
-        title={hasSynthesisSource(source.id) ? '从综合输入移除' : '加入综合输入'}
+        title={hasSynthesisSource(source.id) ? copy(language, '从综合输入移除', 'Remove from synthesis input') : copy(language, '加入综合输入', 'Add to synthesis input')}
       >
         {hasSynthesisSource(source.id) ? <Check size={11} /> : <BookmarkPlus size={11} />}
-        {hasSynthesisSource(source.id) ? '已加入' : '加入综合'}
+        {hasSynthesisSource(source.id) ? copy(language, '已加入', 'Added') : copy(language, '加入综合', 'Add')}
       </button>
       <button
         type="button"
         onClick={() => void handleAddAssetToReview('source', source.id, source.title ?? source.canonicalUri)}
         disabled={reviewMutatingId !== null}
         className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-fg-muted transition-colors hover:bg-bg-hover hover:text-accent disabled:opacity-50"
-        title="加入 Review"
+        title={copy(language, '加入复习', 'Add to review')}
       >
         <Clock size={11} />
-        Review
+        {copy(language, '复习', 'Review')}
       </button>
     </article>
   )
@@ -935,7 +1072,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
             : item.filePath}
         </p>
         <p className="mt-2 text-[11px] text-fg-faint">
-          {item.pointIds.length} linked Point · {item.generatedAt.slice(0, 10)}
+          {copy(language, `${item.pointIds.length} 个关联观点`, `${item.pointIds.length} linked Point`)} · {item.generatedAt.slice(0, 10)}
         </p>
       </div>
       {onOpenGallery && (
@@ -943,9 +1080,9 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
           type="button"
           onClick={onOpenGallery}
           className="shrink-0 rounded-md border border-border px-2 py-1.5 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-accent"
-          title="打开画廊"
+          title={copy(language, '打开画廊', 'Open gallery')}
         >
-          打开
+          {copy(language, '打开', 'Open')}
         </button>
       )}
     </article>
@@ -971,13 +1108,13 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
               <h3 className="truncate text-sm font-medium text-fg">{entry.query}</h3>
               {entry.invalidatedAt && (
                 <span className="shrink-0 rounded-md border border-red-500/30 px-2 py-0.5 text-[11px] text-red-300">
-                  已失效
+                  {copy(language, '已失效', 'Invalidated')}
                 </span>
               )}
             </div>
             <p className="mt-1 line-clamp-3 text-xs leading-relaxed text-fg-muted">{entry.note}</p>
             <p className="mt-2 text-[11px] text-fg-faint">
-              {formatReportDate(entry.createdAt)} · S {sourceIds.length} · P {pointIds.length} · E {evidenceIds.length} · R {reportIds.length}
+              {formatReportDate(entry.createdAt)} · {copy(language, '来源', 'S')} {sourceIds.length} · {copy(language, '观点', 'P')} {pointIds.length} · {copy(language, '证据', 'E')} {evidenceIds.length} · {copy(language, '报告', 'R')} {reportIds.length}
             </p>
             {entry.invalidatedReason && (
               <p className="mt-2 text-[11px] text-red-300/90">{entry.invalidatedReason}</p>
@@ -989,7 +1126,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
                 type="button"
                 onClick={() => void handleOpenReportById(entry.createdReportId!)}
                 className="rounded-md border border-border px-2 py-1 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-accent"
-                title="打开关联 Report"
+                title={copy(language, '打开关联报告', 'Open linked report')}
               >
                 <ScrollText size={12} />
               </button>
@@ -998,7 +1135,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
               type="button"
               onClick={() => handleUseJournalForInvestigation(entry)}
               className="rounded-md border border-border px-2 py-1 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-accent"
-              title="用此 Journal 发起 Investigation"
+              title={copy(language, '用此日志发起调查', 'Start an investigation from this journal entry')}
             >
               <Sparkles size={12} />
             </button>
@@ -1008,7 +1145,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
                 onClick={() => void handleInvalidateJournalEntry(entry)}
                 disabled={invalidatingJournalId !== null}
                 className="rounded-md border border-border px-2 py-1 text-xs text-fg-muted transition-colors hover:bg-red-500/10 hover:text-red-300 disabled:opacity-50"
-                title="标记失效"
+                title={copy(language, '标记失效', 'Mark invalid')}
               >
                 {invalidatingJournalId === entry.id ? <Loader2 size={12} className="animate-spin" /> : <Ban size={12} />}
               </button>
@@ -1029,7 +1166,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
 
   const renderReviewItem = (item: ReviewItem, planItem?: ReviewQueuePlanItem) => {
     const due = new Date(item.dueAt)
-    const dueText = Number.isNaN(due.getTime()) ? item.dueAt : due.toLocaleDateString('zh-CN')
+    const dueText = Number.isNaN(due.getTime()) ? item.dueAt : due.toLocaleDateString(isZh(language) ? 'zh-CN' : 'en-US')
     return (
       <article key={item.id} className="rounded-lg border border-border bg-bg-elevated px-4 py-3">
         <div className="flex items-start gap-3">
@@ -1043,14 +1180,14 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
                 </span>
               )}
               <span className="shrink-0 rounded-md border border-border px-2 py-0.5 text-[11px] text-fg-faint">
-                {item.targetKind}
+                {assetKindLabel(item.targetKind, language)}
               </span>
               <span className="shrink-0 rounded-md border border-border px-2 py-0.5 text-[11px] text-fg-faint">
-                {item.priority}
+                {reviewPriorityLabel(item.priority, language)}
               </span>
               {item.status !== 'active' && (
                 <span className="shrink-0 rounded-md border border-red-500/30 bg-red-500/10 px-2 py-0.5 text-[11px] text-red-300">
-                  {item.status}
+                  {reviewStatusLabel(item.status, language)}
                 </span>
               )}
             </div>
@@ -1058,11 +1195,11 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
             {item.note && <p className="mt-1 line-clamp-2 text-xs text-fg-muted">{item.note}</p>}
             {planItem && (
               <p className="mt-2 rounded-md border border-accent/20 bg-accent/5 px-2 py-1 text-[11px] text-accent">
-                rank {planItem.priorityRank} · {planItem.reason}
+                {copy(language, '排序', 'rank')} {planItem.priorityRank} · {reviewPlanReasonLabel(planItem.reason, language)}
               </p>
             )}
             <p className="mt-2 text-[11px] text-fg-faint">
-              due {dueText} · reviewed {item.reviewCount} · interval {item.intervalDays ?? 0}d
+              {copy(language, '到期', 'due')} {dueText} · {copy(language, '已复习', 'reviewed')} {item.reviewCount} · {copy(language, '间隔', 'interval')} {item.intervalDays ?? 0}{copy(language, '天', 'd')}
             </p>
           </div>
           <button
@@ -1070,7 +1207,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
             onClick={() => handleOpenReviewTarget(item)}
             disabled={item.targetKind !== 'source' && item.targetKind !== 'point'}
             className="shrink-0 rounded-md border border-border px-2 py-1.5 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-accent disabled:cursor-default disabled:opacity-40"
-            title="打开资产"
+            title={copy(language, '打开资产', 'Open asset')}
           >
             <LocateFixed size={12} />
           </button>
@@ -1084,7 +1221,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
               disabled={reviewMutatingId !== null}
               className="rounded-md border border-border px-2 py-1 text-[11px] text-fg-muted transition-colors hover:bg-accent/10 hover:text-accent disabled:opacity-50"
             >
-              {rating.label}
+              {reviewRatingLabel(rating, language)}
             </button>
           ))}
           <button
@@ -1093,7 +1230,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
             disabled={reviewMutatingId !== null}
             className="rounded-md border border-border px-2 py-1 text-[11px] text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg disabled:opacity-50"
           >
-            Snooze
+            {copy(language, '推迟', 'Snooze')}
           </button>
           <button
             type="button"
@@ -1101,7 +1238,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
             disabled={reviewMutatingId !== null}
             className="rounded-md border border-border px-2 py-1 text-[11px] text-fg-muted transition-colors hover:bg-red-500/10 hover:text-red-300 disabled:opacity-50"
           >
-            Dismiss
+            {copy(language, '移除', 'Dismiss')}
           </button>
         </div>
       </article>
@@ -1112,7 +1249,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
     <div className="mx-auto flex h-full max-w-4xl flex-col px-8 py-10">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-lg font-semibold">知识库</h1>
+          <h1 className="text-lg font-semibold">{copy(language, '知识库', 'Library')}</h1>
           <p className="mt-1 text-sm text-fg-muted">{libraryDescription}</p>
         </div>
         <div className="flex overflow-hidden rounded-lg border border-border bg-bg-elevated">
@@ -1127,7 +1264,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
               )}
             >
               {option.icon}
-              {option.label}
+              {optionLabel(option, language)}
             </button>
           ))}
         </div>
@@ -1141,18 +1278,18 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
           <input className="flex-1 bg-transparent text-fg outline-none placeholder:text-fg-faint"
             placeholder={
               libraryMode === 'reports' || libraryMode === 'investigations'
-                ? '搜索报告标题、摘要、正文或引用…'
+                ? copy(language, '搜索报告标题、摘要、正文或引用…', 'Search report title, summary, body, or citations…')
                 : libraryMode === 'evidence'
-                  ? '搜索 claim、答案或证据来源…'
+                  ? copy(language, '搜索主张、答案或证据来源…', 'Search claim, answer, or evidence sources…')
                   : libraryMode === 'journal'
-                    ? '搜索调查问题、笔记或关联资产…'
+                    ? copy(language, '搜索调查问题、笔记或关联资产…', 'Search investigation questions, notes, or linked assets…')
                     : libraryMode === 'gallery'
-                      ? '搜索图片 prompt、路径或关联 Points…'
+                      ? copy(language, '搜索图片提示词、路径或关联观点…', 'Search image prompt, path, or linked points…')
                       : libraryMode === 'sources'
-                        ? '搜索来源标题、URI 或摘要…'
+                        ? copy(language, '搜索来源标题、URI 或摘要…', 'Search source title, URI, or summary…')
                         : libraryMode === 'review' || libraryMode === 'related'
-                          ? '当前视图使用下方输入控件…'
-                          : '搜索观点、来源或证据…'
+                          ? copy(language, '当前视图使用下方输入控件…', 'Use the controls below for this view…')
+                          : copy(language, '搜索观点、来源或证据…', 'Search points, sources, or evidence…')
             }
             value={query}
             onChange={e => setQuery(e.target.value)}
@@ -1167,14 +1304,14 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
             <button onClick={() => setShowArchived(s => !s)}
               className={cn('flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm transition-colors',
                 showArchived ? 'border-accent bg-accent/10 text-accent' : 'border-border bg-bg-elevated text-fg-muted hover:text-fg')}>
-              <Archive size={14} />{showArchived ? '已归档' : '归档'}
+              <Archive size={14} />{showArchived ? copy(language, '已归档', 'Archived') : copy(language, '归档', 'Archive')}
             </button>
 
             {/* View switcher — hidden in archived mode */}
             {!showArchived && (
               <div className="flex rounded-lg border border-border bg-bg-elevated overflow-hidden">
                 {VIEW_OPTS.map(v => (
-                  <button key={v.id} onClick={() => handleSetView(v.id)} title={v.label}
+                  <button key={v.id} onClick={() => handleSetView(v.id)} title={optionLabel(v, language)}
                     className={cn('px-2.5 py-2 transition-colors', viewMode === v.id ? 'bg-accent/10 text-accent' : 'text-fg-muted hover:text-fg')}>
                     {v.icon}
                   </button>
@@ -1188,10 +1325,10 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
             onClick={() => void handleRefreshMode()}
             disabled={refreshLoading || libraryMode === 'related'}
             className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm text-fg-muted transition-colors hover:text-fg disabled:opacity-50"
-            title="刷新当前视图"
+            title={copy(language, '刷新当前视图', 'Refresh current view')}
           >
             <RefreshCw size={14} className={cn(refreshLoading && 'animate-spin')} />
-            刷新
+            {copy(language, '刷新', 'Refresh')}
           </button>
         )}
       </div>
@@ -1208,10 +1345,14 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 text-sm font-medium text-fg">
                 <Sparkles size={14} className="text-accent" />
-                <span>多来源综合</span>
+                <span>{copy(language, '多来源综合', 'Multi-source synthesis')}</span>
               </div>
               <p className="mt-1 text-xs text-fg-faint">
-                已选 {synthesisSources.length} 个 Source，当前 Star {starredCount} 个
+                {copy(
+                  language,
+                  `已选 ${synthesisSources.length} 个来源，当前星标 ${starredCount} 个`,
+                  `${synthesisSources.length} sources selected, ${starredCount} current stars`
+                )}
               </p>
             </div>
             <label className="flex items-center gap-2 text-xs text-fg-muted">
@@ -1222,7 +1363,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
                 disabled={starredCount === 0 || synthesisGenerating}
                 className="h-3.5 w-3.5 accent-[var(--color-accent)]"
               />
-              包含 Star
+              {copy(language, '包含星标', 'Include stars')}
             </label>
             <button
               type="button"
@@ -1230,7 +1371,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
               disabled={synthesisSources.length === 0 || synthesisGenerating}
               className="rounded-lg border border-border px-3 py-2 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg disabled:opacity-50"
             >
-              清空 Source
+              {copy(language, '清空来源', 'Clear sources')}
             </button>
             <button
               type="button"
@@ -1239,7 +1380,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
               className="inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
             >
               {synthesisGenerating ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
-              生成综合
+              {copy(language, '生成综合', 'Generate synthesis')}
             </button>
           </div>
           {synthesisSources.length > 0 && (
@@ -1252,7 +1393,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
                     onClick={() => removeSynthesisSource(source.id)}
                     disabled={synthesisGenerating}
                     className="shrink-0 rounded p-0.5 hover:bg-bg-hover hover:text-fg disabled:opacity-50"
-                    title="移除 Source"
+                    title={copy(language, '移除来源', 'Remove source')}
                   >
                     <X size={11} />
                   </button>
@@ -1272,7 +1413,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
         {libraryMode === 'sources' ? (
           <div className="space-y-4 pb-6">
             <div className="flex items-center justify-between text-xs text-fg-faint">
-              <span>{searchActive ? 'Sources 搜索结果' : '最近 Sources'}</span>
+              <span>{searchActive ? copy(language, '来源搜索结果', 'Source search results') : copy(language, '最近来源', 'Recent sources')}</span>
               <span>{searchActive ? sourceResults.length : recentSources.length}</span>
             </div>
             {sourcesError && !searchActive ? (
@@ -1282,11 +1423,11 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
               </div>
             ) : searchActive && searchResults === null ? (
               <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-fg-faint">
-                <Loader2 size={16} className="animate-spin" />搜索 Sources…
+                <Loader2 size={16} className="animate-spin" />{copy(language, '搜索来源…', 'Searching sources…')}
               </div>
             ) : !searchActive && sourcesLoading ? (
               <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-fg-faint">
-                <Loader2 size={16} className="animate-spin" />加载 Sources…
+                <Loader2 size={16} className="animate-spin" />{copy(language, '加载来源…', 'Loading sources…')}
               </div>
             ) : searchActive ? (
               sourceResults.length > 0 ? (
@@ -1318,7 +1459,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
                         )}
                       >
                         {hasSynthesisSource(result.id) ? <Check size={11} /> : <BookmarkPlus size={11} />}
-                        {hasSynthesisSource(result.id) ? '已加入' : '加入综合'}
+                        {hasSynthesisSource(result.id) ? copy(language, '已加入', 'Added') : copy(language, '加入综合', 'Add')}
                       </button>
                       <button
                         type="button"
@@ -1327,13 +1468,13 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
                         className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-fg-muted transition-colors hover:bg-bg-hover hover:text-accent disabled:opacity-50"
                       >
                         <Clock size={11} />
-                        Review
+                        {copy(language, '复习', 'Review')}
                       </button>
                     </article>
                   ))}
                 </div>
               ) : (
-                <div className="flex min-h-40 items-center justify-center text-sm text-fg-faint">没有符合当前搜索的 Source。</div>
+                <div className="flex min-h-40 items-center justify-center text-sm text-fg-faint">{copy(language, '没有符合当前搜索的来源。', 'No sources match the current search.')}</div>
               )
             ) : recentSources.length > 0 ? (
               <div className="space-y-2">
@@ -1342,7 +1483,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
             ) : (
               <div className="flex min-h-40 flex-col items-center justify-center gap-2 text-center text-sm text-fg-faint">
                 <FileText size={24} className="opacity-50" />
-                <p>还没有 Source。导入或索引材料后会出现在这里。</p>
+                <p>{copy(language, '还没有来源。导入或索引材料后会出现在这里。', 'No sources yet. Imported or indexed materials will appear here.')}</p>
               </div>
             )}
           </div>
@@ -1351,19 +1492,19 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
             <section className="rounded-lg border border-border bg-bg-elevated px-4 py-3">
               <div className="flex items-center gap-2 text-sm font-medium text-fg">
                 <Sparkles size={14} className="text-accent" />
-                <span>Investigation</span>
+                <span>{copy(language, '调查', 'Investigation')}</span>
               </div>
               <textarea
                 value={investigationQuery}
                 onChange={(event) => setInvestigationQuery(event.target.value)}
                 className="mt-3 min-h-20 w-full resize-y rounded-lg border border-border bg-bg px-3 py-2 text-sm text-fg outline-none placeholder:text-fg-faint"
-                placeholder="输入调查问题…"
+                placeholder={copy(language, '输入调查问题…', 'Enter an investigation question…')}
               />
               <div className="mt-3 grid gap-2 md:grid-cols-2">
-                <textarea value={investigationSourceIds} onChange={(event) => setInvestigationSourceIds(event.target.value)} className="min-h-16 rounded-lg border border-border bg-bg px-3 py-2 text-xs text-fg outline-none placeholder:text-fg-faint" placeholder="Source IDs" />
-                <textarea value={investigationPointIds} onChange={(event) => setInvestigationPointIds(event.target.value)} className="min-h-16 rounded-lg border border-border bg-bg px-3 py-2 text-xs text-fg outline-none placeholder:text-fg-faint" placeholder="Point IDs" />
-                <textarea value={investigationEvidenceIds} onChange={(event) => setInvestigationEvidenceIds(event.target.value)} className="min-h-16 rounded-lg border border-border bg-bg px-3 py-2 text-xs text-fg outline-none placeholder:text-fg-faint" placeholder="Evidence IDs" />
-                <textarea value={investigationReportIds} onChange={(event) => setInvestigationReportIds(event.target.value)} className="min-h-16 rounded-lg border border-border bg-bg px-3 py-2 text-xs text-fg outline-none placeholder:text-fg-faint" placeholder="Report IDs" />
+                <textarea value={investigationSourceIds} onChange={(event) => setInvestigationSourceIds(event.target.value)} className="min-h-16 rounded-lg border border-border bg-bg px-3 py-2 text-xs text-fg outline-none placeholder:text-fg-faint" placeholder={copy(language, '来源 ID', 'Source IDs')} />
+                <textarea value={investigationPointIds} onChange={(event) => setInvestigationPointIds(event.target.value)} className="min-h-16 rounded-lg border border-border bg-bg px-3 py-2 text-xs text-fg outline-none placeholder:text-fg-faint" placeholder={copy(language, '观点 ID', 'Point IDs')} />
+                <textarea value={investigationEvidenceIds} onChange={(event) => setInvestigationEvidenceIds(event.target.value)} className="min-h-16 rounded-lg border border-border bg-bg px-3 py-2 text-xs text-fg outline-none placeholder:text-fg-faint" placeholder={copy(language, '证据 ID', 'Evidence IDs')} />
+                <textarea value={investigationReportIds} onChange={(event) => setInvestigationReportIds(event.target.value)} className="min-h-16 rounded-lg border border-border bg-bg px-3 py-2 text-xs text-fg outline-none placeholder:text-fg-faint" placeholder={copy(language, '报告 ID', 'Report IDs')} />
               </div>
               <div className="mt-3 flex flex-wrap items-center gap-3">
                 <select
@@ -1371,15 +1512,15 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
                   onChange={(event) => setInvestigationMode(event.target.value as InvestigationInput['mode'])}
                   className="rounded-lg border border-border bg-bg px-3 py-2 text-xs text-fg outline-none"
                 >
-                  {INVESTIGATION_MODES.map((mode) => <option key={mode} value={mode}>{mode}</option>)}
+                  {INVESTIGATION_MODES.map((mode) => <option key={mode} value={mode}>{investigationModeLabel(mode, language)}</option>)}
                 </select>
                 <label className="flex items-center gap-2 text-xs text-fg-muted">
                   <input type="checkbox" checked={investigationIncludeSearch} onChange={(event) => setInvestigationIncludeSearch(event.target.checked)} className="h-3.5 w-3.5 accent-[var(--color-accent)]" />
-                  全库检索
+                  {copy(language, '全库检索', 'Search whole library')}
                 </label>
                 <label className="flex items-center gap-2 text-xs text-fg-muted">
                   <input type="checkbox" checked={investigationIncludeJournal} onChange={(event) => setInvestigationIncludeJournal(event.target.checked)} className="h-3.5 w-3.5 accent-[var(--color-accent)]" />
-                  Journal 召回
+                  {copy(language, '日志召回', 'Journal recall')}
                 </label>
                 <button
                   type="button"
@@ -1388,7 +1529,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
                   className="ml-auto inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
                 >
                   {investigationGenerating ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
-                  生成
+                  {copy(language, '生成', 'Generate')}
                 </button>
               </div>
               {investigationError && (
@@ -1397,24 +1538,24 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
             </section>
             <section className="space-y-3">
               <div className="flex items-center justify-between text-xs text-fg-faint">
-                <span>{searchActive ? 'Investigation 搜索结果' : '最近 Investigations'}</span>
+                <span>{searchActive ? copy(language, '调查搜索结果', 'Investigation search results') : copy(language, '最近调查', 'Recent investigations')}</span>
                 <span>{investigationReports.length}</span>
               </div>
               {(searchActive && reportResults === null) || (!searchActive && reportsLoading) ? (
                 <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-fg-faint">
-                  <Loader2 size={16} className="animate-spin" />加载 Investigations…
+                  <Loader2 size={16} className="animate-spin" />{copy(language, '加载调查…', 'Loading investigations…')}
                 </div>
               ) : investigationReports.length > 0 ? (
                 <div className="space-y-2">{investigationReports.map(renderReportItem)}</div>
               ) : (
-                <div className="flex min-h-32 items-center justify-center text-sm text-fg-faint">还没有保存 Investigation Report。</div>
+                <div className="flex min-h-32 items-center justify-center text-sm text-fg-faint">{copy(language, '还没有保存调查报告。', 'No investigation reports saved yet.')}</div>
               )}
             </section>
           </div>
         ) : libraryMode === 'journal' ? (
           <div className="space-y-4 pb-6">
             <div className="flex items-center justify-between text-xs text-fg-faint">
-              <span>{searchActive ? 'Journal 搜索结果' : '最近 Journal'}</span>
+              <span>{searchActive ? copy(language, '日志搜索结果', 'Journal search results') : copy(language, '最近日志', 'Recent journal entries')}</span>
               <span>{journalRecords.length}</span>
             </div>
             {(journalError || reportsError) && (
@@ -1425,14 +1566,14 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
             )}
             {(searchActive && journalResults === null) || (!searchActive && journalLoading) ? (
               <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-fg-faint">
-                <Loader2 size={16} className="animate-spin" />加载 Journal…
+                <Loader2 size={16} className="animate-spin" />{copy(language, '加载日志…', 'Loading journal entries…')}
               </div>
             ) : journalRecords.length > 0 ? (
               <div className="space-y-2">{journalRecords.map(renderJournalEntry)}</div>
             ) : (
               <div className="flex min-h-40 flex-col items-center justify-center gap-2 text-center text-sm text-fg-faint">
                 <FileText size={24} className="opacity-50" />
-                <p>还没有 Journal。保存 Investigation 后会自动沉淀调查记忆。</p>
+                <p>{copy(language, '还没有日志。保存调查后会自动沉淀调查记忆。', 'No journal entries yet. Saved investigations will create investigation memories automatically.')}</p>
               </div>
             )}
           </div>
@@ -1441,13 +1582,13 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
             <section className="rounded-lg border border-border bg-bg-elevated px-4 py-3">
               <div className="grid gap-2 md:grid-cols-[150px_1fr_1fr_auto]">
                 <select value={reviewDraftKind} onChange={(event) => setReviewDraftKind(event.target.value as ReviewTargetKind)} className="rounded-lg border border-border bg-bg px-3 py-2 text-xs text-fg outline-none">
-                  {REVIEW_TARGET_OPTIONS.map((kind) => <option key={kind} value={kind}>{kind}</option>)}
+                  {REVIEW_TARGET_OPTIONS.map((kind) => <option key={kind} value={kind}>{assetKindLabel(kind, language)}</option>)}
                 </select>
-                <input value={reviewDraftId} onChange={(event) => setReviewDraftId(event.target.value)} className="rounded-lg border border-border bg-bg px-3 py-2 text-xs text-fg outline-none placeholder:text-fg-faint" placeholder="Target ID" />
-                <input value={reviewDraftTitle} onChange={(event) => setReviewDraftTitle(event.target.value)} className="rounded-lg border border-border bg-bg px-3 py-2 text-xs text-fg outline-none placeholder:text-fg-faint" placeholder="Title" />
+                <input value={reviewDraftId} onChange={(event) => setReviewDraftId(event.target.value)} className="rounded-lg border border-border bg-bg px-3 py-2 text-xs text-fg outline-none placeholder:text-fg-faint" placeholder={copy(language, '目标 ID', 'Target ID')} />
+                <input value={reviewDraftTitle} onChange={(event) => setReviewDraftTitle(event.target.value)} className="rounded-lg border border-border bg-bg px-3 py-2 text-xs text-fg outline-none placeholder:text-fg-faint" placeholder={copy(language, '标题', 'Title')} />
                 <button type="button" onClick={() => void handleAddReviewItem()} disabled={reviewMutatingId !== null} className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50">
                   <Plus size={13} />
-                  加入
+                  {copy(language, '加入', 'Add')}
                 </button>
               </div>
             </section>
@@ -1459,32 +1600,32 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
             )}
             {reviewLoading ? (
               <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-fg-faint">
-                <Loader2 size={16} className="animate-spin" />加载 Review…
+                <Loader2 size={16} className="animate-spin" />{copy(language, '加载复习队列…', 'Loading review queue…')}
               </div>
             ) : (
               <>
                 <section className="rounded-lg border border-border bg-bg-elevated px-4 py-3">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
-                      <p className="text-xs uppercase tracking-wide text-fg-faint">queue planner</p>
-                      <h2 className="mt-1 text-sm font-semibold text-fg">本轮 Review 计划</h2>
+                      <p className="text-xs uppercase tracking-wide text-fg-faint">{copy(language, '队列规划器', 'queue planner')}</p>
+                      <h2 className="mt-1 text-sm font-semibold text-fg">{copy(language, '本轮复习计划', 'Current review plan')}</h2>
                       <p className="mt-1 text-xs text-fg-faint">
-                        {reviewPlan ? `生成于 ${formatReportDate(reviewPlan.now)}` : 'planner 暂无可用结果'}
+                        {reviewPlan ? copy(language, `生成于 ${formatReportDate(reviewPlan.now)}`, `Generated ${formatReportDate(reviewPlan.now)}`) : copy(language, '规划器暂无可用结果', 'Planner has no available result')}
                       </p>
                     </div>
                     {reviewPlan && (
                       <span className="rounded-md border border-accent/30 bg-accent/10 px-2 py-1 text-xs text-accent">
-                        {reviewPlan.mode} · limit {reviewPlan.limit}
+                        {reviewPlanModeLabel(reviewPlan.mode, language)} · {copy(language, '上限', 'limit')} {reviewPlan.limit}
                       </span>
                     )}
                   </div>
                   {reviewPlan ? (
                     <>
                       <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                        {renderReviewStat('planned', reviewPlan.items.length, `${reviewPlan.candidateCount} candidates`)}
-                        {renderReviewStat('due', reviewPlan.dueCount, `${reviewPlan.overdueCount} overdue`)}
-                        {renderReviewStat('future', reviewPlan.futureCount, 'active later')}
-                        {renderReviewStat('overflow', reviewPlan.overflowCount, `${reviewPlan.dismissedCount} dismissed`)}
+                        {renderReviewStat(copy(language, '已计划', 'planned'), reviewPlan.items.length, copy(language, `${reviewPlan.candidateCount} 个候选`, `${reviewPlan.candidateCount} candidates`))}
+                        {renderReviewStat(copy(language, '到期', 'due'), reviewPlan.dueCount, copy(language, `${reviewPlan.overdueCount} 个逾期`, `${reviewPlan.overdueCount} overdue`))}
+                        {renderReviewStat(copy(language, '未来', 'future'), reviewPlan.futureCount, copy(language, '稍后激活', 'active later'))}
+                        {renderReviewStat(copy(language, '溢出', 'overflow'), reviewPlan.overflowCount, copy(language, `${reviewPlan.dismissedCount} 个已移除`, `${reviewPlan.dismissedCount} dismissed`))}
                       </div>
                       <div className="mt-4">
                         <div className="mb-2 flex items-center justify-between text-xs text-fg-faint">
@@ -1498,20 +1639,20 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
                         ) : (
                           <div className="flex min-h-28 flex-col items-center justify-center gap-2 text-center text-sm text-fg-faint">
                             <Clock size={22} className="opacity-50" />
-                            <p>当前没有到期 Review item；future 项会计入统计但不进入本轮计划。</p>
+                            <p>{copy(language, '当前没有到期复习项；未来项会计入统计但不进入本轮计划。', 'There are no due review items; future items count in stats but are excluded from this plan.')}</p>
                           </div>
                         )}
                       </div>
                     </>
                   ) : (
                     <div className="mt-3 rounded-lg border border-border bg-bg px-3 py-3 text-sm text-fg-faint">
-                      Planner 未返回结果。请刷新 Review 或检查后端命令状态。
+                      {copy(language, '规划器未返回结果。请刷新复习队列或检查后端命令状态。', 'Planner returned no result. Refresh Review or check backend command status.')}
                     </div>
                   )}
                 </section>
                 <section className="space-y-2">
                   <div className="flex items-center justify-between text-xs text-fg-faint">
-                    <span>全部 Review Queue</span>
+                    <span>{copy(language, '全部复习队列', 'Full review queue')}</span>
                     <span>{reviewItems.length}</span>
                   </div>
                   {reviewItems.length > 0 ? (
@@ -1519,7 +1660,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
                   ) : (
                     <div className="flex min-h-40 flex-col items-center justify-center gap-2 text-center text-sm text-fg-faint">
                       <Clock size={24} className="opacity-50" />
-                      <p>还没有 Review item。可从 Source 或手动输入资产 ID 加入。</p>
+                      <p>{copy(language, '还没有复习项。可从来源或手动输入资产 ID 加入。', 'No review items yet. Add one from a source or by entering an asset ID manually.')}</p>
                     </div>
                   )}
                 </section>
@@ -1529,7 +1670,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
         ) : libraryMode === 'gallery' ? (
           <div className="space-y-4 pb-6">
             <div className="flex items-center justify-between text-xs text-fg-faint">
-              <span>{searchActive ? 'Gallery 搜索结果' : '最近 Gallery'}</span>
+              <span>{searchActive ? copy(language, '画廊搜索结果', 'Gallery search results') : copy(language, '最近画廊', 'Recent gallery items')}</span>
               <span>{galleryRecords.length}</span>
             </div>
             {galleryError && !searchActive ? (
@@ -1539,14 +1680,14 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
               </div>
             ) : (searchActive && galleryResults === null) || (!searchActive && galleryLoading) ? (
               <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-fg-faint">
-                <Loader2 size={16} className="animate-spin" />加载 Gallery…
+                <Loader2 size={16} className="animate-spin" />{copy(language, '加载画廊…', 'Loading gallery…')}
               </div>
             ) : galleryRecords.length > 0 ? (
               <div className="space-y-2">{galleryRecords.map(renderGalleryItem)}</div>
             ) : (
               <div className="flex min-h-40 flex-col items-center justify-center gap-2 text-center text-sm text-fg-faint">
                 <Images size={24} className="opacity-50" />
-                <p>还没有 Gallery 资产。</p>
+                <p>{copy(language, '还没有画廊资产。', 'No gallery assets yet.')}</p>
               </div>
             )}
           </div>
@@ -1555,21 +1696,21 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
             <section className="rounded-lg border border-border bg-bg-elevated px-4 py-3">
               <div className="grid gap-2 md:grid-cols-[150px_1fr_auto_auto]">
                 <select value={relatedKind} onChange={(event) => setRelatedKind(event.target.value as AssetKind)} className="rounded-lg border border-border bg-bg px-3 py-2 text-xs text-fg outline-none">
-                  {RELATED_KIND_OPTIONS.map((kind) => <option key={kind} value={kind}>{kind}</option>)}
+                  {RELATED_KIND_OPTIONS.map((kind) => <option key={kind} value={kind}>{assetKindLabel(kind, language)}</option>)}
                 </select>
-                <input value={relatedId} onChange={(event) => setRelatedId(event.target.value)} className="rounded-lg border border-border bg-bg px-3 py-2 text-xs text-fg outline-none placeholder:text-fg-faint" placeholder="Asset ID" />
+                <input value={relatedId} onChange={(event) => setRelatedId(event.target.value)} className="rounded-lg border border-border bg-bg px-3 py-2 text-xs text-fg outline-none placeholder:text-fg-faint" placeholder={copy(language, '资产 ID', 'Asset ID')} />
                 <button type="button" onClick={() => void handleDiscoverRelatedAssets()} disabled={relatedLoading} className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50">
                   {relatedLoading ? <Loader2 size={13} className="animate-spin" /> : <Search size={13} />}
-                  Discover
+                  {copy(language, '发现', 'Discover')}
                 </button>
                 <button type="button" onClick={() => void handleRebuildRelations()} disabled={relatedLoading} className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg disabled:opacity-50">
                   <RefreshCw size={13} className={cn(relatedLoading && 'animate-spin')} />
-                  Rebuild
+                  {copy(language, '重建', 'Rebuild')}
                 </button>
               </div>
             </section>
             {relatedError && (
-              <div className={cn('flex items-start gap-2 rounded-lg border px-4 py-3 text-sm', relatedError.startsWith('已重建') ? 'border-border bg-bg-elevated text-fg-muted' : 'border-red-500/30 bg-red-500/10 text-red-300')}>
+              <div className={cn('flex items-start gap-2 rounded-lg border px-4 py-3 text-sm', relatedError.startsWith('已重建') || relatedError.startsWith('Rebuilt') ? 'border-border bg-bg-elevated text-fg-muted' : 'border-red-500/30 bg-red-500/10 text-red-300')}>
                 <AlertCircle size={16} className="mt-0.5 shrink-0" />
                 <span className="break-words">{relatedError}</span>
               </div>
@@ -1582,11 +1723,11 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
                       <Link2 size={15} className="mt-0.5 shrink-0 text-accent" />
                       <div className="min-w-0 flex-1">
                         <div className="flex min-w-0 items-center gap-2">
-                          <span className="truncate text-sm font-medium text-fg">{record.toKind}: {record.toId}</span>
-                          <span className="shrink-0 rounded-md border border-border px-2 py-0.5 text-[11px] text-fg-faint">{record.relation}</span>
+                          <span className="truncate text-sm font-medium text-fg">{assetKindLabel(record.toKind, language)}: {record.toId}</span>
+                          <span className="shrink-0 rounded-md border border-border px-2 py-0.5 text-[11px] text-fg-faint">{relationLabel(record.relation, language)}</span>
                         </div>
                         <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-fg-muted">{record.reason}</p>
-                        <p className="mt-2 text-[11px] text-fg-faint">{record.sourceKind} · score {record.score.toFixed(2)}</p>
+                        <p className="mt-2 text-[11px] text-fg-faint">{relationSourceKindLabel(record.sourceKind, language)} · {copy(language, '分数', 'score')} {record.score.toFixed(2)}</p>
                       </div>
                     </div>
                   </article>
@@ -1595,14 +1736,14 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
             ) : (
               <div className="flex min-h-40 flex-col items-center justify-center gap-2 text-center text-sm text-fg-faint">
                 <Link2 size={24} className="opacity-50" />
-                <p>输入资产 ID 后发现相关资产。</p>
+                <p>{copy(language, '输入资产 ID 后发现相关资产。', 'Enter an asset ID to discover related assets.')}</p>
               </div>
             )}
           </div>
         ) : libraryMode === 'reports' ? (
           <div className="space-y-4 pb-6">
             <div className="flex items-center justify-between text-xs text-fg-faint">
-              <span>{searchActive ? 'Reports 搜索结果' : '最近 Reports'}</span>
+              <span>{searchActive ? copy(language, '报告搜索结果', 'Report search results') : copy(language, '最近报告', 'Recent reports')}</span>
               <span>{visibleReports.length} / {reportRecords.length}</span>
             </div>
 
@@ -1618,14 +1759,14 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
                       reportKindFilter === filter.id ? 'bg-accent/10 text-accent' : 'text-fg-muted hover:text-fg'
                     )}
                   >
-                    {filter.label}
+                    {reportKindDisplay(filter.id, language)}
                   </button>
                 ))}
               </div>
               <p className="text-xs text-fg-faint">
                 {searchActive
-                  ? `匹配 ${visibleReports.length} / ${reportRecords.length}`
-                  : `显示 ${visibleReports.length} / ${recentReports.length}`}
+                  ? copy(language, `匹配 ${visibleReports.length} / ${reportRecords.length}`, `Matched ${visibleReports.length} / ${reportRecords.length}`)
+                  : copy(language, `显示 ${visibleReports.length} / ${recentReports.length}`, `Showing ${visibleReports.length} / ${recentReports.length}`)}
               </p>
             </div>
 
@@ -1636,7 +1777,7 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
               </div>
             ) : (searchActive && reportResults === null) || (!searchActive && reportsLoading) ? (
               <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-fg-faint">
-                <Loader2 size={16} className="animate-spin" />加载 Reports…
+                <Loader2 size={16} className="animate-spin" />{copy(language, '加载报告…', 'Loading reports…')}
               </div>
             ) : visibleReports.length > 0 ? (
               <div className="space-y-2">
@@ -1648,11 +1789,11 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
                 <p>
                   {searchActive
                     ? reportRecords.length > 0
-                      ? '没有符合当前搜索和类型筛选的 Report。'
-                      : '没有符合当前搜索的 Report。'
+                      ? copy(language, '没有符合当前搜索和类型筛选的报告。', 'No reports match the current search and type filter.')
+                      : copy(language, '没有符合当前搜索的报告。', 'No reports match the current search.')
                     : recentReports.length > 0
-                      ? '没有符合当前类型筛选的 Report。'
-                      : '还没有保存 Report。生成研报或多来源综合后，点击“保存报告”沉淀到这里。'}
+                      ? copy(language, '没有符合当前类型筛选的报告。', 'No reports match the current type filter.')
+                      : copy(language, '还没有保存报告。生成研报或多来源综合后，点击“保存报告”沉淀到这里。', 'No reports saved yet. Generate a digest or synthesis, then save it here.')}
                 </p>
               </div>
             )}
@@ -1671,14 +1812,14 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
                       evidenceVerdictFilter === filter.id ? 'bg-accent/10 text-accent' : 'text-fg-muted hover:text-fg'
                     )}
                   >
-                    {filter.label}
+                    {evidenceVerdictDisplay(filter.id, language)}
                   </button>
                 ))}
               </div>
               <p className="text-xs text-fg-faint">
                 {searchActive
-                  ? `匹配 ${filteredLedgerEvidence.length} / ${evidenceResults?.length ?? 0}`
-                  : `显示 ${filteredLedgerEvidence.length} / ${recentEvidence.length}`}
+                  ? copy(language, `匹配 ${filteredLedgerEvidence.length} / ${evidenceResults?.length ?? 0}`, `Matched ${filteredLedgerEvidence.length} / ${evidenceResults?.length ?? 0}`)
+                  : copy(language, `显示 ${filteredLedgerEvidence.length} / ${recentEvidence.length}`, `Showing ${filteredLedgerEvidence.length} / ${recentEvidence.length}`)}
               </p>
             </div>
 
@@ -1689,12 +1830,13 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
               </div>
             ) : (searchActive && evidenceResults === null) || (!searchActive && evidenceLoading) ? (
               <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-fg-faint">
-                <Loader2 size={16} className="animate-spin" />加载 Evidence…
+                <Loader2 size={16} className="animate-spin" />{copy(language, '加载证据…', 'Loading evidence…')}
               </div>
             ) : filteredLedgerEvidence.length > 0 ? (
               <EvidenceList
                 records={filteredLedgerEvidence}
-                title={searchActive ? 'Evidence 搜索结果' : '最近 Evidence'}
+                title={searchActive ? copy(language, '证据搜索结果', 'Evidence search results') : copy(language, '最近证据', 'Recent evidence')}
+                language={language}
                 onOpenSource={(sourceId, chunkIndex) => onOpenSource?.(sourceId, chunkIndex)}
                 renderAction={renderEvidenceDigestAction}
               />
@@ -1703,10 +1845,10 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
                 <ShieldCheck size={24} className="opacity-50" />
                 <p>
                   {searchActive
-                    ? '没有符合当前搜索和 verdict 的 Evidence。'
+                    ? copy(language, '没有符合当前搜索和结论的证据。', 'No evidence matches the current search and verdict.')
                     : recentEvidence.length > 0
-                      ? '没有符合当前 verdict 的 Evidence。'
-                      : '还没有保存 Evidence。完成事实审查后，使用“保存为证据”沉淀到这里。'}
+                      ? copy(language, '没有符合当前结论的证据。', 'No evidence matches the current verdict.')
+                      : copy(language, '还没有保存证据。完成事实审查后，使用“保存为证据”沉淀到这里。', 'No evidence saved yet. Complete a fact check, then use “Save as evidence” to keep it here.')}
                 </p>
               </div>
             )}
@@ -1714,15 +1856,15 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
         ) : searchActive ? (
           searching && assetSearchResults === null ? (
             <div className="flex h-full min-h-32 items-center justify-center gap-2 text-sm text-fg-faint">
-              <Loader2 size={16} className="animate-spin" />搜索中…
+              <Loader2 size={16} className="animate-spin" />{copy(language, '搜索中…', 'Searching…')}
             </div>
           ) : totalSearchResults > 0 ? (
             <div className="space-y-5 pb-6">
-              <p className="text-xs text-fg-faint">共 {totalSearchResults} 条结果</p>
+              <p className="text-xs text-fg-faint">{copy(language, `共 ${totalSearchResults} 条结果`, `${totalSearchResults} results`)}</p>
               {assetResultSections.map((section) => (
                 <section key={section.key}>
                   <div className="mb-2 flex items-center justify-between text-xs text-fg-faint">
-                    <span>{section.label}</span>
+                    <span>{assetKindPluralLabel(section.kind, language)}</span>
                     <span>{section.results.length}</span>
                   </div>
                   <div className="space-y-2">{section.results.map(renderAssetSearchResult)}</div>
@@ -1730,11 +1872,11 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
               ))}
             </div>
           ) : (
-            <div className="flex h-full min-h-32 items-center justify-center text-sm text-fg-faint">无匹配结果</div>
+            <div className="flex h-full min-h-32 items-center justify-center text-sm text-fg-faint">{copy(language, '无匹配结果', 'No matching results')}</div>
           )
         ) : loading ? (
           <div className="flex h-full min-h-32 items-center justify-center gap-2 text-sm text-fg-faint">
-            <Loader2 size={16} className="animate-spin" />加载中…
+            <Loader2 size={16} className="animate-spin" />{copy(language, '加载中…', 'Loading…')}
           </div>
         ) : showArchived ? (
           /* Archived view */
@@ -1745,33 +1887,34 @@ export default function Library({ onOpenPointSource, onOpenSource, onOpenGallery
                   <p className="flex-1 leading-relaxed">{p.content}</p>
                   <SourceExcerptButton
                     point={p}
+                    language={language}
                     className="shrink-0 text-fg-faint transition-colors hover:text-accent mt-0.5"
                   />
                   <button onClick={() => handleUnarchive(p.id)}
-                    className="shrink-0 text-xs text-fg-muted hover:text-accent transition-colors mt-0.5">恢复</button>
+                    className="shrink-0 text-xs text-fg-muted hover:text-accent transition-colors mt-0.5">{copy(language, '恢复', 'Restore')}</button>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="flex h-full min-h-32 items-center justify-center text-sm text-fg-faint">没有已归档的观点</div>
+            <div className="flex h-full min-h-32 items-center justify-center text-sm text-fg-faint">{copy(language, '没有已归档的观点', 'No archived points')}</div>
           )
         ) : activePoints.length > 0 ? (
           /* Normal views */
-          viewMode === 'grouped' ? <GroupedView points={activePoints} onArchive={handleArchive} onOpenSource={onOpenPointSource ? (point) => onOpenPointSource(point.id) : undefined} onOpenEvidenceSource={onOpenSource} /> :
-          viewMode === 'list'    ? <ListView    points={activePoints} onArchive={handleArchive} onOpenSource={onOpenPointSource ? (point) => onOpenPointSource(point.id) : undefined} onOpenEvidenceSource={onOpenSource} /> :
-          viewMode === 'table'   ? <TableView   points={activePoints} onArchive={handleArchive} onOpenSource={onOpenPointSource ? (point) => onOpenPointSource(point.id) : undefined} /> :
-                                   <KanbanView  points={activePoints} onArchive={handleArchive} onOpenSource={onOpenPointSource ? (point) => onOpenPointSource(point.id) : undefined} onOpenEvidenceSource={onOpenSource} />
+          viewMode === 'grouped' ? <GroupedView points={activePoints} language={language} onArchive={handleArchive} onOpenSource={onOpenPointSource ? (point) => onOpenPointSource(point.id) : undefined} onOpenEvidenceSource={onOpenSource} /> :
+          viewMode === 'list'    ? <ListView    points={activePoints} language={language} onArchive={handleArchive} onOpenSource={onOpenPointSource ? (point) => onOpenPointSource(point.id) : undefined} onOpenEvidenceSource={onOpenSource} /> :
+          viewMode === 'table'   ? <TableView   points={activePoints} language={language} onArchive={handleArchive} onOpenSource={onOpenPointSource ? (point) => onOpenPointSource(point.id) : undefined} /> :
+                                   <KanbanView  points={activePoints} language={language} onArchive={handleArchive} onOpenSource={onOpenPointSource ? (point) => onOpenPointSource(point.id) : undefined} onOpenEvidenceSource={onOpenSource} />
         ) : (
           <div className="flex h-full min-h-32 flex-col items-center justify-center gap-2 text-sm text-fg-faint">
-            <BookMarked size={24} className="opacity-50" />还没有保存任何观点。去「探索」页提取并保存吧。
+            <BookMarked size={24} className="opacity-50" />{copy(language, '还没有保存任何观点。去「探索」页提取并保存吧。', 'No points saved yet. Extract and save them from Explore.')}
           </div>
         )}
       </div>
       {synthesisResult && (
         <DigestModal
           result={synthesisResult}
-          title="多来源综合"
-          sourceName="多来源综合"
+          title={copy(language, '多来源综合', 'Multi-source synthesis')}
+          sourceName={copy(language, '多来源综合', 'Multi-source synthesis')}
           reportKind="synthesis"
           onOpenSource={onOpenSource}
           onClose={() => setSynthesisResult(null)}

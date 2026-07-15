@@ -1,15 +1,11 @@
 import { useEffect, useRef } from 'react'
-import { useReducedMotion } from 'framer-motion'
 
-const STAR_COUNT = 220
+const STAR_COUNT = 120
 
-interface OrbitStar {
-  orbitRadius: number
+interface StaticStar {
+  x: number
+  y: number
   radius: number
-  orbitX: number
-  orbitY: number
-  timePassed: number
-  speed: number
   alpha: number
 }
 
@@ -19,23 +15,12 @@ function random(min: number, max?: number): number {
   return Math.floor(Math.random() * (high - low + 1)) + low
 }
 
-function maxOrbit(width: number, height: number): number {
-  const max = Math.max(width, height)
-  const diameter = Math.round(Math.sqrt(max * max + max * max))
-  return diameter / 2
-}
-
-function createStar(width: number, height: number): OrbitStar {
-  const orbitRadius = random(maxOrbit(width, height))
-
+function createStar(width: number, height: number): StaticStar {
   return {
-    orbitRadius,
-    radius: random(50, Math.max(60, orbitRadius)) / 22,
-    orbitX: width / 2,
-    orbitY: height / 2,
-    timePassed: random(0, STAR_COUNT),
-    speed: random(Math.max(1, orbitRadius)) / 520000,
-    alpha: random(2, 9) / 10,
+    x: random(width),
+    y: random(height),
+    radius: random(1, 4),
+    alpha: random(2, 8) / 10,
   }
 }
 
@@ -62,19 +47,17 @@ function createStarSprite(): HTMLCanvasElement {
 
 export function StarfieldBackground() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const prefersReducedMotion = useReducedMotion()
 
   useEffect(() => {
     const canvas = canvasRef.current
     const ctx = canvas?.getContext('2d')
     if (!canvas || !ctx) return
 
-    let frame = 0
-    let stars: OrbitStar[] = []
+    let resizeFrame = 0
     const sprite = createStarSprite()
 
-    const resize = () => {
-      const dpr = Math.min(window.devicePixelRatio || 1, 2)
+    const draw = () => {
+      const dpr = Math.min(window.devicePixelRatio || 1, 1.5)
       const width = window.innerWidth
       const height = window.innerHeight
       canvas.width = Math.floor(width * dpr)
@@ -82,50 +65,40 @@ export function StarfieldBackground() {
       canvas.style.width = `${width}px`
       canvas.style.height = `${height}px`
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-      stars = Array.from({ length: STAR_COUNT }, () => createStar(width, height))
-    }
-
-    const draw = () => {
-      const width = window.innerWidth
-      const height = window.innerHeight
       ctx.clearRect(0, 0, width, height)
       ctx.globalCompositeOperation = 'lighter'
 
+      const stars = Array.from({ length: STAR_COUNT }, () => createStar(width, height))
       for (const star of stars) {
-        const x = Math.sin(star.timePassed) * star.orbitRadius + star.orbitX
-        const y = Math.cos(star.timePassed) * star.orbitRadius + star.orbitY
-        const twinkle = random(14)
-
-        if (!prefersReducedMotion) {
-          if (twinkle === 1 && star.alpha > 0.18) star.alpha -= 0.035
-          else if (twinkle === 2 && star.alpha < 0.86) star.alpha += 0.035
-          star.timePassed += star.speed
-        }
-
         ctx.globalAlpha = star.alpha
-        ctx.drawImage(sprite, x - star.radius / 2, y - star.radius / 2, star.radius, star.radius)
+        ctx.drawImage(sprite, star.x - star.radius / 2, star.y - star.radius / 2, star.radius, star.radius)
       }
 
       ctx.globalAlpha = 1
       ctx.globalCompositeOperation = 'source-over'
-      if (!prefersReducedMotion) frame = window.requestAnimationFrame(draw)
     }
 
-    resize()
     draw()
-    window.addEventListener('resize', resize)
+    const handleResize = () => {
+      if (resizeFrame !== 0) window.cancelAnimationFrame(resizeFrame)
+      resizeFrame = window.requestAnimationFrame(() => {
+        resizeFrame = 0
+        draw()
+      })
+    }
+    window.addEventListener('resize', handleResize)
 
     return () => {
-      window.removeEventListener('resize', resize)
-      if (frame !== 0) window.cancelAnimationFrame(frame)
+      window.removeEventListener('resize', handleResize)
+      if (resizeFrame !== 0) window.cancelAnimationFrame(resizeFrame)
     }
-  }, [prefersReducedMotion])
+  }, [])
 
   return (
     <canvas
       ref={canvasRef}
       aria-hidden
-      className="pointer-events-none fixed inset-0 z-0 opacity-55"
+      className="starfield-background pointer-events-none fixed inset-0 z-0"
     />
   )
 }

@@ -30,7 +30,7 @@
     --color-fg:           #ededed;
     --color-fg-muted:     rgba(255,255,255,0.55);
     --color-fg-faint:     rgba(255,255,255,0.35);
-    --font-ui:            'Noto Serif SC', system-ui, sans-serif;
+    --font-ui:            system-ui, -apple-system, sans-serif;
     --font-size-base:     15px;
     --font-code:          'Monaco', ui-monospace, monospace;
   }
@@ -65,5 +65,22 @@
     @apply bg-bg text-fg antialiased;
     font-family: var(--font-ui);
     font-size: var(--font-size-base);
+  }
+}
+
+@layer utilities {
+  .perf-content-auto {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 240px;
+  }
+}
+
+.starfield-background {
+  opacity: 0.42;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .starfield-background {
+    opacity: 0.38;
   }
 }

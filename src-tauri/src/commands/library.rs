@@ -250,8 +250,7 @@ pub async fn save_points(
     let path = db::db_path(&app).map_err(|e| e.to_string())?;
 
     tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<String>> {
-        let mut conn = Connection::open(&path)?;
-        db::init_db(&conn)?;
+        let mut conn = db::open_db(&path)?;
 
         let tx = conn.transaction()?;
         let now = chrono::Utc::now().to_rfc3339();
