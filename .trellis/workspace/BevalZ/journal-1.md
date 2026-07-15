@@ -1115,3 +1115,37 @@ Made Explore mount-time presentation derive from persisted non-busy content so p
 ### Next Steps
 
 - None - task complete
+
+
+## Session 33: Source Workspace reliability and language
+
+**Date**: 2026-07-15
+**Task**: Source Workspace reliability and language
+**Branch**: `main`
+
+### Summary
+
+Made Source Workspace asset loading independent, added persisted Chinese/English UI copy across Source Workspace and Capability Center, enabled per-card regeneration, and added bounded deep Investigation preparation with regression coverage.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `313c66b` | (see git log) |
+| `a023831` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
