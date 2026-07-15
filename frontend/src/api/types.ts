@@ -20,6 +20,7 @@ export interface AppConfig {
   searchProviderKey: string
   searchCustomEndpoint: string
   factCheckLanguage: string
+  uiLanguage: 'zh-CN' | 'en-US'
   annotationUnderlineColor: string
   annotationWavyColor: string
   annotationHighlightColor: string

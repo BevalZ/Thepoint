@@ -42,6 +42,7 @@ const KEY_SEARCH_BASE_URL: &str = "search_base_url";
 const KEY_SEARCH_PROVIDER_KEY: &str = "search_provider_key";
 const KEY_SEARCH_CUSTOM_ENDPOINT: &str = "search_custom_endpoint";
 const KEY_FACT_CHECK_LANGUAGE: &str = "fact_check_language";
+const KEY_UI_LANGUAGE: &str = "ui_language";
 const KEY_ANNOTATION_UNDERLINE_COLOR: &str = "annotation_underline_color";
 const KEY_ANNOTATION_WAVY_COLOR: &str = "annotation_wavy_color";
 const KEY_ANNOTATION_HIGHLIGHT_COLOR: &str = "annotation_highlight_color";
@@ -50,6 +51,14 @@ const KEY_COMMENTATOR_STYLE: &str = "commentator_style";
 const KEY_COMMENTATOR_EMOJI: &str = "commentator_emoji";
 const KEY_COMMENTATOR_PROFILES: &str = "commentator_profiles";
 const KEY_CUSTOM_MENTAL_MODELS: &str = "custom_mental_models";
+
+fn normalize_ui_language(value: &str) -> &'static str {
+    if value.trim() == "en-US" {
+        "en-US"
+    } else {
+        "zh-CN"
+    }
+}
 const DEFAULT_MODEL: &str = "gpt-4o-mini";
 pub const DEFAULT_IMAGE_KNOWLEDGE_STYLE_PROMPT: &str = r#"# 角色
 你是一位知识可视化与信息架构专家，擅长将复杂辩论、观点或论证文本转化为高密度、学术风格的知识图谱画面。不要使用流程图、树状图、UML、Mermaid、Graphviz 或任何箭头流程图语法。
@@ -95,6 +104,7 @@ pub struct AppConfig {
     pub search_provider_key: String,
     pub search_custom_endpoint: String,
     pub fact_check_language: String,
+    pub ui_language: String,
     pub annotation_underline_color: String,
     pub annotation_wavy_color: String,
     pub annotation_highlight_color: String,
@@ -315,6 +325,10 @@ pub fn get_config(app: tauri::AppHandle<Wry>) -> Result<AppConfig, String> {
         fact_check_language: store.get(KEY_FACT_CHECK_LANGUAGE)
             .and_then(|v| v.as_str().map(String::from))
             .unwrap_or_else(|| "中文".to_string()),
+        ui_language: store.get(KEY_UI_LANGUAGE)
+            .and_then(|v| v.as_str().map(String::from))
+            .map(|value| normalize_ui_language(&value).to_string())
+            .unwrap_or_else(|| "zh-CN".to_string()),
         annotation_underline_color: store.get(KEY_ANNOTATION_UNDERLINE_COLOR)
             .and_then(|v| v.as_str().map(String::from))
             .unwrap_or_else(|| "#00A4EF".to_string()),
@@ -373,6 +387,7 @@ pub fn set_config(app: tauri::AppHandle<Wry>, config: AppConfig) -> Result<(), S
     store.set(KEY_SEARCH_PROVIDER_KEY, config.search_provider_key.as_str());
     store.set(KEY_SEARCH_CUSTOM_ENDPOINT, config.search_custom_endpoint.as_str());
     store.set(KEY_FACT_CHECK_LANGUAGE, config.fact_check_language.as_str());
+    store.set(KEY_UI_LANGUAGE, normalize_ui_language(&config.ui_language));
     store.set(KEY_ANNOTATION_UNDERLINE_COLOR, config.annotation_underline_color.as_str());
     store.set(KEY_ANNOTATION_WAVY_COLOR, config.annotation_wavy_color.as_str());
     store.set(KEY_ANNOTATION_HIGHLIGHT_COLOR, config.annotation_highlight_color.as_str());
@@ -578,5 +593,13 @@ mod tests {
                 profile.name
             );
         }
+    }
+
+    #[test]
+    fn ui_language_accepts_only_supported_values() {
+        assert_eq!(normalize_ui_language("en-US"), "en-US");
+        assert_eq!(normalize_ui_language("zh-CN"), "zh-CN");
+        assert_eq!(normalize_ui_language("invalid"), "zh-CN");
+        assert_eq!(normalize_ui_language(""), "zh-CN");
     }
 }

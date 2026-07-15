@@ -66,6 +66,20 @@ describe('Capability Center helpers', () => {
       tone: 'restricted',
       readOnly: false,
     })
+
+    expect(commandPresentation(command({
+      executionKind: 'diagnostic',
+      requiredInput: [],
+    }), 'en-US')).toMatchObject({ label: 'Read-only diagnostic', tone: 'safe' })
+    expect(commandPresentation(command(), 'en-US')).toMatchObject({
+      label: 'Read-only · Input required',
+      detail: 'Requires query; provide this context in the owning workflow.',
+    })
+    expect(commandPresentation(command({
+      executionKind: 'model',
+      requiredInput: [],
+      risk: 'model_call',
+    }), 'en-US')).toMatchObject({ label: 'Model call', tone: 'restricted' })
   })
 
   it('filters against command metadata while preserving manifest order', () => {

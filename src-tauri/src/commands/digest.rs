@@ -707,9 +707,26 @@ fn normalize_investigation_mode(mode: &str) -> String {
         _ => "standard".to_string(),
     }
 }
+fn investigation_depth_requirements(mode: &str) -> &'static str {
+    match mode {
+        "quick" => {
+            "输出一份简洁但有引用的快速调查：在输入支持的范围内提炼 3-5 个不同发现，至少说明一项支持证据、一项冲突或不确定点，并给出下一步核查问题。"
+        }
+        "deep" => {
+            "输出一份深入调查：在输入支持的范围内提炼 6-10 个互不重复的关键发现；为每个发现列出对应引用、证据角色、证据强弱与高/中/低置信度；用证据矩阵比较支持、反对和仅提供背景的材料；至少讨论两种竞争性解释或冲突观点；明确缺失证据、不可回答问题、潜在偏差，以及 3-5 个可执行的后续核查问题。若上下文不足以达到数量目标，应明确说明缺口，不得重复或编造。"
+        }
+        _ => {
+            "输出一份标准调查：在输入支持的范围内提炼 5-7 个不同发现；逐项说明引用、证据强弱和置信度；集中展示支持材料、冲突材料、不确定点，并给出 2-4 个后续核查问题。若上下文不足，应明确说明缺口，不得重复或编造。"
+        }
+    }
+}
+
 
 fn investigation_input_text(query: &str, mode: &str, context: &InvestigationContext) -> String {
-    let mut sections = vec![format!("## Investigation Query\n{query}\n\nMode: {mode}")];
+    let mut sections = vec![format!(
+        "## Investigation Query\n{query}\n\nMode: {mode}\n\n## Depth Requirements\n{}",
+        investigation_depth_requirements(mode)
+    )];
 
     if !context.sources.is_empty() {
         let lines = context.sources.iter().enumerate().map(|(index, workspace)| {
@@ -1262,5 +1279,36 @@ mod tests {
         assert_eq!(citations[2].kind, "point");
         assert_eq!(citations[2].label, "P1");
         assert_eq!(citations[2].source_id.as_deref(), Some("source-point"));
+    }
+
+    #[test]
+    fn investigation_modes_normalize_and_define_distinct_depth_contracts() {
+        assert_eq!(normalize_investigation_mode("quick"), "quick");
+        assert_eq!(normalize_investigation_mode("deep"), "deep");
+        assert_eq!(normalize_investigation_mode("unknown"), "standard");
+        assert!(investigation_depth_requirements("quick").contains("3-5"));
+        assert!(investigation_depth_requirements("standard").contains("5-7"));
+        assert!(investigation_depth_requirements("deep").contains("6-10"));
+        assert!(investigation_depth_requirements("deep").contains("证据矩阵"));
+    }
+
+    #[test]
+    fn deep_investigation_input_includes_richness_without_allowing_fabrication() {
+        let context = InvestigationContext {
+            sources: vec![source_workspace()],
+            points: vec![stored_point("point-1")],
+            point_contexts: vec![Some(point_context())],
+            evidence: vec![evidence_record("evidence-1")],
+            ..InvestigationContext::default()
+        };
+
+        let text = investigation_input_text("What changed?", "deep", &context);
+
+        assert!(text.contains("## Depth Requirements"));
+        assert!(text.contains("6-10"));
+        assert!(text.contains("不得重复或编造"));
+        assert!(text.contains("[S1]"));
+        assert!(text.contains("[P1]"));
+        assert!(text.contains("[E1]"));
     }
 }

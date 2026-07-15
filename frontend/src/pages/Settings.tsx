@@ -527,6 +527,7 @@ export default function Settings() {
   const [searchApiKey, setSearchApiKey] = useState('')
   const [searchModel, setSearchModel] = useState('')
   const [factCheckLanguage, setFactCheckLanguage] = useState('中文')
+  const [uiLanguage, setUiLanguage] = useState<'zh-CN' | 'en-US'>('zh-CN')
   const [annotationUnderlineColor, setAnnotationUnderlineColor] = useState('#00A4EF')
   const [annotationWavyColor, setAnnotationWavyColor] = useState('#F25022')
   const [annotationHighlightColor, setAnnotationHighlightColor] = useState('#FFB900')
@@ -676,6 +677,7 @@ export default function Settings() {
     setSearchApiKey(config.searchApiKey || '')
     setSearchModel(config.searchModel || '')
     setFactCheckLanguage(config.factCheckLanguage || '中文')
+    setUiLanguage(config.uiLanguage || 'zh-CN')
     setAnnotationUnderlineColor(config.annotationUnderlineColor || '#00A4EF')
     setAnnotationWavyColor(config.annotationWavyColor || '#F25022')
     setAnnotationHighlightColor(config.annotationHighlightColor || '#FFB900')
@@ -705,6 +707,7 @@ export default function Settings() {
       searchProviderKey: config.searchProviderKey,
       searchCustomEndpoint: config.searchCustomEndpoint,
       factCheckLanguage: config.factCheckLanguage || '中文',
+      uiLanguage: config.uiLanguage || 'zh-CN',
       annotationUnderlineColor: config.annotationUnderlineColor || '#00A4EF',
       annotationWavyColor: config.annotationWavyColor || '#F25022',
       annotationHighlightColor: config.annotationHighlightColor || '#FFB900',
@@ -772,6 +775,7 @@ export default function Settings() {
       searchEnabled, searchApiKey, searchModel, searchBaseUrl,
       searchProviderKey, searchCustomEndpoint,
       factCheckLanguage,
+      uiLanguage,
       annotationUnderlineColor,
       annotationWavyColor,
       annotationHighlightColor,
@@ -822,6 +826,7 @@ export default function Settings() {
         searchProviderKey: parsed.searchProviderKey ?? searchProviderKey,
         searchCustomEndpoint: parsed.searchCustomEndpoint ?? searchCustomEndpoint,
         factCheckLanguage: parsed.factCheckLanguage ?? factCheckLanguage,
+        uiLanguage: parsed.uiLanguage ?? uiLanguage,
         annotationUnderlineColor: parsed.annotationUnderlineColor ?? annotationUnderlineColor,
         annotationWavyColor: parsed.annotationWavyColor ?? annotationWavyColor,
         annotationHighlightColor: parsed.annotationHighlightColor ?? annotationHighlightColor,
@@ -2327,8 +2332,14 @@ export default function Settings() {
       )}
 
       {/* Appearance tab */}
-      {topTab === 'appearance' && <AppearancePanel />}
-
+      {topTab === 'appearance' && (
+        <AppearancePanel
+          uiLanguage={uiLanguage}
+          onUiLanguageChange={setUiLanguage}
+          onSave={() => { void handleSave() }}
+          saved={saved}
+        />
+      )}
     </div>
   )
 }
@@ -2443,12 +2454,43 @@ const THEME_OPTIONS: { id: ThemeMode; label: string; desc: string }[] = [
   { id: 'system', label: '跟随系统', desc: '自动跟随操作系统设置' },
 ]
 
-function AppearancePanel() {
+interface AppearancePanelProps {
+  uiLanguage: 'zh-CN' | 'en-US'
+  onUiLanguageChange: (language: 'zh-CN' | 'en-US') => void
+  onSave: () => void
+  saved: boolean
+}
+
+function AppearancePanel({ uiLanguage, onUiLanguageChange, onSave, saved }: AppearancePanelProps) {
   const { mode, accent, accentPresets, uiFont, codeFont, fontSize, setMode, setAccent, setUiFont, setCodeFont, setFontSize } = useThemeStore()
   const [customAccent, setCustomAccent] = useState(accent)
 
   return (
     <div className="space-y-6">
+      <div className="overflow-hidden rounded-2xl border border-border bg-bg">
+        <div className="border-b border-border bg-bg-elevated/50 px-5 py-3">
+          <p className="text-sm font-medium text-fg">界面语言 / UI Language</p>
+          <p className="mt-0.5 text-xs text-fg-faint">切换来源工作台面板的中文或英文界面；保存后立即生效。</p>
+        </div>
+        <div className="flex items-center gap-3 p-5">
+          <select
+            aria-label="界面语言 / UI Language"
+            value={uiLanguage}
+            onChange={(event) => onUiLanguageChange(event.target.value as 'zh-CN' | 'en-US')}
+            className="min-w-48 flex-1 rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm outline-none focus:border-accent"
+          >
+            <option value="zh-CN">中文</option>
+            <option value="en-US">English</option>
+          </select>
+          <button
+            type="button"
+            onClick={onSave}
+            className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover"
+          >
+            {saved ? '已保存' : '保存语言'}
+          </button>
+        </div>
+      </div>
       {/* Theme mode */}
       <div className="rounded-2xl border border-border bg-bg overflow-hidden">
         <div className="px-5 py-3 border-b border-border bg-bg-elevated/50">

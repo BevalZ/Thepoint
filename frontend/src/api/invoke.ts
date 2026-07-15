@@ -34,6 +34,7 @@ function browserPreviewFallback<T extends TauriCommandName>(
         searchProviderKey: 'openai-compat',
         searchCustomEndpoint: '',
         factCheckLanguage: '中文',
+        uiLanguage: 'zh-CN',
         annotationUnderlineColor: '#00A4EF',
         annotationWavyColor: '#F25022',
         annotationHighlightColor: '#FFB900',

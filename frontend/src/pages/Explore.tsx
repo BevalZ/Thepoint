@@ -35,14 +35,21 @@ import { cn } from '@/lib/utils'
 import { initialExplorePresentation } from '@/lib/explorePresentation'
 import { useStarFly } from '@/hooks/useStarFly'
 import { addReviewItem, analyzeTextBlock, describeImage, discoverRelatedAssets, factCheckClaim, generateInvestigation, getSourceAssets, listRecentJournalEntries, listRecentSources, saveEvidence, savePoints } from '@/api'
-import type { AppConfig, AssetRelationRecord, ChunkCard, DigestResult, EvidenceRecord, ExploreHistoryItem, ExploreSourceMetadata, FactCheckResult, JournalEntry, ReportRecord, SourceAssetsRecord, SourceSummaryRecord } from '@/api/types'
+import type { AppConfig, AssetRelationRecord, ChunkCard, DigestResult, EvidenceRecord, ExploreHistoryItem, ExploreSourceMetadata, FactCheckResult, JournalEntry, ReportRecord, SourceAssetsRecord, SourceSummaryRecord, StoredPoint } from '@/api/types'
 import { ExternalLinkPreview } from '@/components/ExternalLinkPreview'
 import { DigestModal } from '@/components/DigestModal'
 import { reportKindLabel, reportMarkdownWithCitations } from '@/lib/reportArtifacts'
 import { evidenceMarkdown, markdownFileName, sourceAssetsMarkdown, sourceDisplayTitle } from '@/lib/workbenchArtifacts'
 import { splitSourceHighlight, type SourceHighlightRequest, type SourceHighlightSegment } from '@/lib/sourceHighlight'
 import { sourceBlocksFromContentPlan, type ExploreSourceBlock as SourceBlock } from '@/lib/exploreContentPlan'
-
+import {
+  INVESTIGATION_MAX_AUTO_ANALYSIS_BLOCKS,
+  INVESTIGATION_TARGET_EVIDENCE,
+  INVESTIGATION_TARGET_POINTS,
+  investigationMissingLabel,
+  investigationReadinessForAssets,
+  type InvestigationReadiness,
+} from '@/lib/investigationPreparation'
 const URL_RE = /^https?:\/\/[^\s]+$/
 const SUPPORTED_EXTS = ['txt','md','markdown','rst','csv','docx','odt','html','htm']
 const BLOCK_PREVIEW_LIMIT = 320
@@ -132,6 +139,7 @@ interface ThemeBlockProps {
   onOpen?: (el: HTMLButtonElement) => void
   onToggleStar?: (el: HTMLButtonElement) => void
   onAnalyze?: (el: HTMLButtonElement) => void
+  onRegenerate?: (el: HTMLButtonElement) => void
   analyzing?: boolean
   analyzeError?: string | null
   displayText?: string
@@ -213,7 +221,28 @@ interface CommentDialogState extends SelectionToolbarState {
 }
 
 type PointTagType = '事实陈述' | '作者观点' | '待验证疑问'
+interface InvestigationPreparationCandidate {
+  displayIndex: number
+  blockIndex: number
+  text: string
+  card: ChunkCard | null
+}
 
+interface PreparedInvestigationPoint {
+  id: string
+  claim: string
+  context: string
+  blockIndex: number
+  card: ChunkCard
+  tagType: PointTagType
+}
+
+interface InvestigationEvidenceCandidate {
+  pointId: string | null
+  claim: string
+  context: string
+  blockIndex: number | null
+}
 function tagTypeForChunkCard(card: ChunkCard): PointTagType {
   const joined = `${card.summary}\n${card.text}`
   if (/[？?]/.test(card.summary) || /(是否|能否|会不会|为什么|如何|待验证|不确定|存疑|需要核查)/.test(card.summary)) {
@@ -251,6 +280,13 @@ function tagTypeForChunkCard(card: ChunkCard): PointTagType {
   return '作者观点'
 }
 
+function pointClaimForInvestigation(card: ChunkCard): string {
+  return normalizedText(card.summary || card.hotTake || card.text)
+}
+
+function investigationEvidenceContext(point: StoredPoint): string {
+  return normalizedText(point.sourceExcerpt || point.content)
+}
 function processWebHtml(html: string): { richHtml: string; text: string; url: string | null } {
   const parser = new DOMParser()
   const doc = parser.parseFromString(html, 'text/html')
@@ -1114,6 +1150,7 @@ function SourceHeader({
 }
 
 interface SourceAssetPanelProps {
+  language: AppConfig['uiLanguage']
   assets: SourceAssetsRecord | null
   loading: boolean
   error: string | null
@@ -1122,17 +1159,23 @@ interface SourceAssetPanelProps {
   relationsLoading: boolean
   actionError: string | null
   investigationLoading: boolean
+  investigationReadiness: InvestigationReadiness | null
+  preparationLoading: boolean
+  preparationStatus: string | null
   reviewLoading: boolean
   onOpenSource: (sourceId: string, chunkIndex?: number | null) => void
   onExportSource: () => void
   onExportEvidence: (record: EvidenceRecord) => void
   onExportReport: (record: ReportRecord) => void
+  onPrepareInvestigation: () => void
   onGenerateInvestigation: () => void
+  onForceGenerateInvestigation: () => void
   onAddReview: () => void
   onRefreshRelations: () => void
 }
 
 function SourceAssetPanel({
+  language,
   assets,
   loading,
   error,
@@ -1141,16 +1184,23 @@ function SourceAssetPanel({
   relationsLoading,
   actionError,
   investigationLoading,
+  investigationReadiness,
+  preparationLoading,
+  preparationStatus,
   reviewLoading,
   onOpenSource,
   onExportSource,
   onExportEvidence,
   onExportReport,
+  onPrepareInvestigation,
   onGenerateInvestigation,
+  onForceGenerateInvestigation,
   onAddReview,
   onRefreshRelations,
 }: SourceAssetPanelProps) {
+  const [collapsed, setCollapsed] = useState(false)
   if (!assets && !loading && !error) return null
+  const zh = language !== 'en-US'
 
   const pointCount = assets?.points.length ?? 0
   const evidenceCount = assets?.evidence.length ?? 0
@@ -1158,6 +1208,8 @@ function SourceAssetPanel({
   const investigationCount = assets?.reports.filter((report) => report.kind === 'investigation').length ?? 0
   const galleryCount = assets?.gallery.length ?? 0
   const totalCount = pointCount + evidenceCount + reportCount + galleryCount + journalEntries.length + relations.length
+  const investigationBusy = investigationLoading || preparationLoading
+  const needsPreparation = Boolean(assets && investigationReadiness && !investigationReadiness.ready)
 
   return (
     <section className="mx-6 mt-4 rounded-lg border border-border bg-bg-elevated px-4 py-3">
@@ -1165,64 +1217,81 @@ function SourceAssetPanel({
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-sm font-medium text-fg">
             <Database size={14} className="text-accent" />
-            <span>来源资产</span>
+            <span>{zh ? '来源资产' : 'Source assets'}</span>
             {loading && <Loader2 size={13} className="animate-spin text-fg-faint" />}
           </div>
           <p className="mt-1 text-xs text-fg-faint">
             {assets
-              ? `${pointCount} Point · ${evidenceCount} Evidence · ${reportCount} Report · ${galleryCount} Image`
-              : '正在整理与当前来源关联的资产'}
+              ? zh
+                ? `${pointCount} 个观点 · ${evidenceCount} 条证据 · ${reportCount} 份报告 · ${galleryCount} 张图片`
+                : `${pointCount} Points · ${evidenceCount} Evidence · ${reportCount} Reports · ${galleryCount} Images`
+              : zh ? '正在整理与当前来源关联的资产' : 'Loading assets linked to this source'}
           </p>
         </div>
-        {assets && (
-          <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {assets && (
+            <>
             <button
               type="button"
-              onClick={onGenerateInvestigation}
-              disabled={investigationLoading}
+              onClick={needsPreparation ? onPrepareInvestigation : onGenerateInvestigation}
+              disabled={investigationBusy}
               className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-accent disabled:opacity-50"
-              title="基于当前来源生成 Investigation"
+              title={needsPreparation
+                ? (zh ? '先补充观点和证据，再生成调查报告' : 'Prepare points and evidence before generating the investigation')
+                : (zh ? '基于当前来源生成调查报告' : 'Generate an investigation from this source')}
             >
-              {investigationLoading ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
-              调查
+              {investigationBusy ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+              {needsPreparation ? (zh ? '准备后调查' : 'Prepare + Investigate') : (zh ? '调查' : 'Investigate')}
             </button>
             <button
               type="button"
               onClick={onAddReview}
               disabled={reviewLoading}
               className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-accent disabled:opacity-50"
-              title="加入 Review Queue"
+              title={zh ? '加入复习队列' : 'Add to review queue'}
             >
               {reviewLoading ? <Loader2 size={13} className="animate-spin" /> : <Archive size={13} />}
-              Review
+              {zh ? '复习' : 'Review'}
             </button>
             <button
               type="button"
               onClick={onRefreshRelations}
               disabled={relationsLoading}
               className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-accent disabled:opacity-50"
-              title="刷新 Related assets"
+              title={zh ? '刷新相关资产' : 'Refresh related assets'}
             >
               {relationsLoading ? <Loader2 size={13} className="animate-spin" /> : <Link2 size={13} />}
-              Related
+              {zh ? '相关' : 'Related'}
             </button>
             <button
               type="button"
               onClick={onExportSource}
               className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-accent"
-              title="导出来源资产 Markdown"
+              title={zh ? '导出来源资产 Markdown' : 'Export source assets as Markdown'}
             >
               <Download size={13} />
-              导出
+              {zh ? '导出' : 'Export'}
             </button>
-          </div>
-        )}
+            </>
+          )}
+          <button
+            type="button"
+            onClick={() => setCollapsed((value) => !value)}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-accent"
+            title={collapsed ? (zh ? '展开来源资产' : 'Expand source assets') : (zh ? '收起来源资产' : 'Collapse source assets')}
+            aria-expanded={!collapsed}
+          >
+            <ChevronDown size={13} className={cn('transition-transform', !collapsed && 'rotate-180')} />
+            {collapsed ? (zh ? '展开' : 'Expand') : (zh ? '收起' : 'Collapse')}
+          </button>
+        </div>
       </div>
 
+      <div className={cn(collapsed && 'hidden')}>
       {(error || actionError) && (
         <div className={cn(
           'mt-3 rounded-md border px-3 py-2 text-xs',
-          actionError?.startsWith('已')
+          actionError?.startsWith('已') || actionError?.startsWith('Added')
             ? 'border-border bg-bg text-fg-muted'
             : 'border-red-500/25 bg-red-500/10 text-red-300'
         )}>
@@ -1230,31 +1299,83 @@ function SourceAssetPanel({
         </div>
       )}
 
+      {preparationStatus && (
+        <div className="mt-3 flex items-center gap-2 rounded-md border border-accent/25 bg-accent/10 px-3 py-2 text-xs text-accent">
+          <Loader2 size={13} className="animate-spin" />
+          <span>{preparationStatus}</span>
+        </div>
+      )}
+
+      {assets && investigationReadiness && !investigationReadiness.ready && (
+        <div className="mt-3 rounded-md border border-amber-500/25 bg-amber-500/10 px-3 py-3 text-xs text-amber-100">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="font-medium">
+                {zh ? '调查准备度不足' : 'Investigation context is thin'}
+              </p>
+              <p className="mt-1 leading-relaxed text-amber-100/80">
+                {zh
+                  ? '当前来源的观点或证据偏少，直接调查容易生成粗略报告。建议先自动补充关键观点和少量证据。'
+                  : 'This source has too few points or evidence items. Generating now may produce a shallow report.'}
+              </p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {investigationReadiness.missing.map((missing) => (
+                  <span key={missing} className="rounded-full border border-amber-300/25 bg-bg/40 px-2 py-0.5 text-[11px]">
+                    {investigationMissingLabel(missing, language)}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <div className="flex shrink-0 flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={onPrepareInvestigation}
+                disabled={investigationBusy}
+                className="inline-flex items-center gap-1.5 rounded-md border border-amber-300/35 bg-amber-300/10 px-2.5 py-1.5 text-xs text-amber-50 transition-colors hover:bg-amber-300/20 disabled:opacity-50"
+              >
+                {investigationBusy ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+                {zh ? '准备后调查' : 'Prepare + Investigate'}
+              </button>
+              <button
+                type="button"
+                onClick={onForceGenerateInvestigation}
+                disabled={investigationBusy}
+                className="inline-flex items-center gap-1.5 rounded-md border border-amber-300/25 px-2.5 py-1.5 text-xs text-amber-100/85 transition-colors hover:bg-amber-300/10 disabled:opacity-50"
+              >
+                {zh ? '仍然直接调查' : 'Generate anyway'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {assets && totalCount === 0 && !error && (
         <div className="mt-3 rounded-md border border-border bg-bg px-3 py-4 text-center text-xs text-fg-faint">
-          当前来源还没有可聚合的 Point、Evidence、Report、Journal、Related 或 Gallery 图片。
+          {zh
+            ? '当前来源还没有可聚合的观点、证据、报告、日志、相关资产或画廊图片。'
+            : 'This source has no linked points, evidence, reports, journal entries, related assets, or gallery images yet.'}
         </div>
       )}
 
       {assets && totalCount > 0 && (
         <div className="mt-4 grid gap-3 lg:grid-cols-2">
-          <AssetGroup title="Points" count={pointCount} icon={<FileText size={13} />}>
+          <AssetGroup title={zh ? '观点' : 'Points'} count={pointCount} icon={<FileText size={13} />}>
             {assets.points.length > 0 ? (
               assets.points.slice(0, 4).map((point) => (
                 <div key={point.id} className="rounded-md border border-border bg-bg px-3 py-2">
                   <div className="mb-1 flex items-center gap-1.5 text-[11px] text-fg-faint">
-                    <span>{point.tagType ?? '未分类'}</span>
-                    {point.starred && <span className="text-accent">Star</span>}
+                    <span>{point.tagType ?? (zh ? '未分类' : 'Uncategorized')}</span>
+                    {point.starred && <span className="text-accent">{zh ? '已收藏' : 'Starred'}</span>}
                   </div>
                   <p className="line-clamp-2 text-xs leading-relaxed text-fg-muted">{point.content}</p>
                 </div>
               ))
             ) : (
-              <EmptyAssetGroup text="暂无关联 Point" />
+              <EmptyAssetGroup text={zh ? '暂无关联观点' : 'No linked points'} />
             )}
           </AssetGroup>
 
-          <AssetGroup title="Evidence" count={evidenceCount} icon={<ShieldCheck size={13} />}>
+          <AssetGroup title={zh ? '证据' : 'Evidence'} count={evidenceCount} icon={<ShieldCheck size={13} />}>
             {assets.evidence.length > 0 ? (
               assets.evidence.slice(0, 3).map((record) => {
                 const evidenceSourceId = record.sourceId
@@ -1269,7 +1390,7 @@ function SourceAssetPanel({
                         type="button"
                         onClick={() => onExportEvidence(record)}
                         className="shrink-0 rounded-md border border-border px-1.5 py-1 text-fg-muted transition-colors hover:bg-bg-hover hover:text-accent"
-                        title="导出 Evidence"
+                        title={zh ? '导出证据' : 'Export evidence'}
                       >
                         <Download size={12} />
                       </button>
@@ -1280,32 +1401,32 @@ function SourceAssetPanel({
                         onClick={() => onOpenSource(evidenceSourceId, record.chunkIndex)}
                         className="mt-2 text-[11px] text-accent hover:underline"
                       >
-                        回到来源块
+                        {zh ? '回到来源块' : 'Open source chunk'}
                       </button>
                     )}
                   </div>
                 )
               })
             ) : (
-              <EmptyAssetGroup text="暂无 Evidence" />
+              <EmptyAssetGroup text={zh ? '暂无证据' : 'No evidence'} />
             )}
           </AssetGroup>
 
-          <AssetGroup title="Reports" count={reportCount} icon={<ScrollText size={13} />}>
+          <AssetGroup title={zh ? '报告' : 'Reports'} count={reportCount} icon={<ScrollText size={13} />}>
             {assets.reports.length > 0 ? (
               assets.reports.slice(0, 3).map((report) => (
                 <div key={report.id} className="rounded-md border border-border bg-bg px-3 py-2">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <p className="line-clamp-1 text-xs font-medium text-fg">{report.title}</p>
-                      <p className="mt-1 text-[11px] text-fg-faint">{reportKindLabel(report.kind)}</p>
+                      <p className="mt-1 text-[11px] text-fg-faint">{zh ? reportKindLabel(report.kind) : report.kind}</p>
                       <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-fg-muted">{report.summary}</p>
                     </div>
                     <button
                       type="button"
                       onClick={() => onExportReport(report)}
                       className="shrink-0 rounded-md border border-border px-1.5 py-1 text-fg-muted transition-colors hover:bg-bg-hover hover:text-accent"
-                      title="导出 Report"
+                      title={zh ? '导出报告' : 'Export report'}
                     >
                       <Download size={12} />
                     </button>
@@ -1313,11 +1434,11 @@ function SourceAssetPanel({
                 </div>
               ))
             ) : (
-              <EmptyAssetGroup text="暂无引用当前来源的 Report" />
+              <EmptyAssetGroup text={zh ? '暂无引用当前来源的报告' : 'No reports cite this source'} />
             )}
           </AssetGroup>
 
-          <AssetGroup title="Investigations" count={investigationCount} icon={<Sparkles size={13} />}>
+          <AssetGroup title={zh ? '调查报告' : 'Investigations'} count={investigationCount} icon={<Sparkles size={13} />}>
             {assets.reports.some((report) => report.kind === 'investigation') ? (
               assets.reports
                 .filter((report) => report.kind === 'investigation')
@@ -1329,44 +1450,44 @@ function SourceAssetPanel({
                   </div>
                 ))
             ) : (
-              <EmptyAssetGroup text="暂无当前来源 Investigation" />
+              <EmptyAssetGroup text={zh ? '暂无当前来源调查报告' : 'No investigation for this source'} />
             )}
           </AssetGroup>
 
-          <AssetGroup title="Gallery" count={galleryCount} icon={<Images size={13} />}>
+          <AssetGroup title={zh ? '画廊' : 'Gallery'} count={galleryCount} icon={<Images size={13} />}>
             {assets.gallery.length > 0 ? (
               assets.gallery.slice(0, 3).map((item) => (
                 <div key={item.id} className="rounded-md border border-border bg-bg px-3 py-2">
                   <div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-fg-faint">
                     <span>{item.downloadStatus}</span>
-                    <span>{item.pointIds.length} Point</span>
+                    <span>{item.pointIds.length} {zh ? '个观点' : 'Points'}</span>
                   </div>
                   <p className="line-clamp-2 text-xs leading-relaxed text-fg-muted">{item.prompt}</p>
                 </div>
               ))
             ) : (
-              <EmptyAssetGroup text="暂无来源关联图片" />
+              <EmptyAssetGroup text={zh ? '暂无来源关联图片' : 'No linked images'} />
             )}
           </AssetGroup>
 
-          <AssetGroup title="Journal" count={journalEntries.length} icon={<FileText size={13} />}>
+          <AssetGroup title={zh ? '日志' : 'Journal'} count={journalEntries.length} icon={<FileText size={13} />}>
             {journalEntries.length > 0 ? (
               journalEntries.slice(0, 3).map((entry) => (
                 <div key={entry.id} className={cn('rounded-md border border-border bg-bg px-3 py-2', entry.invalidatedAt && 'opacity-70')}>
                   <div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-fg-faint">
                     <span>{formatHistoryDate(entry.createdAt)}</span>
-                    {entry.invalidatedAt && <span className="text-red-300">失效</span>}
+                    {entry.invalidatedAt && <span className="text-red-300">{zh ? '失效' : 'Invalidated'}</span>}
                   </div>
                   <p className="line-clamp-1 text-xs font-medium text-fg">{entry.query}</p>
                   <p className="mt-1 line-clamp-2 text-[11px] leading-relaxed text-fg-muted">{entry.note}</p>
                 </div>
               ))
             ) : (
-              <EmptyAssetGroup text="暂无来源相关 Journal" />
+              <EmptyAssetGroup text={zh ? '暂无来源相关日志' : 'No related journal entries'} />
             )}
           </AssetGroup>
 
-          <AssetGroup title="Related" count={relations.length} icon={<Link2 size={13} />}>
+          <AssetGroup title={zh ? '相关资产' : 'Related'} count={relations.length} icon={<Link2 size={13} />}>
             {relations.length > 0 ? (
               relations.slice(0, 3).map((relation) => (
                 <div key={relation.id} className="rounded-md border border-border bg-bg px-3 py-2">
@@ -1379,11 +1500,12 @@ function SourceAssetPanel({
                 </div>
               ))
             ) : (
-              <EmptyAssetGroup text="暂无 Related assets" />
+              <EmptyAssetGroup text={zh ? '暂无相关资产' : 'No related assets'} />
             )}
           </AssetGroup>
         </div>
       )}
+      </div>
     </section>
   )
 }
@@ -2261,7 +2383,7 @@ function CompletionConfetti({ burstKey }: { burstKey: number }) {
 }
 
 // ── ThemeBlock ──────────────────────────────────────────────────────────────
-function ThemeBlock({ card, index, starred, onOpen, onToggleStar, onAnalyze, analyzing = false, analyzeError = null, displayText, muted = false, blockRef, onFactCheck, userAnnotations = [], annotationColors = DEFAULT_ANNOTATION_COLORS, activeFactCheck = null, sourceHighlight = null }: ThemeBlockProps) {
+function ThemeBlock({ card, index, starred, onOpen, onToggleStar, onAnalyze, onRegenerate, analyzing = false, analyzeError = null, displayText, muted = false, blockRef, onFactCheck, userAnnotations = [], annotationColors = DEFAULT_ANNOTATION_COLORS, activeFactCheck = null, sourceHighlight = null }: ThemeBlockProps) {
   const starRef = useRef<HTMLButtonElement>(null)
   const selectableText = displayText ?? card.text
   const highlightSegments = splitSourceHighlight(selectableText, sourceHighlight)
@@ -2321,6 +2443,11 @@ function ThemeBlock({ card, index, starred, onOpen, onToggleStar, onAnalyze, ana
             if (onOpen) onOpen(starRef.current)
             else onAnalyze?.(starRef.current)
           }}
+          onDoubleClick={(event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            if (starRef.current) onRegenerate?.(starRef.current)
+          }}
           onContextMenu={(e) => {
             e.preventDefault()
             e.stopPropagation()
@@ -2337,7 +2464,11 @@ function ThemeBlock({ card, index, starred, onOpen, onToggleStar, onAnalyze, ana
               ? 'border-amber-400/50 bg-amber-400/15 text-amber-400'
               : 'border-border bg-bg-elevated text-amber-400/60 hover:border-amber-400/40 hover:bg-amber-400/10 hover:text-amber-400'
           )}
-          title={onAnalyze ? analyzeError ? `生成失败，点击重试：${analyzeError}` : '点击尝试生成 AI 解读' : starred ? '右键取消采集' : '左键查看分析 / 右键采集'}
+          title={onAnalyze
+            ? analyzeError ? `生成失败，点击重试：${analyzeError}` : '点击尝试生成 AI 解读'
+            : analyzeError
+              ? `重新生成失败，双击重试：${analyzeError}`
+              : starred ? '单击查看 / 双击重新生成 / 右键取消采集' : '单击查看 / 双击重新生成 / 右键采集'}
         >
           {analyzing ? <Loader2 size={20} className="animate-spin" /> : <Star size={20} fill={starred ? 'currentColor' : 'none'} />}
         </motion.button>
@@ -3055,6 +3186,7 @@ export default function Explore({ sourceHighlight = null, onSourceHighlightConsu
   const [generationInProgress, setGenerationInProgress] = useState(false)
   const [completionBurstKey, setCompletionBurstKey] = useState<number | null>(null)
   const [adHocCards, setAdHocCards] = useState<Record<number, ChunkCard>>({})
+  const [regeneratedCards, setRegeneratedCards] = useState<Record<number, ChunkCard>>({})
   const [adHocAnalyzing, setAdHocAnalyzing] = useState<Record<number, boolean>>({})
   const [adHocErrors, setAdHocErrors] = useState<Record<number, string>>({})
   const [factBubble, setFactBubble] = useState<FactBubbleState | null>(null)
@@ -3066,6 +3198,8 @@ export default function Explore({ sourceHighlight = null, onSourceHighlightConsu
   const [sourceRelationsLoading, setSourceRelationsLoading] = useState(false)
   const [sourceAssetActionError, setSourceAssetActionError] = useState<string | null>(null)
   const [sourceInvestigationLoading, setSourceInvestigationLoading] = useState(false)
+  const [sourceInvestigationPreparationLoading, setSourceInvestigationPreparationLoading] = useState(false)
+  const [sourceInvestigationPreparationStatus, setSourceInvestigationPreparationStatus] = useState<string | null>(null)
   const [sourceReviewLoading, setSourceReviewLoading] = useState(false)
   const [sourceInvestigationResult, setSourceInvestigationResult] = useState<DigestResult | null>(null)
   const [selectionToolbar, setSelectionToolbar] = useState<SelectionToolbarState | null>(null)
@@ -3076,6 +3210,10 @@ export default function Explore({ sourceHighlight = null, onSourceHighlightConsu
   const [activeSourceHighlight, setActiveSourceHighlight] = useState<SourceHighlightRequest | null>(null)
   // index → saved point id (once a chunk has been saved+starred)
   const [savedIds, setSavedIds] = useState<Record<number, string>>({})
+
+  useEffect(() => {
+    setRegeneratedCards({})
+  }, [sourceId, sourceOpenVersion])
 
   const busy = analyzing || parsing
   const sourceBlocks = useMemo(() => {
@@ -3106,6 +3244,34 @@ export default function Explore({ sourceHighlight = null, onSourceHighlightConsu
       return { block, index, card: null, valuable: false }
     })
   }, [adHocCards, chunkCards, sourceBlocks])
+  const sourceInvestigationReadiness = useMemo(
+    () => investigationReadinessForAssets(sourceAssets),
+    [sourceAssets]
+  )
+  const investigationPreparationCandidates = useMemo<InvestigationPreparationCandidate[]>(() => {
+    if (hasSourceBlocks) {
+      const candidates: InvestigationPreparationCandidate[] = []
+      for (const item of sourceResultItems) {
+        if (item.block.type !== 'text' || !item.valuable) continue
+        candidates.push({
+          displayIndex: item.index,
+          blockIndex: item.block.chunkIndex ?? item.index,
+          text: item.block.text,
+          card: item.card,
+        })
+      }
+      return candidates.slice(0, INVESTIGATION_MAX_AUTO_ANALYSIS_BLOCKS)
+    }
+
+    return chunkCards
+      .map((card, index) => ({
+        displayIndex: index,
+        blockIndex: Number.isFinite(card.index) && card.index >= 0 ? card.index : index,
+        text: card.text,
+        card,
+      }))
+      .slice(0, INVESTIGATION_MAX_AUTO_ANALYSIS_BLOCKS)
+  }, [chunkCards, hasSourceBlocks, sourceResultItems])
   const stageTargetCount = sourceBlocks.length > 0 ? sourceBlocks.length : chunkCards.length
   const completedIndexes = useMemo(
     () => new Set(Array.from(
@@ -3584,11 +3750,16 @@ export default function Explore({ sourceHighlight = null, onSourceHighlightConsu
       .catch((error: unknown) => {
         if (!alive) return
         setSourceAssets(null)
-        setSourceAssetsError(error instanceof Error ? error.message : '加载来源资产失败，请稍后重试。')
+        setSourceAssetsError(exploreErrorMessage(
+          error,
+          config?.uiLanguage === 'en-US'
+            ? 'Failed to load source assets. Please try again.'
+            : '加载来源资产失败，请稍后重试。'
+        ))
       })
       .finally(() => { if (alive) setSourceAssetsLoading(false) })
     return () => { alive = false }
-  }, [sourceId, sourceOpenVersion])
+  }, [config?.uiLanguage, sourceId, sourceOpenVersion])
 
   useEffect(() => {
     if (!sourceId) {
@@ -3602,25 +3773,31 @@ export default function Explore({ sourceHighlight = null, onSourceHighlightConsu
     let alive = true
     setSourceRelationsLoading(true)
     setSourceAssetActionError(null)
-    Promise.all([
+    Promise.allSettled([
       listRecentJournalEntries(),
       discoverRelatedAssets('source', sourceId),
     ])
-      .then(([entries, relations]) => {
+      .then(([entriesResult, relationsResult]) => {
         if (!alive) return
-        setSourceJournalEntries(entries.filter((entry) => parseJsonStringArray(entry.sourceIdsJson).includes(sourceId)))
-        setSourceRelations(relations)
-      })
-      .catch((error: unknown) => {
-        if (!alive) return
-        setSourceJournalEntries([])
-        setSourceRelations([])
-        setSourceAssetActionError(exploreErrorMessage(error, '加载来源 Journal / Related 失败'))
+        const errors: string[] = []
+        if (entriesResult.status === 'fulfilled') {
+          setSourceJournalEntries(entriesResult.value.filter((entry) => parseJsonStringArray(entry.sourceIdsJson).includes(sourceId)))
+        } else {
+          setSourceJournalEntries([])
+          errors.push(exploreErrorMessage(entriesResult.reason, config?.uiLanguage === 'en-US' ? 'Failed to load source journal' : '加载来源日志失败'))
+        }
+        if (relationsResult.status === 'fulfilled') {
+          setSourceRelations(relationsResult.value)
+        } else {
+          setSourceRelations([])
+          errors.push(exploreErrorMessage(relationsResult.reason, config?.uiLanguage === 'en-US' ? 'Failed to load related assets' : '加载相关资产失败'))
+        }
+        setSourceAssetActionError(errors.length > 0 ? errors.join('；') : null)
       })
       .finally(() => { if (alive) setSourceRelationsLoading(false) })
 
     return () => { alive = false }
-  }, [sourceId, sourceOpenVersion])
+  }, [config?.uiLanguage, sourceId, sourceOpenVersion])
 
   const handleOpenCard = useCallback((card: ChunkCard, blockIndex: number, el: HTMLButtonElement) => {
     scrollToBlock(blockIndex)
@@ -3684,6 +3861,45 @@ export default function Explore({ sourceHighlight = null, onSourceHighlightConsu
       })
     }
   }, [adHocAnalyzing, adHocCards, handleOpenCard])
+
+  const handleRegenerateBlock = useCallback(async (
+    blockIndex: number,
+    card: ChunkCard,
+    el: HTMLButtonElement,
+    adHoc: boolean
+  ) => {
+    if (adHocAnalyzing[blockIndex]) return
+    setAdHocAnalyzing((current) => ({ ...current, [blockIndex]: true }))
+    setAdHocErrors((current) => {
+      const next = { ...current }
+      delete next[blockIndex]
+      return next
+    })
+    try {
+      const result = await analyzeTextBlock(card.text, card.index)
+      const regenerated = { ...result, index: card.index }
+      if (adHoc) {
+        setAdHocCards((current) => ({ ...current, [blockIndex]: regenerated }))
+      } else {
+        setRegeneratedCards((current) => ({ ...current, [card.index]: regenerated }))
+      }
+      setAnalysisStack((current) => current.map((entry) =>
+        entry.blockIndex === blockIndex && entry.card.index === card.index
+          ? { ...entry, card: regenerated, title: analysisTitle(regenerated.text) }
+          : entry
+      ))
+      handleOpenCard(regenerated, blockIndex, el)
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error || '重新生成 AI 解读失败')
+      setAdHocErrors((current) => ({ ...current, [blockIndex]: message }))
+    } finally {
+      setAdHocAnalyzing((current) => {
+        const next = { ...current }
+        delete next[blockIndex]
+        return next
+      })
+    }
+  }, [adHocAnalyzing, handleOpenCard])
 
   const handleFactCheck = useCallback((claim: string, context: string, anchor: HTMLElement, range: FactCheckTextRange) => {
     const rect = anchor.getBoundingClientRect()
@@ -3754,31 +3970,219 @@ export default function Explore({ sourceHighlight = null, onSourceHighlightConsu
     )
   }, [])
 
-  const handleGenerateSourceInvestigation = useCallback(async () => {
-    if (!sourceId || !sourceAssets || sourceInvestigationLoading) return
+  const generateSourceInvestigationFromAssets = useCallback(async (assets: SourceAssetsRecord) => {
+    if (!sourceId) return
     setSourceInvestigationLoading(true)
     setSourceAssetActionError(null)
     try {
-      const title = sourceDisplayTitle(sourceAssets.source)
+      const title = sourceDisplayTitle(assets.source)
       const result = await generateInvestigation({
-        query: `调查当前来源：${title}`,
-        mode: 'standard',
+        query: config?.uiLanguage === 'en-US' ? `Investigate the current source: ${title}` : `调查当前来源：${title}`,
+        mode: 'deep',
         scope: {
           sourceIds: [sourceId],
-          pointIds: sourceAssets.points.map(point => point.id),
-          evidenceIds: sourceAssets.evidence.map(record => record.id),
-          reportIds: sourceAssets.reports.map(report => report.id),
+          pointIds: assets.points.map(point => point.id),
+          evidenceIds: assets.evidence.map(record => record.id),
+          reportIds: assets.reports.map(report => report.id),
           includeLibrarySearch: true,
           includeJournal: true,
         },
       })
       setSourceInvestigationResult(result)
     } catch (error: unknown) {
-      setSourceAssetActionError(exploreErrorMessage(error, '生成来源 Investigation 失败'))
+      setSourceAssetActionError(exploreErrorMessage(error, config?.uiLanguage === 'en-US' ? 'Failed to generate source investigation' : '生成来源调查报告失败'))
     } finally {
       setSourceInvestigationLoading(false)
     }
-  }, [sourceAssets, sourceId, sourceInvestigationLoading])
+  }, [config?.uiLanguage, sourceId])
+
+  const handleForceGenerateSourceInvestigation = useCallback(async () => {
+    if (!sourceAssets || sourceInvestigationLoading || sourceInvestigationPreparationLoading) return
+    await generateSourceInvestigationFromAssets(sourceAssets)
+  }, [generateSourceInvestigationFromAssets, sourceAssets, sourceInvestigationLoading, sourceInvestigationPreparationLoading])
+
+  const handleGenerateSourceInvestigation = useCallback(async () => {
+    if (!sourceAssets || sourceInvestigationLoading || sourceInvestigationPreparationLoading) return
+    if (sourceInvestigationReadiness && !sourceInvestigationReadiness.ready) {
+      setSourceAssetActionError(config?.uiLanguage === 'en-US'
+        ? 'Investigation context is thin. Use “Prepare + Investigate” to generate source-linked points and evidence first.'
+        : '调查上下文偏少。请先使用“准备后调查”自动补充来源观点和证据。')
+      return
+    }
+    await generateSourceInvestigationFromAssets(sourceAssets)
+  }, [
+    config?.uiLanguage,
+    generateSourceInvestigationFromAssets,
+    sourceAssets,
+    sourceInvestigationLoading,
+    sourceInvestigationPreparationLoading,
+    sourceInvestigationReadiness,
+  ])
+
+  const handlePrepareAndGenerateSourceInvestigation = useCallback(async () => {
+    if (
+      !sourceId
+      || !sourceAssets
+      || sourceInvestigationLoading
+      || sourceInvestigationPreparationLoading
+    ) {
+      return
+    }
+
+    const zh = config?.uiLanguage !== 'en-US'
+    setSourceInvestigationPreparationLoading(true)
+    setSourceAssetActionError(null)
+    setSourceInvestigationPreparationStatus(zh ? '正在检查调查上下文…' : 'Checking investigation context…')
+
+    try {
+      let nextAssets = sourceAssets
+      const preparedPoints: PreparedInvestigationPoint[] = []
+      const preparationFailures: string[] = []
+      const existingPointKeys = new Set(nextAssets.points.map((point) => comparableTextKey(point.content)))
+      const pointsToCreate = Math.max(0, INVESTIGATION_TARGET_POINTS - nextAssets.points.length)
+      const selectedCandidates = investigationPreparationCandidates
+        .filter((candidate) => normalizedText(candidate.text).length > 0)
+
+      if (pointsToCreate > 0 && selectedCandidates.length === 0) {
+        throw new Error(zh
+          ? '当前来源没有足够的可分析文本块，无法自动准备调查。'
+          : 'This source has no analyzable text blocks for automatic preparation.')
+      }
+
+      for (const candidate of selectedCandidates) {
+        if (preparedPoints.length >= pointsToCreate) break
+        setSourceInvestigationPreparationStatus(zh
+          ? `正在生成观点 ${preparedPoints.length + 1}/${pointsToCreate}…`
+          : `Generating point ${preparedPoints.length + 1}/${pointsToCreate}…`)
+        try {
+          const existingCard = candidate.card
+          const card = existingCard ?? {
+            ...(await analyzeTextBlock(candidate.text, candidate.blockIndex)),
+            index: candidate.blockIndex,
+          }
+          if (!existingCard) {
+            setAdHocCards((current) => ({ ...current, [candidate.displayIndex]: card }))
+          }
+          const claim = pointClaimForInvestigation(card)
+          const key = comparableTextKey(claim)
+          if (!claim || existingPointKeys.has(key)) continue
+          const tagType = tagTypeForChunkCard(card)
+          const ids = await savePoints(
+            [{ content: claim, tagType }],
+            sourceDisplayTitle(nextAssets.source),
+            candidate.text,
+            {
+              sourceId,
+              chunkIndex: card.index,
+              anchorText: candidate.text,
+            }
+          )
+          const pointId = ids[0]
+          if (!pointId) continue
+          existingPointKeys.add(key)
+          preparedPoints.push({
+            id: pointId,
+            claim,
+            context: candidate.text,
+            blockIndex: card.index,
+            card,
+            tagType,
+          })
+        } catch (error: unknown) {
+          preparationFailures.push(exploreErrorMessage(
+            error,
+            zh ? '生成来源观点失败' : 'Failed to generate a source-linked point'
+          ))
+        }
+      }
+
+      if (preparedPoints.length > 0) {
+        const refreshed = await getSourceAssets(sourceId)
+        if (refreshed) {
+          nextAssets = refreshed
+          setSourceAssets(refreshed)
+        }
+      }
+
+      const evidenceNeeded = Math.max(0, INVESTIGATION_TARGET_EVIDENCE - nextAssets.evidence.length)
+      const existingEvidenceClaims = new Set(nextAssets.evidence.map((record) => comparableTextKey(record.claim)))
+      const evidenceCandidates: InvestigationEvidenceCandidate[] = [
+        ...preparedPoints.map((point) => ({
+          pointId: point.id,
+          claim: point.claim,
+          context: point.context,
+          blockIndex: point.blockIndex,
+        })),
+        ...nextAssets.points.map((point) => ({
+          pointId: point.id,
+          claim: point.content,
+          context: investigationEvidenceContext(point),
+          blockIndex: null,
+        })),
+      ].filter((candidate) =>
+        normalizedText(candidate.claim).length > 0
+        && normalizedText(candidate.context).length > 0
+        && !existingEvidenceClaims.has(comparableTextKey(candidate.claim))
+      )
+
+      let savedEvidenceCount = 0
+      for (const candidate of evidenceCandidates) {
+        if (savedEvidenceCount >= evidenceNeeded) break
+        const candidateEvidenceKey = comparableTextKey(candidate.claim)
+        if (existingEvidenceClaims.has(candidateEvidenceKey)) continue
+        setSourceInvestigationPreparationStatus(zh
+          ? `正在事实审查 ${savedEvidenceCount + 1}/${evidenceNeeded}…`
+          : `Fact-checking ${savedEvidenceCount + 1}/${evidenceNeeded}…`)
+        try {
+          const result = await factCheckClaim(candidate.claim, candidate.context)
+          const evidence = await saveEvidence(result, {
+            pointId: candidate.pointId,
+            sourceId,
+            chunkIndex: candidate.blockIndex,
+          })
+          existingEvidenceClaims.add(candidateEvidenceKey)
+          existingEvidenceClaims.add(comparableTextKey(evidence.claim))
+          savedEvidenceCount += 1
+        } catch (error: unknown) {
+          preparationFailures.push(exploreErrorMessage(
+            error,
+            zh ? '事实审查候选失败' : 'Failed to fact-check a candidate'
+          ))
+        }
+      }
+
+      const refreshed = await getSourceAssets(sourceId)
+      if (refreshed) {
+        nextAssets = refreshed
+        setSourceAssets(refreshed)
+      }
+      const nextReadiness = investigationReadinessForAssets(nextAssets)
+      if (nextReadiness && !nextReadiness.ready) {
+        const failureHint = preparationFailures[0]
+          ? (zh ? ` 首个失败原因：${preparationFailures[0]}` : ` First failure: ${preparationFailures[0]}`)
+          : ''
+        throw new Error(zh
+          ? `已补充 ${preparedPoints.length} 个观点、${savedEvidenceCount} 条证据，但调查上下文仍不足。请检查文本/搜索模型配置或手动保存更多证据。${failureHint}`
+          : `Prepared ${preparedPoints.length} points and ${savedEvidenceCount} evidence items, but the investigation context is still thin. Check text/search model settings or save more evidence manually.${failureHint}`)
+      }
+
+      setSourceInvestigationPreparationStatus(zh ? '准备完成，正在生成调查报告…' : 'Context ready. Generating investigation…')
+      await generateSourceInvestigationFromAssets(nextAssets)
+    } catch (error: unknown) {
+      setSourceAssetActionError(exploreErrorMessage(error, zh ? '准备调查上下文失败' : 'Failed to prepare investigation context'))
+    } finally {
+      setSourceInvestigationPreparationLoading(false)
+      setSourceInvestigationPreparationStatus(null)
+    }
+  }, [
+    config?.uiLanguage,
+    generateSourceInvestigationFromAssets,
+    investigationPreparationCandidates,
+    sourceAssets,
+    sourceId,
+    sourceInvestigationLoading,
+    sourceInvestigationPreparationLoading,
+  ])
 
   const handleAddSourceReview = useCallback(async () => {
     if (!sourceId || !sourceAssets || sourceReviewLoading) return
@@ -3792,13 +4196,13 @@ export default function Explore({ sourceHighlight = null, onSourceHighlightConsu
         title,
         priority: 'normal',
       })
-      setSourceAssetActionError('已加入 Review Queue。')
+      setSourceAssetActionError(config?.uiLanguage === 'en-US' ? 'Added to the review queue.' : '已加入复习队列。')
     } catch (error: unknown) {
-      setSourceAssetActionError(exploreErrorMessage(error, '加入 Review Queue 失败'))
+      setSourceAssetActionError(exploreErrorMessage(error, config?.uiLanguage === 'en-US' ? 'Failed to add to review queue' : '加入复习队列失败'))
     } finally {
       setSourceReviewLoading(false)
     }
-  }, [sourceAssets, sourceId, sourceReviewLoading])
+  }, [config?.uiLanguage, sourceAssets, sourceId, sourceReviewLoading])
 
   const handleRefreshSourceRelations = useCallback(async () => {
     if (!sourceId || sourceRelationsLoading) return
@@ -3807,11 +4211,11 @@ export default function Explore({ sourceHighlight = null, onSourceHighlightConsu
     try {
       setSourceRelations(await discoverRelatedAssets('source', sourceId))
     } catch (error: unknown) {
-      setSourceAssetActionError(exploreErrorMessage(error, '刷新 Related assets 失败'))
+      setSourceAssetActionError(exploreErrorMessage(error, config?.uiLanguage === 'en-US' ? 'Failed to refresh related assets' : '刷新相关资产失败'))
     } finally {
       setSourceRelationsLoading(false)
     }
-  }, [sourceId, sourceRelationsLoading])
+  }, [config?.uiLanguage, sourceId, sourceRelationsLoading])
 
   const handleActivateHistory = (id: string) => {
     history.activate(id)
@@ -3964,6 +4368,7 @@ export default function Explore({ sourceHighlight = null, onSourceHighlightConsu
             />
 
             <SourceAssetPanel
+              language={config?.uiLanguage ?? 'zh-CN'}
               assets={sourceAssets}
               loading={sourceAssetsLoading}
               error={sourceAssetsError}
@@ -3972,12 +4377,17 @@ export default function Explore({ sourceHighlight = null, onSourceHighlightConsu
               relationsLoading={sourceRelationsLoading}
               actionError={sourceAssetActionError}
               investigationLoading={sourceInvestigationLoading}
+              investigationReadiness={sourceInvestigationReadiness}
+              preparationLoading={sourceInvestigationPreparationLoading}
+              preparationStatus={sourceInvestigationPreparationStatus}
               reviewLoading={sourceReviewLoading}
               onOpenSource={(nextSourceId, chunkIndex) => { void openSourceById(nextSourceId, chunkIndex) }}
               onExportSource={handleExportSourceAssets}
               onExportEvidence={handleExportEvidence}
               onExportReport={handleExportReport}
+              onPrepareInvestigation={() => void handlePrepareAndGenerateSourceInvestigation()}
               onGenerateInvestigation={() => void handleGenerateSourceInvestigation()}
+              onForceGenerateInvestigation={() => void handleForceGenerateSourceInvestigation()}
               onAddReview={() => void handleAddSourceReview()}
               onRefreshRelations={() => void handleRefreshSourceRelations()}
             />
@@ -4067,6 +4477,7 @@ export default function Explore({ sourceHighlight = null, onSourceHighlightConsu
                               blockText,
                               el
                             ) : undefined}
+                            onRegenerate={analysisCard ? (el) => handleRegenerateBlock(item.index, analysisCard, el, true) : undefined}
                             analyzing={adHocAnalyzing[item.index] === true}
                             analyzeError={adHocErrors[item.index] ?? null}
                             onFactCheck={handleFactCheck}
@@ -4078,22 +4489,26 @@ export default function Explore({ sourceHighlight = null, onSourceHighlightConsu
                         )
                       })
                     ) : (
-                      visibleCards.map((card, i) => (
-                        <ThemeBlock
-                          key={card.index}
+                      visibleCards.map((originalCard, i) => {
+                        const card = regeneratedCards[originalCard.index] ?? originalCard
+                        return <ThemeBlock
+                          key={originalCard.index}
                           blockRef={(node) => { blockRefs.current[i] = node }}
                           card={card}
                           index={i}
                           starred={card.index in savedIds}
                           onOpen={(el) => handleOpenCard(card, i, el)}
                           onToggleStar={(el) => handleToggleStar(card.index, card, el)}
+                          onRegenerate={(el) => handleRegenerateBlock(i, card, el, false)}
+                          analyzing={adHocAnalyzing[i] === true}
+                          analyzeError={adHocErrors[i] ?? null}
                           onFactCheck={handleFactCheck}
                           userAnnotations={userAnnotations[i] ?? []}
                           annotationColors={annotationColors}
                           activeFactCheck={activeFactCheckMarker}
                           sourceHighlight={sourceHighlightForBlock(i, card.index)}
                         />
-                      ))
+                      })
                     )}
                   </AnimatePresence>
                 </div>
@@ -4134,8 +4549,8 @@ export default function Explore({ sourceHighlight = null, onSourceHighlightConsu
         {sourceInvestigationResult && (
           <DigestModal
             result={sourceInvestigationResult}
-            title="来源 Investigation"
-            sourceName={sourceName ?? sourceId ?? '来源 Investigation'}
+            title={config?.uiLanguage === 'en-US' ? 'Source Investigation' : '来源调查报告'}
+            sourceName={sourceName ?? sourceId ?? (config?.uiLanguage === 'en-US' ? 'Source Investigation' : '来源调查报告')}
             reportKind="investigation"
             onOpenSource={(nextSourceId, chunkIndex) => { void openSourceById(nextSourceId, chunkIndex) }}
             onClose={() => setSourceInvestigationResult(null)}
