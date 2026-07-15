@@ -139,6 +139,72 @@ Examples:
 
 Use this pattern only when the feature can produce a correct partial result and the caller has no useful recovery action.
 
+## Scenario: OpenAI-compatible Chat Response Normalization
+
+### 1. Scope / Trigger
+
+- Trigger: reading successful response bodies from OpenAI-compatible chat-completion providers or proxies.
+- Applies to text extraction, analysis, suggestions, analytics, fact checking, grounded answers, and other backend text-generation paths.
+
+### 2. Signatures
+
+```rust
+extract_chat_text(raw: &str) -> anyhow::Result<String>
+```
+
+### 3. Contracts
+
+- Successful response bodies are normalized by response shape, not provider or model name.
+- Standard JSON supports string or text-part-array `choices[0].message.content`.
+- Blank/missing final content may fall back to `reasoning_content`.
+- SSE bodies collect `choices[0].delta.content` in event order and ignore `data: [DONE]`.
+- HTTP non-success handling remains at the request boundary before text normalization.
+- Do not log raw successful responses, prompts, API keys, or generated text.
+
+### 4. Validation & Error Matrix
+
+| Condition | Behavior |
+|---|---|
+| Standard JSON string content | Return trimmed content |
+| JSON content parts | Concatenate text parts in order |
+| Final content blank, reasoning present | Return reasoning fallback |
+| SSE delta events | Concatenate content deltas in order |
+| SSE error event | Return an error containing the provider error message |
+| Empty/malformed body | Return an actionable parse/no-text error |
+| HTTP 429/503 or other non-success | Preserve the existing status/body error path; do not parse as success |
+
+### 5. Good/Base/Bad Cases
+
+- Good: a proxy forces `text/event-stream` despite no `stream` request and the client still extracts the final text.
+- Base: an ordinary OpenAI-compatible JSON response remains unchanged.
+- Bad: deserialize every provider into a local `content: String` struct.
+- Bad: add model-name checks such as `if model.starts_with("grok")` to choose parsing behavior.
+
+### 6. Tests Required
+
+- Fixture tests for standard JSON, content arrays, reasoning fallback, captured SSE delta framing, empty responses, and SSE error events.
+- Full backend checks: `cargo check --manifest-path src-tauri/Cargo.toml` and `cargo test --manifest-path src-tauri/Cargo.toml`.
+- Live provider smoke records only status, content type, framing, field names, and lengths; never response text or secrets.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+#[derive(Deserialize)]
+struct Message { content: String }
+let parsed: ChatResponse = serde_json::from_str(&raw)?;
+```
+
+#### Correct
+
+```rust
+if !status.is_success() {
+    anyhow::bail!("provider returned {status}: {raw}");
+}
+let content = extract_chat_text(&raw)?;
+```
+
 ## Scenario: GitHub User Pages Source Fallback
 
 ### 1. Scope / Trigger
