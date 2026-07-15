@@ -1149,3 +1149,37 @@ Made Source Workspace asset loading independent, added persisted Chinese/English
 ### Next Steps
 
 - None - task complete
+
+
+## Session 34: Runtime performance optimization
+
+**Date**: 2026-07-15
+**Task**: Runtime performance optimization
+**Branch**: `main`
+
+### Summary
+
+Reduced idle animation and layout work, kept Explore workflows alive across navigation, added viewport-aware rendering and database initialization fast paths, and documented the runtime performance contracts. Independent clean-worktree frontend and Rust gates passed.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e23e98e` | (see git log) |
+| `ba422b2` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
