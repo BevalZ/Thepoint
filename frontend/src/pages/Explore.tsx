@@ -32,6 +32,7 @@ import {
 } from 'lucide-react'
 import { useConfigStore, useExploreHistoryStore, useExploreStore, useStarStore } from '@/store'
 import { cn } from '@/lib/utils'
+import { initialExplorePresentation } from '@/lib/explorePresentation'
 import { useStarFly } from '@/hooks/useStarFly'
 import { addReviewItem, analyzeTextBlock, describeImage, discoverRelatedAssets, factCheckClaim, generateInvestigation, getSourceAssets, listRecentJournalEntries, listRecentSources, saveEvidence, savePoints } from '@/api'
 import type { AppConfig, AssetRelationRecord, ChunkCard, DigestResult, EvidenceRecord, ExploreHistoryItem, ExploreSourceMetadata, FactCheckResult, JournalEntry, ReportRecord, SourceAssetsRecord, SourceSummaryRecord } from '@/api/types'
@@ -3035,11 +3036,16 @@ export default function Explore({ sourceHighlight = null, onSourceHighlightConsu
   const { star, unstar, count: globalStarCount } = useStarStore()
   const fly = useStarFly()
   const blockRefs = useRef<Record<number, HTMLDivElement | null>>({})
+  const initialPresentation = initialExplorePresentation({
+    hasContent: text.trim().length > 0 || Boolean(richHtml?.trim()) || chunkCards.length > 0,
+    busy: analyzing || parsing,
+  })
+  const skipInitialRevealRef = useRef(initialPresentation.skipInitialReveal)
 
   const [dragging, setDragging] = useState(false)
   const [analysisStack, setAnalysisStack] = useState<AnalysisStackEntry[]>([])
-  const [stageCompletedCount, setStageCompletedCount] = useState(0)
-  const [revealedCount, setRevealedCount] = useState(0)
+  const [stageCompletedCount, setStageCompletedCount] = useState(initialPresentation.stageCompletedCount)
+  const [revealedCount, setRevealedCount] = useState(initialPresentation.revealedCount)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [recentSourcesOpen, setRecentSourcesOpen] = useState(false)
   const [recentSources, setRecentSources] = useState<SourceSummaryRecord[]>([])
@@ -3159,6 +3165,7 @@ export default function Explore({ sourceHighlight = null, onSourceHighlightConsu
 
   useEffect(() => {
     if (analyzing || parsing) {
+      skipInitialRevealRef.current = false
       setAnalysisStack([])
       setImageViewer(null)
       setSavedIds({})
@@ -3186,6 +3193,7 @@ export default function Explore({ sourceHighlight = null, onSourceHighlightConsu
   useEffect(() => {
     if (history.activeVersion === 0) return
 
+    skipInitialRevealRef.current = true
     setAnalysisStack([])
     setImageViewer(null)
     setStageCompletedCount(Number.MAX_SAFE_INTEGER)
@@ -3207,6 +3215,7 @@ export default function Explore({ sourceHighlight = null, onSourceHighlightConsu
   useEffect(() => {
     if (sourceOpenVersion === 0) return
 
+    skipInitialRevealRef.current = true
     setAnalysisStack([])
     setImageViewer(null)
     setStageCompletedCount(Number.MAX_SAFE_INTEGER)
@@ -3246,6 +3255,11 @@ export default function Explore({ sourceHighlight = null, onSourceHighlightConsu
     }
     if (resultTargetCount === 0) {
       setRevealedCount(0)
+      return
+    }
+    if (skipInitialRevealRef.current) {
+      skipInitialRevealRef.current = false
+      setRevealedCount(Number.MAX_SAFE_INTEGER)
       return
     }
 
