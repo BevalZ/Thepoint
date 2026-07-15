@@ -78,6 +78,33 @@ Examples:
 - `DigestModal.tsx` owns copied/archive button state.
 - `PointCard.tsx` owns edit draft state.
 
+### Convention: Remount-safe presentation state
+
+Pages in `App.tsx` are unmounted when navigation selects another page. If durable or session domain state remains in Zustand, component-local presentation state must initialize from that existing domain state instead of assuming every mount is a new workflow.
+
+For staged processing/reveal UI:
+
+- A new or currently busy workflow starts counters at zero.
+- Existing non-busy results start in the completed presentation state.
+- A mount-time effect must not immediately reset that restored completed state; use an explicit one-shot guard when the normal effect begins by clearing counters.
+- Navigation alone must never call import, parse, upsert, or model-analysis actions again.
+
+```ts
+const initial = initialPresentation({ hasContent, busy })
+const skipInitialReveal = useRef(initial.skipInitialReveal)
+const [revealedCount, setRevealedCount] = useState(initial.revealedCount)
+
+useEffect(() => {
+  if (skipInitialReveal.current) {
+    skipInitialReveal.current = false
+    return
+  }
+  // Normal reveal sequence for a new workflow.
+}, [resultCount])
+```
+
+Add a focused pure-helper regression test for empty, busy, and existing-complete initialization. Manually verify the owning desktop navigation flow when browser preview cannot reproduce Tauri runtime behavior.
+
 ### localStorage-backed frontend state
 
 Use localStorage only for explicit frontend preferences/history, with validation on read.
