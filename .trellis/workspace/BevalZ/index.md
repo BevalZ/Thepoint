@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 31
+- **Total Sessions**: 32
 - **Last Active**: 2026-07-15
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1083 | Active |
+| `journal-1.md` | ~1117 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 32 | 2026-07-15 | Explore navigation presentation restore | `e573694`, `0a3f684` | `main` |
 | 31 | 2026-07-15 | Thin Mint chat response normalization | `5d55e3a`, `70a7387` | `main` |
 | 30 | 2026-07-15 | GitHub Pages resilient source fallback | `ad41b7a`, `1559ca0` | `main` |
 | 29 | 2026-07-14 | Canonical paragraph-aware content chunking | `dfa74f7`, `cfa8469` | `main` |

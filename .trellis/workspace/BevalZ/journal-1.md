@@ -1081,3 +1081,37 @@ Added a shared shape-driven OpenAI-compatible response parser for JSON strings, 
 ### Next Steps
 
 - None - task complete
+
+
+## Session 32: Explore navigation presentation restore
+
+**Date**: 2026-07-15
+**Task**: Explore navigation presentation restore
+**Branch**: `main`
+
+### Summary
+
+Made Explore mount-time presentation derive from persisted non-busy content so page navigation restores completed article/results immediately, added one-shot reveal guards for remount, history/source reopen, and fresh busy workflows, and documented the remount-safe local presentation contract. Frontend typecheck, boundary checks, 51 tests, focused 2-test regression, and production build passed; a detached HEAD-only check was blocked by the repository baseline Analytics/ECharts dependency that remains in a separate uncommitted batch.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e573694` | (see git log) |
+| `0a3f684` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
