@@ -123,6 +123,70 @@ init_db(&conn)?;
 conn.pragma_update(None, "user_version", 1_i64)?;
 ```
 
+## Scenario: Process-Local Database Initialization Fast Path
+
+### 1. Scope / Trigger
+
+- Trigger: optimizing ordinary command database opens after the migration/schema contract is stable.
+- Applies to `db::open_db` and any restore/import path that replaces the live SQLite file.
+
+### 2. Signatures
+
+```rust
+open_db(path: &Path) -> anyhow::Result<Connection>
+invalidate_db_initialization(path: &Path)
+```
+
+### 3. Contracts
+
+- The first successful `open_db` for a canonical database path performs the complete existing migration, schema, index, and FTS setup.
+- Later opens for that path in the same process skip the full initialization work while still opening an independent connection.
+- A restore that installs a replacement database must call `invalidate_db_initialization` before the next open so schema validation and setup run against the restored file.
+- Failed initialization must not mark the path initialized; a later call retries the full setup.
+
+### 4. Validation & Error Matrix
+
+| Condition | Behavior |
+|---|---|
+| First open for a path | Run complete initialization and cache success |
+| Repeated open for an initialized path | Skip duplicate schema/FTS setup |
+| Initialization fails | Return the error and leave the path eligible for retry |
+| Restore/import replaces the file | Invalidate the path cache before reopening |
+| Same path represented with equivalent absolute forms | Normalize to one stable absolute lexical key before cache lookup |
+
+### 5. Good/Base/Bad Cases
+
+- Good: normal command traffic opens the current database without repeatedly taking the schema initialization lock.
+- Base: a new database still receives all tables, indexes, triggers, and `user_version` on its first open.
+- Good: restoring a backup invalidates the fast path and reapplies schema setup when required.
+- Bad: caching a path before initialization succeeds, which can hide a partial schema after a failed migration.
+- Bad: restoring a file without invalidating the cache, so the next command trusts stale initialization state.
+
+### 6. Tests Required
+
+- Repeated-open test: assert the first call initializes and later calls return usable connections without rerunning setup.
+- Failure/retry test: force initialization failure, then assert the next call retries instead of trusting a failed cache entry.
+- Restore invalidation test: initialize, replace/restore the database, invalidate, and assert setup is reapplied.
+- Concurrency test: concurrent first opens succeed without `database is locked`.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+INITIALIZED_DB_PATHS.insert(path.to_string());
+init_db(&conn)?; // a failure now leaves a false fast-path hit
+```
+
+#### Correct
+
+```rust
+if !is_initialized(path) {
+    init_db(&conn)?;
+    mark_initialized(path); // cache only after complete success
+}
+```
+
 ---
 
 ## Naming Conventions

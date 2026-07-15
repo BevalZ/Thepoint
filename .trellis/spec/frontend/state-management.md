@@ -105,6 +105,42 @@ useEffect(() => {
 
 Add a focused pure-helper regression test for empty, busy, and existing-complete initialization. Manually verify the owning desktop navigation flow when browser preview cannot reproduce Tauri runtime behavior.
 
+### Convention: Keep Long-Running Workflow Pages Mounted
+
+Some pages own in-flight local Promise chains that cannot be reconstructed from backend state alone, such as Explore fact checks, ad-hoc block analysis, source asset refreshes, and source investigation generation. Navigation must not unmount those page components while their workflows are expected to continue.
+
+Use an `active` prop plus CSS visibility when a page must stay alive across navigation:
+
+```tsx
+<section className={cn('relative h-full min-h-full', page !== 'explore' && 'hidden')}>
+  <Explore active={page === 'explore'} />
+</section>
+```
+
+The kept-alive page must disable global listeners while inactive:
+
+```ts
+useEffect(() => {
+  if (!active) return
+  document.addEventListener('paste', handlePaste)
+  return () => document.removeEventListener('paste', handlePaste)
+}, [active, handlePaste])
+```
+
+Rules:
+
+- Keep the page mounted only for workflows whose in-flight state would otherwise be lost.
+- Pass an explicit `active` boolean to gate paste, drag/drop, selection, keyboard, and global scroll listeners.
+- Do not let a hidden page intercept input intended for the visible page.
+- Prefer moving durable domain state to Zustand, but do not migrate every transient panel state just to survive route switches.
+
+| Condition | Required behavior |
+|---|---|
+| User starts a fact check then opens another page | The fact-check Promise continues and result is visible when returning to Explore |
+| User starts source investigation then switches page | Loading/result/error state remains owned by Explore and resumes on return |
+| Explore is hidden | Explore does not handle paste, drag/drop, text selection toolbar, or other global input |
+| Source changes or user starts a new parse/analyze workflow | Old transient workflow UI is reset by the existing source/workflow reset paths |
+
 ### localStorage-backed frontend state
 
 Use localStorage only for explicit frontend preferences/history, with validation on read.

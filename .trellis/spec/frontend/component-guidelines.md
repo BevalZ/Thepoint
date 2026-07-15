@@ -122,6 +122,12 @@ Framer Motion is used for navigation transitions, modal entry/exit, card hover/t
 - Respect reduced motion for app-level page transitions, as in `App.tsx` with `useReducedMotion()`.
 - Do not use animation to mask missing loading, empty, or error states; render those states explicitly.
 
+### Runtime Performance Contract
+
+Decorative motion must have a bounded lifetime or an active-work reason. Global backgrounds and idle cards must not use a JavaScript frame loop, an infinite Framer Motion transition, or a compositor-heavy CSS animation. Keep continuous motion only for an active operation such as parsing, analysis, or fact-checking; use a static visual plus a short entry transition everywhere else.
+
+For repeated rows and heavy content, add `content-visibility: auto` through the shared `perf-content-auto` class when the browser can skip off-screen layout and paint without changing interaction semantics. A hidden page that owns an in-flight workflow may preserve store state and Promise chains, but should return no heavy DOM while inactive.
+
 ---
 
 ## Accessibility And Runtime Safety

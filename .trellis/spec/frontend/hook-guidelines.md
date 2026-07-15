@@ -30,6 +30,20 @@ Custom hooks should:
 
 `useFlyToHeatmapCell()` returns a memoized callback that finds a heatmap cell by `data-date`, scrolls if needed, runs the animation, then calls `onDone`.
 
+### Event-Driven Layout Measurement
+
+When an overlay follows another element, measure it once on mount and schedule a single `requestAnimationFrame` after `resize` or captured `scroll` events. Do not leave a self-scheduling `requestAnimationFrame` loop running while the overlay is merely visible. Reuse the last coordinates when values are unchanged to avoid a redundant React render.
+
+```ts
+const schedule = () => {
+  if (frame !== 0) return
+  frame = requestAnimationFrame(() => {
+    frame = 0
+    update()
+  })
+}
+```
+
 ---
 
 ## Page-Local Hooks
@@ -78,3 +92,4 @@ Reference examples:
 - Do not add hooks that hide durable domain state inside component-local closures.
 - Do not leave cloned DOM elements or global listeners without cleanup.
 - Do not read layout once at hook creation time for an animation target that can move.
+- Do not use a perpetual `requestAnimationFrame` loop for a static overlay or connection line.
