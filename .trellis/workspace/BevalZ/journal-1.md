@@ -1047,3 +1047,37 @@ Added exact GitHub user-site fallback with master/main branch priority, raw/unau
 ### Next Steps
 
 - None - task complete
+
+
+## Session 31: Thin Mint chat response normalization
+
+**Date**: 2026-07-15
+**Task**: Thin Mint chat response normalization
+**Branch**: `main`
+
+### Summary
+
+Added a shared shape-driven OpenAI-compatible response parser for JSON strings, content-part arrays, reasoning fallback, forced SSE deltas, DONE framing, and provider error events; migrated all backend text-generation paths including Explore, digest, investigation, fact checking, suggestions, grounded answers, and image-prompt generation while preserving HTTP error boundaries and sensitive-data logging rules. Verified the staged snapshot independently, then passed cargo check and the full backend suite (154 passed, 2 ignored).
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5d55e3a` | (see git log) |
+| `70a7387` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
