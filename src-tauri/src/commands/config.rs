@@ -126,21 +126,6 @@ pub struct CommentatorProfile {
     pub source_url: Option<String>,
 }
 
-#[derive(Deserialize)]
-struct ChatResponse {
-    choices: Vec<Choice>,
-}
-
-#[derive(Deserialize)]
-struct Choice {
-    message: Message,
-}
-
-#[derive(Deserialize)]
-struct Message {
-    content: String,
-}
-
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ConfigProfile {
@@ -498,8 +483,8 @@ pub async fn import_commentator_from_skill(
     if !status.is_success() {
         return Err(format!("生成评论员失败 ({status}): {raw_resp}"));
     }
-    let parsed: ChatResponse = serde_json::from_str(&raw_resp).map_err(|e| format!("解析模型响应失败: {e}"))?;
-    let content = parsed.choices.into_iter().next().map(|c| c.message.content).ok_or_else(|| "模型响应为空".to_string())?;
+    let content = crate::ai::chat_response::extract_chat_text(&raw_resp)
+        .map_err(|e| format!("解析模型响应失败: {e}"))?;
 
     #[derive(Deserialize)]
     struct Payload {

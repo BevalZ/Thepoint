@@ -2,25 +2,9 @@ use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use super::chat_response::extract_chat_text;
 use super::models;
 use super::ExtractedPoint;
-
-
-/// OpenAI chat completion response (minimal shape we care about).
-#[derive(Deserialize)]
-struct ChatResponse {
-    choices: Vec<Choice>,
-}
-
-#[derive(Deserialize)]
-struct Choice {
-    message: Message,
-}
-
-#[derive(Deserialize)]
-struct Message {
-    content: String,
-}
 
 #[derive(Deserialize)]
 struct PointsPayload {
@@ -102,8 +86,7 @@ async fn chat_text(api_key: &str, model: &str, base_url: &str, provider_key: &st
     if !status.is_success() {
         anyhow::bail!("搜索模型返回错误 ({status}): {raw}");
     }
-    let parsed: ChatResponse = serde_json::from_str(&raw).context("解析搜索模型响应结构失败")?;
-    parsed.choices.into_iter().next().map(|c| c.message.content).context("搜索模型响应不含任何结果")
+    extract_chat_text(&raw).context("解析搜索模型响应结构失败")
 }
 
 /// Fetch a short search context for a point using the search model.
@@ -165,14 +148,7 @@ async fn chat_json(api_key: &str, model: &str, base_url: &str, extra_headers: &s
         anyhow::bail!("OpenAI 返回错误 ({status}): {raw}");
     }
 
-    let parsed: ChatResponse =
-        serde_json::from_str(&raw).context("解析 OpenAI 响应结构失败")?;
-    parsed
-        .choices
-        .into_iter()
-        .next()
-        .map(|c| c.message.content)
-        .context("OpenAI 响应不含任何结果")
+    extract_chat_text(&raw).context("解析 OpenAI 响应结构失败")
 }
 
 fn deepen_system_prompt(action: &str) -> anyhow::Result<&'static str> {

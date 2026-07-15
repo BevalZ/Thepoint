@@ -2,6 +2,7 @@ use anyhow::Context;
 use serde::Deserialize;
 use serde_json::json;
 
+use super::chat_response::extract_chat_text;
 use super::{ChunkCard, ExtractedPoint, Label};
 use crate::commands::config::CommentatorProfile;
 
@@ -16,22 +17,6 @@ const SYSTEM_PROMPT: &str = "你是一个观点提取助手。请先判断文本
 同时为每个 point 提取 anchor：原文中对应的那句话或短语（15-80字，尽量精确，不要改写）。\
 请用文档的原始语言提取内容。\
 只返回 JSON 对象，格式为 {\"points\": [{\"content\": \"...\", \"tagType\": \"...\", \"anchor\": \"...\"}]}，不要包含其他文字。";
-
-/// OpenAI chat completion response (minimal shape we care about).
-#[derive(Deserialize)]
-struct ChatResponse {
-    choices: Vec<Choice>,
-}
-
-#[derive(Deserialize)]
-struct Choice {
-    message: Message,
-}
-
-#[derive(Deserialize)]
-struct Message {
-    content: String,
-}
 
 /// The JSON object we ask the model to return.
 #[derive(Deserialize)]
@@ -554,8 +539,7 @@ pub async fn extract_chunk(
     let status = resp.status();
     let raw = resp.text().await?;
     if !status.is_success() { anyhow::bail!("块提取失败 ({status}): {raw}"); }
-    let parsed: ChatResponse = serde_json::from_str(&raw).context("块提取响应解析失败")?;
-    let content = parsed.choices.into_iter().next().map(|c| c.message.content).context("块提取响应为空")?;
+    let content = extract_chat_text(&raw).context("块提取响应解析失败")?;
     #[derive(serde::Deserialize)] struct Payload { points: Vec<ExtractedPoint> }
     let payload: Payload = serde_json::from_str(&content).context("块提取 JSON 解析失败")?;
     Ok(payload.points)
@@ -608,17 +592,10 @@ pub async fn extract_points(
         anyhow::bail!("OpenAI 返回错误 ({status}): {raw}");
     }
 
-    let parsed: ChatResponse =
-        serde_json::from_str(&raw).context("解析 OpenAI 响应结构失败")?;
-
-    let content = parsed
-        .choices
-        .first()
-        .map(|c| c.message.content.as_str())
-        .context("OpenAI 响应不含任何结果")?;
+    let content = extract_chat_text(&raw).context("解析 OpenAI 响应结构失败")?;
 
     let payload: PointsPayload =
-        serde_json::from_str(content).context("模型返回的内容不是预期的 JSON 格式")?;
+        serde_json::from_str(&content).context("模型返回的内容不是预期的 JSON 格式")?;
 
     Ok(payload.points)
 }
@@ -798,8 +775,7 @@ async fn analyze_chunk_inner(
     let status = resp.status();
     let raw = resp.text().await?;
     if !status.is_success() { anyhow::bail!("分析块失败 ({status}): {raw}"); }
-    let parsed: ChatResponse = serde_json::from_str(&raw).context("分析块响应解析失败")?;
-    let content = parsed.choices.into_iter().next().map(|c| c.message.content).context("分析块响应为空")?;
+    let content = extract_chat_text(&raw).context("分析块响应解析失败")?;
     let p: AnalyzeChunkPayload = serde_json::from_str(&content).context("分析块 JSON 解析失败")?;
     if p.summary.trim().is_empty() && p.hot_take.trim().is_empty() {
         anyhow::bail!("文本块无足够分析价值");

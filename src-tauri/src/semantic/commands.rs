@@ -10,7 +10,6 @@ use std::{
 
 use anyhow::{bail, Context, Result};
 use chrono::Utc;
-use serde::Deserialize;
 use tauri::{AppHandle, Manager, Wry};
 
 use crate::db;
@@ -372,19 +371,6 @@ pub async fn hybrid_semantic_search(
     ))
 }
 
-#[derive(Deserialize)]
-struct ChatResponse {
-    choices: Vec<ChatChoice>,
-}
-#[derive(Deserialize)]
-struct ChatChoice {
-    message: ChatMessage,
-}
-#[derive(Deserialize)]
-struct ChatMessage {
-    content: String,
-}
-
 fn citations_for_hits(hits: &[HybridSearchHit]) -> Vec<GroundedCitation> {
     hits.iter()
         .enumerate()
@@ -480,13 +466,8 @@ pub async fn generate_grounded_answer(
     if !status.is_success() {
         return Err(format!("AI 返回错误 ({status}): {raw}"));
     }
-    let parsed: ChatResponse = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
-    let content = parsed
-        .choices
-        .into_iter()
-        .next()
-        .map(|choice| choice.message.content)
-        .ok_or_else(|| "模型未返回内容".to_string())?;
+    let content = crate::ai::chat_response::extract_chat_text(&raw)
+        .map_err(|e| e.to_string())?;
     let allowed = citations
         .iter()
         .map(|citation| citation.label.clone())

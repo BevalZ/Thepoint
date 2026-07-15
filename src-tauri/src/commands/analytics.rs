@@ -157,15 +157,5 @@ pub async fn get_explore_suggestions(app: tauri::AppHandle<Wry>) -> Result<Strin
         return Err(format!("LLM 返回错误 ({status}): {raw}"));
     }
 
-    #[derive(serde::Deserialize)]
-    struct ChatResp { choices: Vec<ChatChoice> }
-    #[derive(serde::Deserialize)]
-    struct ChatChoice { message: ChatMsg }
-    #[derive(serde::Deserialize)]
-    struct ChatMsg { content: String }
-
-    let parsed: ChatResp = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
-    parsed.choices.into_iter().next()
-        .map(|c| c.message.content)
-        .ok_or_else(|| "模型未返回内容".to_string())
+    crate::ai::chat_response::extract_chat_text(&raw).map_err(|e| e.to_string())
 }

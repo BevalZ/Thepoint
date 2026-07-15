@@ -90,14 +90,15 @@ fn save_image_files(dir: &PathBuf, id: &str, b64: &str) -> anyhow::Result<(Strin
 }
 
 /// Call LLM to build an image prompt from starred point contents.
-async fn build_image_prompt(config: &crate::commands::config::AppConfig, contents: &[String]) -> anyhow::Result<String> {
-    #[derive(Deserialize)] struct Resp { choices: Vec<Choice> }
-    #[derive(Deserialize)] struct Choice { message: Msg }
-    #[derive(Deserialize)] struct Msg { content: String }
-
+async fn build_image_prompt(
+    config: &crate::commands::config::AppConfig,
+    contents: &[String],
+) -> anyhow::Result<String> {
     let joined = contents.join("\n- ");
     let endpoint = crate::commands::config::completions_endpoint(
-        &config.openai_base_url, &config.provider_key, &config.custom_endpoint,
+        &config.openai_base_url,
+        &config.provider_key,
+        &config.custom_endpoint,
     );
     let body = serde_json::json!({
         "model": config.openai_model,
@@ -111,14 +112,14 @@ async fn build_image_prompt(config: &crate::commands::config::AppConfig, content
         .post(&endpoint)
         .bearer_auth(&config.openai_api_key)
         .json(&body)
-        .send().await?;
+        .send()
+        .await?;
     let status = resp.status();
     let raw = resp.text().await?;
     if !status.is_success() {
         anyhow::bail!("图片提示词生成失败 ({status}): {raw}");
     }
-    let parsed: Resp = serde_json::from_str(&raw)?;
-    Ok(parsed.choices.into_iter().next().map(|c| c.message.content).unwrap_or_default())
+    crate::ai::chat_response::extract_chat_text(&raw)
 }
 
 async fn build_knowledge_image_prompt(
@@ -126,19 +127,6 @@ async fn build_knowledge_image_prompt(
     contexts: &[GalleryKnowledgeContext],
     starred: &[StoredPoint],
 ) -> anyhow::Result<String> {
-    #[derive(Deserialize)]
-    struct Resp {
-        choices: Vec<Choice>,
-    }
-    #[derive(Deserialize)]
-    struct Choice {
-        message: Msg,
-    }
-    #[derive(Deserialize)]
-    struct Msg {
-        content: String,
-    }
-
     let user = knowledge_prompt_input(contexts, starred);
     let style_prompt = if config.image_knowledge_style_prompt.trim().is_empty() {
         crate::commands::config::DEFAULT_IMAGE_KNOWLEDGE_STYLE_PROMPT
@@ -178,13 +166,7 @@ async fn build_knowledge_image_prompt(
     if !status.is_success() {
         anyhow::bail!("知识图谱图片提示词生成失败 ({status}): {raw}");
     }
-    let parsed: Resp = serde_json::from_str(&raw)?;
-    Ok(parsed
-        .choices
-        .into_iter()
-        .next()
-        .map(|choice| choice.message.content.trim().to_string())
-        .unwrap_or_default())
+    crate::ai::chat_response::extract_chat_text(&raw)
 }
 
 fn knowledge_prompt_input(contexts: &[GalleryKnowledgeContext], starred: &[StoredPoint]) -> String {

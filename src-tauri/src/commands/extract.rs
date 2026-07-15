@@ -705,19 +705,6 @@ async fn suggest_edge_trim(
     config: &crate::commands::config::AppConfig,
     text: &str,
 ) -> anyhow::Result<EdgeTrim> {
-    #[derive(Deserialize)]
-    struct Resp {
-        choices: Vec<Choice>,
-    }
-    #[derive(Deserialize)]
-    struct Choice {
-        message: Msg,
-    }
-    #[derive(Deserialize)]
-    struct Msg {
-        content: String,
-    }
-
     let lines = text
         .lines()
         .map(normalize_inline)
@@ -773,13 +760,7 @@ async fn suggest_edge_trim(
     if !status.is_success() {
         anyhow::bail!("AI edge trim failed ({status}): {raw}");
     }
-    let parsed: Resp = serde_json::from_str(&raw)?;
-    let content = parsed
-        .choices
-        .into_iter()
-        .next()
-        .map(|choice| choice.message.content)
-        .unwrap_or_default();
+    let content = crate::ai::chat_response::extract_chat_text(&raw)?;
     parse_edge_trim(&content, max_head, max_tail)
 }
 
@@ -1264,19 +1245,6 @@ pub async fn describe_image(
     app: tauri::AppHandle<Wry>,
     image_url: String,
 ) -> Result<String, String> {
-    #[derive(Deserialize)]
-    struct Resp {
-        choices: Vec<Choice>,
-    }
-    #[derive(Deserialize)]
-    struct Choice {
-        message: Msg,
-    }
-    #[derive(Deserialize)]
-    struct Msg {
-        content: String,
-    }
-
     let config = crate::commands::config::get_config(app)?;
     if config.openai_api_key.is_empty() {
         return Err("尚未配置 API Key".to_string());
@@ -1329,14 +1297,9 @@ pub async fn describe_image(
     if !status.is_success() {
         return Err(format!("图像说明失败 ({status}): {raw}"));
     }
-    let parsed: Resp =
-        serde_json::from_str(&raw).map_err(|e| format!("图像说明响应解析失败: {e}"))?;
-    Ok(parsed
-        .choices
-        .into_iter()
-        .next()
-        .map(|choice| choice.message.content.trim().to_string())
-        .unwrap_or_default())
+    crate::ai::chat_response::extract_chat_text(&raw)
+        .map(|content| content.trim().to_string())
+        .map_err(|e| format!("图像说明响应解析失败: {e}"))
 }
 
 #[tauri::command]
@@ -1345,19 +1308,6 @@ pub async fn fact_check_claim(
     claim: String,
     context: String,
 ) -> Result<FactCheckResult, String> {
-    #[derive(Deserialize)]
-    struct Resp {
-        choices: Vec<Choice>,
-    }
-    #[derive(Deserialize)]
-    struct Choice {
-        message: Msg,
-    }
-    #[derive(Deserialize)]
-    struct Msg {
-        content: String,
-    }
-
     let config = crate::commands::config::get_config(app)?;
     if !config.search_enabled || config.search_api_key.trim().is_empty() {
         return Err("尚未启用搜索模型或未配置搜索模型 API Key".to_string());
@@ -1401,14 +1351,8 @@ pub async fn fact_check_claim(
         return Err(format!("事实查询失败 ({status}): {raw}"));
     }
 
-    let parsed: Resp =
-        serde_json::from_str(&raw).map_err(|e| format!("事实查询响应解析失败: {e}"))?;
-    let content = parsed
-        .choices
-        .into_iter()
-        .next()
-        .map(|choice| choice.message.content)
-        .ok_or_else(|| "事实查询响应为空".to_string())?;
+    let content = crate::ai::chat_response::extract_chat_text(&raw)
+        .map_err(|e| format!("事实查询响应解析失败: {e}"))?;
     Ok(parse_fact_check_content(&content, claim.trim(), context.trim()))
 }
 

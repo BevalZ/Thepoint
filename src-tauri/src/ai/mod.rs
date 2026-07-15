@@ -1,3 +1,4 @@
+pub mod chat_response;
 pub mod explore;
 pub mod models;
 pub mod openai;

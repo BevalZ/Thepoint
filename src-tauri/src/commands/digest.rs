@@ -168,23 +168,16 @@ pub async fn generate_digest(
         return Err(format!("AI 返回错误 ({status}): {raw}"));
     }
 
-    #[derive(serde::Deserialize)]
-    struct Resp { choices: Vec<Choice> }
-    #[derive(serde::Deserialize)]
-    struct Choice { message: Msg }
-    #[derive(serde::Deserialize)]
-    struct Msg { content: String }
-
-    let parsed: Resp = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
-    let digest = parsed.choices.into_iter().next()
-        .map(|c| c.message.content)
-        .ok_or_else(|| "模型未返回内容".to_string())?;
+    let digest = crate::ai::chat_response::extract_chat_text(&raw).map_err(|e| e.to_string())?;
 
     let clear_path = crate::db::db_path(&app).map_err(|e| e.to_string())?;
     tokio::task::spawn_blocking(move || {
         let conn = crate::db::open_db(&clear_path)?;
         crate::db::clear_starred_points(&conn)
-    }).await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
 
     Ok(DigestResult {
         content: digest,
@@ -273,17 +266,7 @@ pub async fn generate_synthesis(
         return Err(format!("AI 返回错误 ({status}): {raw}"));
     }
 
-    #[derive(serde::Deserialize)]
-    struct Resp { choices: Vec<Choice> }
-    #[derive(serde::Deserialize)]
-    struct Choice { message: Msg }
-    #[derive(serde::Deserialize)]
-    struct Msg { content: String }
-
-    let parsed: Resp = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
-    let content = parsed.choices.into_iter().next()
-        .map(|c| c.message.content)
-        .ok_or_else(|| "模型未返回内容".to_string())?;
+    let content = crate::ai::chat_response::extract_chat_text(&raw).map_err(|e| e.to_string())?;
 
     Ok(DigestResult {
         content,
@@ -364,17 +347,7 @@ pub async fn generate_investigation(
         return Err(format!("AI 返回错误 ({status}): {raw}"));
     }
 
-    #[derive(serde::Deserialize)]
-    struct Resp { choices: Vec<Choice> }
-    #[derive(serde::Deserialize)]
-    struct Choice { message: Msg }
-    #[derive(serde::Deserialize)]
-    struct Msg { content: String }
-
-    let parsed: Resp = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
-    let content = parsed.choices.into_iter().next()
-        .map(|c| c.message.content)
-        .ok_or_else(|| "模型未返回内容".to_string())?;
+    let content = crate::ai::chat_response::extract_chat_text(&raw).map_err(|e| e.to_string())?;
 
     let invocation_id = tokio::task::spawn_blocking({
         let db_path = db_path.clone();
