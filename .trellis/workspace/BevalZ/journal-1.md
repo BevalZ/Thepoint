@@ -1217,3 +1217,38 @@ Implemented independently configurable AI and DeepLX translation with full-text,
 ### Next Steps
 
 - None - task complete
+
+
+## Session 36: Ten-round performance and usability hardening
+
+**Date**: 2026-07-16
+**Task**: Ten-round performance and usability hardening
+**Branch**: `main`
+
+### Summary
+
+Completed ten evidence-based performance/usability rounds: Explore recovery and hidden presentation suspension, pooled viewport observers, config single-flight loading, shared backend HTTP client reuse, history upsert, focused tests, spec updates, and full frontend/Rust gates.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d577ada` | (see git log) |
+| `d80e923` | (see git log) |
+| `821b7c3` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
