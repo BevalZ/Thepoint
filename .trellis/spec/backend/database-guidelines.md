@@ -374,6 +374,7 @@ scanIndexedFolder(folderId: string): Promise<IndexedFolderScanResult>
 - Journal can seed future Investigation context, but final citations must still point to Source, Point, or Evidence assets.
 - `generate_investigation` gathers explicit scope first, then optional Journal, workspace search, Evidence search, Report search, and related assets.
 - `generate_investigation` returns `DigestResult.invocationId` for Investigation calls and records a durable AI invocation plus context manifest. Digest and Synthesis may return `null` or omit this field.
+- Investigation `mode` normalizes to `quick | standard | deep`. Deep mode requests 6-10 non-duplicated findings when supported, an evidence-role/strength/confidence matrix, competing explanations, explicit gaps, and 3-5 follow-up checks; it must explicitly report insufficient context rather than pad or invent findings.
 - `DigestCitation` keeps `kind`, `label`, `id`, `title`, `excerpt`, `source_id`, `chunk_index`, and `url`, and may include `quote` and `reason`.
 - Asset relations are rebuilt from Report co-citations, Evidence Source/Point links, Journal co-occurrence, Gallery Point links, and Review Queue co-presence.
 - Review scheduling is deliberately simple: `again = 1`, `hard = 3`, `good = 7`, `easy = 14` days. `ease` and `interval_days` are persisted for future scheduler upgrades.
@@ -395,6 +396,8 @@ scanIndexedFolder(folderId: string): Promise<IndexedFolderScanResult>
 | Existing `reports` table lacks `investigation` check value | Inline migration rebuilds the table and preserves existing report rows |
 | Blank Investigation query | `generate_investigation` returns `Err("调查问题不能为空")` |
 | Investigation context has no Source/Point/Evidence citations | `generate_investigation` returns an error instead of producing uncited output |
+| Investigation mode is blank or unsupported | Normalize to `standard` and apply the standard 5-7 finding depth contract |
+| Deep mode has fewer supported findings than its target | State the evidence gap; never repeat or fabricate findings to reach the target |
 | Report has no linked AI invocation | `load_report_invocation_audit` returns `Ok(None)` and ReportModal still opens |
 | Browser preview requests report invocation audit | Frontend fallback returns `null`, never a fake audit |
 | Invalid Journal invalidation reason | DB helper returns validation error |
@@ -419,12 +422,14 @@ scanIndexedFolder(folderId: string): Promise<IndexedFolderScanResult>
 ### 5. Good/Base/Bad Cases
 
 - Good: a user generates an Investigation, saves it as a Report, sees an automatic Journal entry, rebuilds relations, adds the Report to Review, exports Mirror Markdown, and can still open citation-backed assets.
+- Good: Source Workspace prepares linked Points/Evidence, sends their explicit IDs in deep mode, and receives a multi-finding report that distinguishes Source, Point, and Evidence roles.
 - Good: a user opens Library -> Review and sees a deterministic plan with due/overdue/future/dismissed/overflow counts and per-item reasons.
 - Good: scanning a Markdown/code folder indexes readable text into Source Workspace while leaving the original files untouched.
 - Base: Journal search returns only non-invalidated entries by default.
 - Base: Mirror export can include zero assets in a category and still writes `index.md` plus manifest v2.
 - Base: Mirror v1 manifests load as compatibility metadata but cannot produce precise prune candidates.
 - Bad: treating Journal text as factual evidence in citations, or emitting Investigation conclusions without Source/Point/Evidence citations.
+- Bad: using a generic section-only prompt for deep mode, or padding a thin context with repeated unsupported conclusions.
 - Bad: deleting a Report, Review item, or indexed folder cascades into Sources, Points, Evidence, Gallery files, or user-owned folders.
 - Bad: export implicitly deletes stale mirror files. Stale cleanup must be a separate explicit prune command.
 
@@ -432,6 +437,7 @@ scanIndexedFolder(folderId: string): Promise<IndexedFolderScanResult>
 
 - Rust DB tests: Investigation report kind saves/searches, Journal list/search/invalidate, Review schedule/snooze/dismiss, Review planner priority rank/future/dismissed/overflow/limit behavior, Mirror config defaults/round-trip, Indexed Folder/File round-trip, and relation rebuild across report/journal/evidence/gallery/review signals.
 - Rust command/helper tests: command input conversion for Reports remains camelCase-compatible; Investigation context/citation helpers must stay deterministic when changed; Mirror planner covers first export, unchanged repeat plans, overwrite/stale detection, manifest v1 loading, disabled-scope prune candidates, and explicit prune deletion.
+- Rust Investigation prompt tests: mode normalization remains deterministic; quick/standard/deep depth contracts remain distinct; deep input includes anti-fabrication guidance and `[S]`/`[P]`/`[E]` labels.
 - Frontend helper tests: report artifact parsing/filtering includes `investigation`; citation JSON with optional `quote`/`reason` remains backward compatible.
 - Frontend checks: `npm run typecheck`, `npm run check:boundaries`, `npm run test:run`, and `npm run build`.
 - Backend checks: `cargo check --manifest-path src-tauri/Cargo.toml` and `cargo test --manifest-path src-tauri/Cargo.toml`.
@@ -605,7 +611,7 @@ loadReportInvocationAudit(reportId: string): Promise<ReportInvocationAudit | nul
 
 - `init_db` owns `ai_invocations` and `investigation_context_items` creation with idempotent `CREATE TABLE IF NOT EXISTS` and indexes.
 - `generate_investigation` writes one invocation record after a successful model response and returns its `invocationId`; `generate_digest` and `generate_synthesis` may return `null` or omit `invocationId`.
-- Investigation audit uses prompt version `investigation.v1` until the prompt contract changes; changing prompt semantics must bump the version.
+- Investigation audit uses prompt version `investigation.v2` for the depth-aware prompt contract; every future semantic prompt change must bump this version again.
 - Context roles are limited to `source`, `point`, `evidence`, `prior_report`, `journal_recall`, and `related_clue`.
 - Context target kinds are limited to `source`, `point`, `evidence`, `report`, `journal`, and `relation`.
 - Audit stores metadata only: model name, prompt version, input query, scoped refs, manifest counts, warnings, context role/label/id, included/truncated flags, reason, character count, and stable FNV-1a text hash. Do not persist full prompts or full source/report/journal text in these audit tables.

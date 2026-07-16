@@ -141,6 +141,30 @@ Rules:
 | Explore is hidden | Explore does not handle paste, drag/drop, text selection toolbar, or other global input |
 | Source changes or user starts a new parse/analyze workflow | Old transient workflow UI is reset by the existing source/workflow reset paths |
 
+### Convention: Reanalysis input fallback
+
+`useExploreStore.reanalyzeCurrent()` must not assume that `text` is populated after a Source is reopened from the database. Reopened Sources may keep their full body in the matching `useExploreHistoryStore` item, or only expose persisted chunk text through `chunkCards`.
+
+Resolve the input in this order and return without starting a model request only when all three are empty:
+
+```ts
+const content = reanalysisTextForCurrent({
+  currentText: current.text,
+  historyText: matchingHistoryItem?.text,
+  chunkTexts: current.chunkCards.map((card) => card.text),
+})
+```
+
+When a fallback is used, write the recovered text back to the Explore store before starting analysis. The command-completion path must also clear `analyzing` and remove streaming listeners, so a missed completion event cannot leave the reanalysis control permanently disabled.
+
+| Condition | Required behavior |
+|---|---|
+| Current text is non-empty | Reanalyze current text |
+| Current text is empty, matching history exists | Reanalyze history text and restore it in the store |
+| No history text, saved chunks exist | Join non-empty chunk text with blank-line separators and reanalyze |
+| All input candidates are empty | Do not call the model; leave an explicit idle state |
+| Streaming command resolves without a completion event | Clear `analyzing` and clean both event listeners |
+
 ### localStorage-backed frontend state
 
 Use localStorage only for explicit frontend preferences/history, with validation on read.

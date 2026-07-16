@@ -105,6 +105,7 @@ Required coverage depends on the change:
 - Zustand selection or deterministic store behavior: add/update `src/store/*.test.ts`.
 - Command boundary changes: update `commandMap.ts`, API wrapper, backend command registration, then run frontend boundary/type checks and backend checks as applicable.
 - Tauri-only workflows still need manual desktop E2E when browser preview fallback cannot exercise them.
+- Source text block splitting must be abbreviation-aware. Do not split English text with a broad regex that treats every `.` as a sentence boundary; protect cases such as `i.e.`, `e.g.`, `et al.`, initials, and decimals with focused `src/lib` tests.
 
 ---
 

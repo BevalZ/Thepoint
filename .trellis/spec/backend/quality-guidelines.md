@@ -173,3 +173,58 @@ Before considering backend work done:
 - `cargo test --manifest-path src-tauri/Cargo.toml` passes.
 
 When backend changes also touch frontend contracts, run the frontend typecheck and boundary check before committing.
+
+## Scenario: Shared HTTP Client For Ordinary Requests
+
+### 1. Scope / Trigger
+
+- Trigger: adding or changing backend outbound HTTP calls for OpenAI-compatible chat, search, image, model-list, skill-import, semantic, or other ordinary API requests.
+- Applies to `src-tauri/src/http.rs`, `src-tauri/src/ai/*`, and `src-tauri/src/commands/*`.
+
+### 2. Signatures
+
+```rust
+crate::http::client() -> &'static reqwest::Client
+```
+
+### 3. Contracts
+
+- Ordinary outbound requests use `crate::http::client()` so connection pools survive across commands.
+- Keep dedicated `reqwest::Client::builder()` call sites only when the request needs custom redirect, timeout, TLS, proxy, or other transport policy.
+- Do not create a fresh `reqwest::Client::new()` inside per-block, per-search, per-image, or per-command request paths.
+- Translation may keep a dedicated client/semaphore when its provider boundary owns stricter request limits.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+|---|---|
+| Ordinary API request | Use the shared client |
+| Request needs custom transport policy | Use `Client::builder()` locally and leave a clear code-path reason |
+| Shared client initialization fails | Not applicable; `reqwest::Client::new()` is infallible |
+| Future scan finds fresh `Client::new()` outside `http.rs` or a dedicated boundary | Treat as a review issue |
+
+### 5. Good/Base/Bad Cases
+
+- Good: AI chunk analysis, Digest, Gallery, config model list, and semantic remote embedding all use `crate::http::client()`.
+- Base: URL extraction keeps a builder when it needs custom redirect/timeout behavior.
+- Bad: creating a fresh client for every chunk in a long document analysis.
+
+### 6. Tests Required
+
+- Rust unit test asserts shared client identity is stable.
+- Full backend checks: `cargo check --manifest-path src-tauri/Cargo.toml` and `cargo test --manifest-path src-tauri/Cargo.toml`.
+- Review scan: `rg "reqwest::Client::new\\(\\)|reqwest::Client::builder\\(" src-tauri/src`.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+let response = reqwest::Client::new().post(endpoint).json(&body).send().await?;
+```
+
+#### Correct
+
+```rust
+let response = crate::http::client().post(endpoint).json(&body).send().await?;
+```
