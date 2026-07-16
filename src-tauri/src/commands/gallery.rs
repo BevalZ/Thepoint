@@ -1,6 +1,6 @@
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use serde::{Deserialize, Serialize};
 use tauri::{Manager, Wry};
 
 use crate::db::{self, GalleryItem, GallerySourcePoint, StoredPoint};
@@ -108,7 +108,7 @@ async fn build_image_prompt(
         ],
         "temperature": 0.7
     });
-    let resp = reqwest::Client::new()
+    let resp = crate::http::client()
         .post(&endpoint)
         .bearer_auth(&config.openai_api_key)
         .json(&body)
@@ -146,7 +146,7 @@ async fn build_knowledge_image_prompt(
         ],
         "temperature": 0.35
     });
-    let mut builder = reqwest::Client::new()
+    let mut builder = crate::http::client()
         .post(&endpoint)
         .bearer_auth(&config.openai_api_key)
         .json(&body);
@@ -175,8 +175,16 @@ fn knowledge_prompt_input(contexts: &[GalleryKnowledgeContext], starred: &[Store
     out.push_str("要求梳理原文、解析卡牌和 star 的关系，优先表现核心议题、概念、论据、反驳、数据、案例、引用和跨块关联。\n\n");
 
     for (source_index, context) in contexts.iter().take(6).enumerate() {
-        out.push_str(&format!("## 来源 {}：{}\n", source_index + 1, context.source_name));
-        if let Some(url) = context.source_url.as_deref().filter(|value| !value.trim().is_empty()) {
+        out.push_str(&format!(
+            "## 来源 {}：{}\n",
+            source_index + 1,
+            context.source_name
+        ));
+        if let Some(url) = context
+            .source_url
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+        {
             out.push_str(&format!("URL：{}\n", url));
         }
         out.push_str("### 原文节选\n");
@@ -202,7 +210,10 @@ fn knowledge_prompt_input(contexts: &[GalleryKnowledgeContext], starred: &[Store
             out.push_str(&format!(
                 "- {}{}：{}\n  原文依据：{}\n",
                 star.id,
-                star.tag_type.as_deref().map(|tag| format!(" / {tag}")).unwrap_or_default(),
+                star.tag_type
+                    .as_deref()
+                    .map(|tag| format!(" / {tag}"))
+                    .unwrap_or_default(),
                 clip_chars(&star.content, 180),
                 clip_chars(star.source_excerpt.as_deref().unwrap_or(""), 220)
             ));
@@ -257,15 +268,27 @@ async fn starred_prompt_preview(
     let db_path = db::db_path(app).map_err(|e| e.to_string())?;
     let starred = tokio::task::spawn_blocking({
         let p = db_path.clone();
-        move || { let c = db::open_db(&p)?; db::list_starred_points(&c) }
-    }).await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
+        move || {
+            let c = db::open_db(&p)?;
+            db::list_starred_points(&c)
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
 
     if starred.len() < 10 {
-        return Err(format!("至少采集 10 个 point 才可生成，当前仅 {} 个", starred.len()));
+        return Err(format!(
+            "至少采集 10 个 point 才可生成，当前仅 {} 个",
+            starred.len()
+        ));
     }
 
     let point_ids = starred.iter().map(|p| p.id.clone()).collect::<Vec<_>>();
-    let contents = starred.iter().map(|p| p.content.clone()).collect::<Vec<_>>();
+    let contents = starred
+        .iter()
+        .map(|p| p.content.clone())
+        .collect::<Vec<_>>();
     let mode = normalize_gallery_mode(mode.as_deref());
     let prompt = if mode == "knowledge" {
         let contexts = knowledge_contexts.unwrap_or_default();
@@ -276,7 +299,9 @@ async fn starred_prompt_preview(
             .await
             .map_err(|e| e.to_string())?
     } else {
-        build_image_prompt(&config, &contents).await.map_err(|e| e.to_string())?
+        build_image_prompt(&config, &contents)
+            .await
+            .map_err(|e| e.to_string())?
     };
     Ok(GalleryPromptPreview {
         prompt,
@@ -304,10 +329,13 @@ async fn save_generated_image(
         return Err("图片 Prompt 不能为空".to_string());
     }
 
-    let b64 = call_image_api(&config, prompt.trim()).await.map_err(|e| e.to_string())?;
+    let b64 = call_image_api(&config, prompt.trim())
+        .await
+        .map_err(|e| e.to_string())?;
     let id = uuid::Uuid::new_v4().to_string();
     let dir = gallery_dir(app).map_err(|e| e.to_string())?;
-    let (file_path, thumbnail_path) = save_image_files(&dir, &id, &b64).map_err(|e| e.to_string())?;
+    let (file_path, thumbnail_path) =
+        save_image_files(&dir, &id, &b64).map_err(|e| e.to_string())?;
 
     let item = GalleryItem {
         id: id.clone(),
@@ -323,8 +351,14 @@ async fn save_generated_image(
     tokio::task::spawn_blocking({
         let item2 = item.clone();
         let p = db_path.clone();
-        move || { let c = db::open_db(&p)?; db::insert_gallery_item(&c, &item2) }
-    }).await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
+        move || {
+            let c = db::open_db(&p)?;
+            db::insert_gallery_item(&c, &item2)
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
 
     Ok(item)
 }
@@ -356,7 +390,11 @@ fn image_generation_endpoint(base_url: &str, custom_endpoint: &str) -> String {
         return custom.to_string();
     }
     let base = base_url.trim().trim_end_matches('/');
-    let base = if base.is_empty() { "https://api.openai.com" } else { base };
+    let base = if base.is_empty() {
+        "https://api.openai.com"
+    } else {
+        base
+    };
     if custom.is_empty() {
         format!("{base}/v1/images/generations")
     } else {
@@ -365,7 +403,9 @@ fn image_generation_endpoint(base_url: &str, custom_endpoint: &str) -> String {
 }
 
 fn endpoint_uses_chat_completions(endpoint: &str) -> bool {
-    endpoint.trim_end_matches('/').ends_with("/chat/completions")
+    endpoint
+        .trim_end_matches('/')
+        .ends_with("/chat/completions")
 }
 
 fn data_url_to_b64(value: &str) -> Option<String> {
@@ -374,7 +414,9 @@ fn data_url_to_b64(value: &str) -> Option<String> {
     if !value.starts_with("data:image/") {
         return None;
     }
-    value.find(marker).map(|index| value[index + marker.len()..].trim().to_string())
+    value
+        .find(marker)
+        .map(|index| value[index + marker.len()..].trim().to_string())
 }
 
 fn looks_like_image_b64(value: &str) -> Option<String> {
@@ -383,11 +425,16 @@ fn looks_like_image_b64(value: &str) -> Option<String> {
     if candidate.len() < 120 {
         return None;
     }
-    if !candidate.chars().all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '+' | '/' | '=' | '-' | '_')) {
+    if !candidate
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '+' | '/' | '=' | '-' | '_'))
+    {
         return None;
     }
     let normalized = candidate.replace('-', "+").replace('_', "/");
-    let bytes = base64::engine::general_purpose::STANDARD.decode(normalized.as_bytes()).ok()?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(normalized.as_bytes())
+        .ok()?;
     image::load_from_memory(&bytes).ok()?;
     Some(base64::engine::general_purpose::STANDARD.encode(bytes))
 }
@@ -396,7 +443,9 @@ fn first_image_url_in_text(text: &str) -> Option<String> {
     let start = text.find("https://").or_else(|| text.find("http://"))?;
     let tail = &text[start..];
     let end = tail
-        .find(|ch: char| ch.is_whitespace() || matches!(ch, ')' | ']' | '"' | '\'' | '，' | '。' | '；'))
+        .find(|ch: char| {
+            ch.is_whitespace() || matches!(ch, ')' | ']' | '"' | '\'' | '，' | '。' | '；')
+        })
         .unwrap_or(tail.len());
     let url = tail[..end].trim_matches(|ch| matches!(ch, '"' | '\'' | ')' | ']' | '.' | ','));
     if url.is_empty() {
@@ -441,12 +490,19 @@ async fn image_string_to_b64(value: &str) -> anyhow::Result<Option<String>> {
     if let Some(url) = first_image_url_in_text(value) {
         let bytes = reqwest::get(&url).await?.bytes().await?;
         image::load_from_memory(&bytes)?;
-        return Ok(Some(base64::engine::general_purpose::STANDARD.encode(&bytes)));
+        return Ok(Some(
+            base64::engine::general_purpose::STANDARD.encode(&bytes),
+        ));
     }
     Ok(None)
 }
 
-async fn call_chat_image_api(endpoint: &str, api_key: &str, model: &str, prompt: &str) -> anyhow::Result<String> {
+async fn call_chat_image_api(
+    endpoint: &str,
+    api_key: &str,
+    model: &str,
+    prompt: &str,
+) -> anyhow::Result<String> {
     let body = serde_json::json!({
         "model": model,
         "messages": [
@@ -454,7 +510,7 @@ async fn call_chat_image_api(endpoint: &str, api_key: &str, model: &str, prompt:
         ],
         "temperature": 0.2
     });
-    let resp = reqwest::Client::new()
+    let resp = crate::http::client()
         .post(endpoint)
         .bearer_auth(api_key)
         .json(&body)
@@ -472,19 +528,40 @@ async fn call_chat_image_api(endpoint: &str, api_key: &str, model: &str, prompt:
     collect_image_strings(&parsed, &mut candidates);
     for candidate in candidates {
         if let Some(b64) = image_string_to_b64(&candidate).await? {
-            println!("[Gallery] chat image response extracted_image_chars={}", b64.len());
+            println!(
+                "[Gallery] chat image response extracted_image_chars={}",
+                b64.len()
+            );
             return Ok(b64);
         }
     }
-    anyhow::bail!("聊天式生图响应中没有可用图片数据: {}", &raw[..raw.len().min(400)]);
+    anyhow::bail!(
+        "聊天式生图响应中没有可用图片数据: {}",
+        &raw[..raw.len().min(400)]
+    );
 }
 
 /// Call image API (OpenAI-compat or Gemini) and return base64 PNG.
-async fn call_image_api(config: &crate::commands::config::AppConfig, prompt: &str) -> anyhow::Result<String> {
+async fn call_image_api(
+    config: &crate::commands::config::AppConfig,
+    prompt: &str,
+) -> anyhow::Result<String> {
     use serde::Deserialize;
-    let base_url = if config.image_base_url.is_empty() { &config.openai_base_url } else { &config.image_base_url };
-    let api_key  = if config.image_api_key.is_empty()  { &config.openai_api_key  } else { &config.image_api_key  };
-    let model    = if config.image_model.is_empty()    { "gpt-image-1"            } else { &config.image_model   };
+    let base_url = if config.image_base_url.is_empty() {
+        &config.openai_base_url
+    } else {
+        &config.image_base_url
+    };
+    let api_key = if config.image_api_key.is_empty() {
+        &config.openai_api_key
+    } else {
+        &config.image_api_key
+    };
+    let model = if config.image_model.is_empty() {
+        "gpt-image-1"
+    } else {
+        &config.image_model
+    };
     let image_size = normalize_image_size(&config.image_size);
     let aspect_ratio = image_aspect_ratio(&config.image_size);
     if api_key.trim().is_empty() {
@@ -501,24 +578,41 @@ async fn call_image_api(config: &crate::commands::config::AppConfig, prompt: &st
 
     if config.image_provider_key == "gemini-image" {
         // Gemini Imagen format
-        #[derive(Deserialize)] struct GemResp { candidates: Vec<GemCand> }
-        #[derive(Deserialize)] struct GemCand { content: GemContent }
-        #[derive(Deserialize)] struct GemContent { parts: Vec<GemPart> }
-        #[derive(Deserialize)] struct GemPart {
-            #[serde(rename = "inlineData")] inline_data: Option<InlineData>
+        #[derive(Deserialize)]
+        struct GemResp {
+            candidates: Vec<GemCand>,
         }
-        #[derive(Deserialize)] struct InlineData { data: String }
+        #[derive(Deserialize)]
+        struct GemCand {
+            content: GemContent,
+        }
+        #[derive(Deserialize)]
+        struct GemContent {
+            parts: Vec<GemPart>,
+        }
+        #[derive(Deserialize)]
+        struct GemPart {
+            #[serde(rename = "inlineData")]
+            inline_data: Option<InlineData>,
+        }
+        #[derive(Deserialize)]
+        struct InlineData {
+            data: String,
+        }
 
         let base = base_url.trim().trim_end_matches('/');
         if base.is_empty() {
             anyhow::bail!("Gemini 图片模型需要配置 Image Base URL");
         }
-        let url = format!("{}/v1beta/models/{}:generateContent?key={}", base, model, api_key);
+        let url = format!(
+            "{}/v1beta/models/{}:generateContent?key={}",
+            base, model, api_key
+        );
         let body = serde_json::json!({
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {"responseModalities": ["IMAGE"], "imageConfig": {"aspectRatio": aspect_ratio}}
         });
-        let resp = reqwest::Client::new().post(&url).json(&body).send().await?;
+        let resp = crate::http::client().post(&url).json(&body).send().await?;
         let status = resp.status();
         let raw = resp.text().await?;
         if !status.is_success() {
@@ -526,18 +620,30 @@ async fn call_image_api(config: &crate::commands::config::AppConfig, prompt: &st
         }
         let resp: GemResp = serde_json::from_str(&raw)
             .map_err(|_| anyhow::anyhow!("Gemini parse error: {}", &raw[..raw.len().min(400)]))?;
-        resp.candidates.into_iter().next()
+        resp.candidates
+            .into_iter()
+            .next()
             .and_then(|c| c.content.parts.into_iter().next())
             .and_then(|p| p.inline_data)
             .map(|d| {
-                println!("[Gallery] Gemini image response type=inlineData b64_chars={}", d.data.len());
+                println!(
+                    "[Gallery] Gemini image response type=inlineData b64_chars={}",
+                    d.data.len()
+                );
                 d.data
             })
             .ok_or_else(|| anyhow::anyhow!("Gemini returned no image data"))
     } else {
         // OpenAI-compat format — supports both b64_json and url response formats
-        #[derive(Deserialize)] struct OaiResp { data: Vec<OaiImg> }
-        #[derive(Deserialize)] struct OaiImg { b64_json: Option<String>, url: Option<String> }
+        #[derive(Deserialize)]
+        struct OaiResp {
+            data: Vec<OaiImg>,
+        }
+        #[derive(Deserialize)]
+        struct OaiImg {
+            b64_json: Option<String>,
+            url: Option<String>,
+        }
 
         let endpoint = image_generation_endpoint(base_url, &config.image_custom_endpoint);
         if endpoint_uses_chat_completions(&endpoint) {
@@ -551,37 +657,55 @@ async fn call_image_api(config: &crate::commands::config::AppConfig, prompt: &st
             "model": model, "prompt": prompt, "n": 1,
             "size": image_size
         });
-        let resp = reqwest::Client::new()
-            .post(&endpoint).bearer_auth(api_key).json(&body)
-            .send().await?;
+        let resp = crate::http::client()
+            .post(&endpoint)
+            .bearer_auth(api_key)
+            .json(&body)
+            .send()
+            .await?;
         let status = resp.status();
         let mut raw = resp.text().await?;
         let mut final_status = status;
         if !status.is_success() && raw.contains("response_format") {
-            let retry = reqwest::Client::new()
-                .post(&endpoint).bearer_auth(api_key).json(&fallback_body)
-                .send().await?;
+            let retry = crate::http::client()
+                .post(&endpoint)
+                .bearer_auth(api_key)
+                .json(&fallback_body)
+                .send()
+                .await?;
             final_status = retry.status();
             raw = retry.text().await?;
         }
         if !final_status.is_success() {
             anyhow::bail!("图片生成失败 ({final_status}): {raw}");
         }
-        let resp: OaiResp = serde_json::from_str(&raw)
-            .map_err(|_| anyhow::anyhow!("OpenAI image parse error: {}", &raw[..raw.len().min(400)]))?;
-        let img = resp.data.into_iter().next()
+        let resp: OaiResp = serde_json::from_str(&raw).map_err(|_| {
+            anyhow::anyhow!("OpenAI image parse error: {}", &raw[..raw.len().min(400)])
+        })?;
+        let img = resp
+            .data
+            .into_iter()
+            .next()
             .ok_or_else(|| anyhow::anyhow!("no image in response"))?;
         if let Some(b64) = img.b64_json {
-            println!("[Gallery] OpenAI-compatible image response type=b64_json b64_chars={}", b64.len());
+            println!(
+                "[Gallery] OpenAI-compatible image response type=b64_json b64_chars={}",
+                b64.len()
+            );
             Ok(b64)
         } else if let Some(img_url) = img.url {
             // download the URL and encode as base64
             let bytes = reqwest::get(&img_url).await?.bytes().await?;
             use base64::Engine as _;
-            println!("[Gallery] OpenAI-compatible image response type=url downloaded_bytes={}", bytes.len());
+            println!(
+                "[Gallery] OpenAI-compatible image response type=url downloaded_bytes={}",
+                bytes.len()
+            );
             Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
         } else {
-            Err(anyhow::anyhow!("response contains neither b64_json nor url"))
+            Err(anyhow::anyhow!(
+                "response contains neither b64_json nor url"
+            ))
         }
     }
 }
@@ -589,7 +713,13 @@ async fn call_image_api(config: &crate::commands::config::AppConfig, prompt: &st
 #[tauri::command]
 pub async fn generate_image(app: tauri::AppHandle<Wry>) -> Result<GalleryItem, String> {
     let preview = starred_prompt_preview(&app, None, None).await?;
-    save_generated_image(&app, preview.prompt, preview.point_ids, preview.source_points).await
+    save_generated_image(
+        &app,
+        preview.prompt,
+        preview.point_ids,
+        preview.source_points,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -614,23 +744,40 @@ pub async fn generate_image_from_prompt(
 #[tauri::command]
 pub async fn list_gallery(app: tauri::AppHandle<Wry>) -> Result<Vec<GalleryItem>, String> {
     let path = db::db_path(&app).map_err(|e| e.to_string())?;
-    tokio::task::spawn_blocking(move || { let c = db::open_db(&path)?; db::list_gallery(&c) })
-        .await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())
+    tokio::task::spawn_blocking(move || {
+        let c = db::open_db(&path)?;
+        db::list_gallery(&c)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn search_gallery(app: tauri::AppHandle<Wry>, query: String) -> Result<Vec<GalleryItem>, String> {
+pub async fn search_gallery(
+    app: tauri::AppHandle<Wry>,
+    query: String,
+) -> Result<Vec<GalleryItem>, String> {
     let path = db::db_path(&app).map_err(|e| e.to_string())?;
-    tokio::task::spawn_blocking(move || { let c = db::open_db(&path)?; db::search_gallery(&c, &query, 40) })
-        .await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())
+    tokio::task::spawn_blocking(move || {
+        let c = db::open_db(&path)?;
+        db::search_gallery(&c, &query, 40)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
 pub async fn delete_gallery_item(app: tauri::AppHandle<Wry>, id: String) -> Result<(), String> {
     let path = db::db_path(&app).map_err(|e| e.to_string())?;
     let (fp, tp) = tokio::task::spawn_blocking(move || {
-        let c = db::open_db(&path)?; db::delete_gallery_item(&c, &id)
-    }).await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
+        let c = db::open_db(&path)?;
+        db::delete_gallery_item(&c, &id)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
     let _ = std::fs::remove_file(&fp);
     let _ = std::fs::remove_file(&tp);
     Ok(())
@@ -643,22 +790,44 @@ pub async fn retry_download(app: tauri::AppHandle<Wry>, id: String) -> Result<Ga
 
     // get existing item for prompt + point_ids
     let item = tokio::task::spawn_blocking({
-        let p = db_path.clone(); let id2 = id.clone();
-        move || { let c = db::open_db(&p)?; db::get_gallery_item(&c, &id2) }
-    }).await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?
+        let p = db_path.clone();
+        let id2 = id.clone();
+        move || {
+            let c = db::open_db(&p)?;
+            db::get_gallery_item(&c, &id2)
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?
     .ok_or("item not found")?;
 
-    let b64 = call_image_api(&config, &item.prompt).await.map_err(|e| e.to_string())?;
+    let b64 = call_image_api(&config, &item.prompt)
+        .await
+        .map_err(|e| e.to_string())?;
     let dir = gallery_dir(&app).map_err(|e| e.to_string())?;
     let (file_path, thumb_path) = save_image_files(&dir, &id, &b64).map_err(|e| e.to_string())?;
 
     tokio::task::spawn_blocking({
-        let p = db_path.clone(); let id2 = id.clone();
-        let fp = file_path.clone(); let tp = thumb_path.clone();
-        move || { let c = db::open_db(&p)?; db::update_gallery_status(&c, &id2, &fp, &tp, "ok") }
-    }).await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
+        let p = db_path.clone();
+        let id2 = id.clone();
+        let fp = file_path.clone();
+        let tp = thumb_path.clone();
+        move || {
+            let c = db::open_db(&p)?;
+            db::update_gallery_status(&c, &id2, &fp, &tp, "ok")
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
 
-    Ok(GalleryItem { file_path, thumbnail_path: thumb_path, download_status: "ok".to_string(), ..item })
+    Ok(GalleryItem {
+        file_path,
+        thumbnail_path: thumb_path,
+        download_status: "ok".to_string(),
+        ..item
+    })
 }
 
 #[tauri::command]

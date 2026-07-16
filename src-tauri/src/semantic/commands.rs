@@ -454,7 +454,7 @@ pub async fn generate_grounded_answer(
         &config.provider_key,
         &config.custom_endpoint,
     );
-    let response = reqwest::Client::new()
+    let response = crate::http::client()
         .post(endpoint)
         .bearer_auth(&config.openai_api_key)
         .json(&body)

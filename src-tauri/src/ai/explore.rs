@@ -74,7 +74,7 @@ async fn chat_text(api_key: &str, model: &str, base_url: &str, provider_key: &st
         ],
         "temperature": 0.3
     });
-    let resp = reqwest::Client::new()
+    let resp = crate::http::client()
         .post(&endpoint)
         .bearer_auth(api_key)
         .json(&body)
@@ -125,7 +125,7 @@ async fn chat_json(api_key: &str, model: &str, base_url: &str, extra_headers: &s
         "temperature": 0.4
     });
 
-    let client = reqwest::Client::new();
+    let client = crate::http::client();
     let mut builder = client
         .post(&endpoint)
         .bearer_auth(api_key)

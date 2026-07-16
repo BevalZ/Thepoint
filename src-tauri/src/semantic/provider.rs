@@ -94,7 +94,7 @@ pub async fn embed_remote(
         bail!("remote embedding API key is missing");
     }
     let model = config.model.as_deref().unwrap_or("text-embedding-3-small");
-    let response = reqwest::Client::new()
+    let response = crate::http::client()
         .post(endpoint)
         .bearer_auth(api_key)
         .json(&RemoteEmbeddingRequest {

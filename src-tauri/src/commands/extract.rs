@@ -740,7 +740,7 @@ async fn suggest_edge_trim(
         "response_format": { "type": "json_object" },
         "temperature": 0.0
     });
-    let mut builder = reqwest::Client::new()
+    let mut builder = crate::http::client()
         .post(&endpoint)
         .bearer_auth(&config.openai_api_key)
         .json(&body);
@@ -1273,7 +1273,7 @@ pub async fn describe_image(
         "temperature": 0.2
     });
 
-    let client = reqwest::Client::new();
+    let client = crate::http::client();
     let mut builder = client
         .post(&endpoint)
         .bearer_auth(&config.openai_api_key)
@@ -1338,7 +1338,7 @@ pub async fn fact_check_claim(
         "temperature": 0.2
     });
 
-    let resp = reqwest::Client::new()
+    let resp = crate::http::client()
         .post(&endpoint)
         .bearer_auth(&config.search_api_key)
         .json(&body)

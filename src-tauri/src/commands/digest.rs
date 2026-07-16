@@ -7,7 +7,8 @@ use crate::db::{
     StoredPoint,
 };
 
-const DIGEST_SYSTEM: &str = "你是一位专业的知识分析师。用户会提供一组带稳定标签的 Point 与 Evidence。\
+const DIGEST_SYSTEM: &str =
+    "你是一位专业的知识分析师。用户会提供一组带稳定标签的 Point 与 Evidence。\
 请根据这些输入生成一份详细的研究简报（digest），要求：\
 1. 先写一个执行摘要（100字以内）\
 2. 按主题归类，分析各观点与证据之间的联系\
@@ -37,7 +38,7 @@ const INVESTIGATION_SYSTEM: &str = "你是一位本地优先的个人研究调�
 5. 不确定点\
 6. 引用清单\
 7. 后续问题\
-关键要求：每个关键结论必须使用输入标签引用来源，例如 [S1]、[P1]、[E1]；Journal 只能作为调查记忆线索，不能作为最终事实依据；没有足够 Source / Point / Evidence 引用的内容必须显式标记为推断或不确定。\
+关键要求：每个关键结论必须使用输入标签引用来源，例如 [S1]、[P1]、[E1]；区分原始 Source、提炼 Point 与外部核查 Evidence 的证据角色；说明证据强弱和结论置信度；Journal 只能作为调查记忆线索，不能作为最终事实依据；没有足够 Source / Point / Evidence 引用的内容必须显式标记为推断或不确定；不要为了满足篇幅或数量要求而重复、填充或编造结论。\
 输出为 Markdown 格式。";
 
 const MAX_SYNTHESIS_SOURCE_CHUNKS: usize = 8;
@@ -46,7 +47,7 @@ const MAX_SYNTHESIS_POINTS: usize = 40;
 const MAX_INVESTIGATION_SEARCH_RESULTS: usize = 12;
 const MAX_INVESTIGATION_JOURNAL: usize = 8;
 const MAX_INVESTIGATION_RELATED: usize = 20;
-const INVESTIGATION_PROMPT_VERSION: &str = "investigation.v1";
+const INVESTIGATION_PROMPT_VERSION: &str = "investigation.v2";
 
 #[derive(serde::Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -130,7 +131,10 @@ pub async fn generate_digest(
             }
         }
         anyhow::Ok((starred, point_contexts, evidence))
-    }).await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
 
     if starred.is_empty() && evidence.is_empty() {
         return Err("还没有采集任何 point 或选择 Evidence".to_string());
@@ -140,7 +144,9 @@ pub async fn generate_digest(
     let citations = build_digest_citations(&starred, &point_contexts, &evidence);
 
     let endpoint = crate::commands::config::completions_endpoint(
-        &config.openai_base_url, &config.provider_key, &config.custom_endpoint,
+        &config.openai_base_url,
+        &config.provider_key,
+        &config.custom_endpoint,
     );
     let body = serde_json::json!({
         "model": config.openai_model,
@@ -151,13 +157,17 @@ pub async fn generate_digest(
         "temperature": 0.6
     });
 
-    let mut builder = reqwest::Client::new()
+    let mut builder = crate::http::client()
         .post(&endpoint)
         .bearer_auth(&config.openai_api_key)
         .json(&body);
-    if let Ok(map) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&config.extra_headers) {
+    if let Ok(map) =
+        serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&config.extra_headers)
+    {
         for (k, v) in &map {
-            if let Some(s) = v.as_str() { builder = builder.header(k.as_str(), s); }
+            if let Some(s) = v.as_str() {
+                builder = builder.header(k.as_str(), s);
+            }
         }
     }
 
@@ -211,7 +221,10 @@ pub async fn generate_synthesis(
 
         let mut evidence = Vec::new();
         for source in &sources {
-            evidence.extend(crate::db::list_evidence_for_source(&conn, &source.source.id)?);
+            evidence.extend(crate::db::list_evidence_for_source(
+                &conn,
+                &source.source.id,
+            )?);
         }
         evidence.truncate(MAX_SYNTHESIS_EVIDENCE);
 
@@ -228,7 +241,10 @@ pub async fn generate_synthesis(
             .collect::<anyhow::Result<Vec<_>>>()?;
 
         anyhow::Ok((sources, evidence, starred, point_contexts))
-    }).await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map_err(|e| e.to_string())?;
 
     if sources.is_empty() && starred.is_empty() {
         return Err("请选择至少一个 Source，或包含当前 Star 集合".to_string());
@@ -238,7 +254,9 @@ pub async fn generate_synthesis(
     let citations = build_synthesis_citations(&sources, &evidence, &starred, &point_contexts);
 
     let endpoint = crate::commands::config::completions_endpoint(
-        &config.openai_base_url, &config.provider_key, &config.custom_endpoint,
+        &config.openai_base_url,
+        &config.provider_key,
+        &config.custom_endpoint,
     );
     let body = serde_json::json!({
         "model": config.openai_model,
@@ -249,13 +267,17 @@ pub async fn generate_synthesis(
         "temperature": 0.5
     });
 
-    let mut builder = reqwest::Client::new()
+    let mut builder = crate::http::client()
         .post(&endpoint)
         .bearer_auth(&config.openai_api_key)
         .json(&body);
-    if let Ok(map) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&config.extra_headers) {
+    if let Ok(map) =
+        serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&config.extra_headers)
+    {
         for (k, v) in &map {
-            if let Some(s) = v.as_str() { builder = builder.header(k.as_str(), s); }
+            if let Some(s) = v.as_str() {
+                builder = builder.header(k.as_str(), s);
+            }
         }
     }
 
@@ -328,11 +350,13 @@ pub async fn generate_investigation(
         }
     });
 
-    let mut builder = reqwest::Client::new()
+    let mut builder = crate::http::client()
         .post(&endpoint)
         .bearer_auth(&config.openai_api_key)
         .json(&body);
-    if let Ok(map) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&config.extra_headers) {
+    if let Ok(map) =
+        serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&config.extra_headers)
+    {
         for (k, v) in &map {
             if let Some(s) = v.as_str() {
                 builder = builder.header(k.as_str(), s);
@@ -410,7 +434,9 @@ fn collect_investigation_context(
     for id in normalized_unique_ids(scope.point_ids) {
         if let Some(point) = crate::db::get_point(&conn, &id)? {
             seen_points.insert(point.id.clone());
-            context.point_contexts.push(crate::db::get_point_source_context(&conn, &point.id)?);
+            context
+                .point_contexts
+                .push(crate::db::get_point_source_context(&conn, &point.id)?);
             context.points.push(point);
         }
     }
@@ -428,7 +454,8 @@ fn collect_investigation_context(
     }
 
     if scope.include_journal {
-        context.journal = crate::db::search_journal_entries(&conn, query, MAX_INVESTIGATION_JOURNAL)?;
+        context.journal =
+            crate::db::search_journal_entries(&conn, query, MAX_INVESTIGATION_JOURNAL)?;
     }
 
     if scope.include_library_search {
@@ -441,7 +468,9 @@ fn collect_investigation_context(
                 }
                 "point" if seen_points.insert(result.id.clone()) => {
                     if let Some(point) = crate::db::get_point(&conn, &result.id)? {
-                        context.point_contexts.push(crate::db::get_point_source_context(&conn, &point.id)?);
+                        context
+                            .point_contexts
+                            .push(crate::db::get_point_source_context(&conn, &point.id)?);
                         context.points.push(point);
                     }
                 }
@@ -477,10 +506,30 @@ fn collect_investigation_context(
 
 fn context_asset_ids(context: &InvestigationContext) -> Vec<(String, String)> {
     let mut out = Vec::new();
-    out.extend(context.sources.iter().map(|source| ("source".to_string(), source.source.id.clone())));
-    out.extend(context.points.iter().map(|point| ("point".to_string(), point.id.clone())));
-    out.extend(context.evidence.iter().map(|record| ("evidence".to_string(), record.id.clone())));
-    out.extend(context.reports.iter().map(|report| ("report".to_string(), report.id.clone())));
+    out.extend(
+        context
+            .sources
+            .iter()
+            .map(|source| ("source".to_string(), source.source.id.clone())),
+    );
+    out.extend(
+        context
+            .points
+            .iter()
+            .map(|point| ("point".to_string(), point.id.clone())),
+    );
+    out.extend(
+        context
+            .evidence
+            .iter()
+            .map(|record| ("evidence".to_string(), record.id.clone())),
+    );
+    out.extend(
+        context
+            .reports
+            .iter()
+            .map(|report| ("report".to_string(), report.id.clone())),
+    );
     out
 }
 
@@ -546,10 +595,14 @@ fn save_investigation_invocation_audit(
 fn investigation_warnings(context: &InvestigationContext) -> Vec<String> {
     let mut warnings = Vec::new();
     if !context.journal.is_empty() {
-        warnings.push("Journal entries were included as recall clues, not final evidence.".to_string());
+        warnings
+            .push("Journal entries were included as recall clues, not final evidence.".to_string());
     }
     if !context.reports.is_empty() {
-        warnings.push("Prior reports were included as context only unless their citations are reused.".to_string());
+        warnings.push(
+            "Prior reports were included as context only unless their citations are reused."
+                .to_string(),
+        );
     }
     if context.related.len() >= MAX_INVESTIGATION_RELATED {
         warnings.push("Related assets were capped by the investigation context limit.".to_string());
@@ -577,16 +630,22 @@ fn investigation_context_audit_items(
             "source",
             &text,
             workspace.chunks.len() > MAX_SYNTHESIS_SOURCE_CHUNKS
-                || workspace.chunks.iter().any(|chunk| chunk.text.chars().count() > 520),
+                || workspace
+                    .chunks
+                    .iter()
+                    .any(|chunk| chunk.text.chars().count() > 520),
             "Source chunks available to Investigation context",
         ));
     }
     for (index, point) in context.points.iter().enumerate() {
-        let text = [Some(point.content.as_str()), point.source_excerpt.as_deref()]
-            .into_iter()
-            .flatten()
-            .collect::<Vec<_>>()
-            .join("\n\n");
+        let text = [
+            Some(point.content.as_str()),
+            point.source_excerpt.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join("\n\n");
         items.push(context_item(
             invocation_id,
             "point",
@@ -612,7 +671,10 @@ fn investigation_context_audit_items(
         ));
     }
     for (index, report) in context.reports.iter().enumerate() {
-        let text = format!("{}\n\n{}\n\n{}", report.title, report.summary, report.body_md);
+        let text = format!(
+            "{}\n\n{}\n\n{}",
+            report.title, report.summary, report.body_md
+        );
         items.push(context_item(
             invocation_id,
             "report",
@@ -707,6 +769,7 @@ fn normalize_investigation_mode(mode: &str) -> String {
         _ => "standard".to_string(),
     }
 }
+
 fn investigation_depth_requirements(mode: &str) -> &'static str {
     match mode {
         "quick" => {
@@ -721,7 +784,6 @@ fn investigation_depth_requirements(mode: &str) -> &'static str {
     }
 }
 
-
 fn investigation_input_text(query: &str, mode: &str, context: &InvestigationContext) -> String {
     let mut sections = vec![format!(
         "## Investigation Query\n{query}\n\nMode: {mode}\n\n## Depth Requirements\n{}",
@@ -729,96 +791,152 @@ fn investigation_input_text(query: &str, mode: &str, context: &InvestigationCont
     )];
 
     if !context.sources.is_empty() {
-        let lines = context.sources.iter().enumerate().map(|(index, workspace)| {
-            let chunks = workspace.chunks.iter()
-                .take(MAX_SYNTHESIS_SOURCE_CHUNKS)
-                .map(|chunk| format!("- Chunk {}: {}", chunk.chunk_index, truncate_chars(&chunk.text, 520)))
-                .collect::<Vec<_>>()
-                .join("\n");
-            format!(
-                "[S{}] {}\nURI: {}\nChunks:\n{}",
-                index + 1,
-                workspace.source.title.as_deref().unwrap_or("Untitled Source"),
-                workspace.source.canonical_uri,
-                if chunks.is_empty() { "- No chunks".to_string() } else { chunks },
-            )
-        }).collect::<Vec<_>>().join("\n\n");
+        let lines = context
+            .sources
+            .iter()
+            .enumerate()
+            .map(|(index, workspace)| {
+                let chunks = workspace
+                    .chunks
+                    .iter()
+                    .take(MAX_SYNTHESIS_SOURCE_CHUNKS)
+                    .map(|chunk| {
+                        format!(
+                            "- Chunk {}: {}",
+                            chunk.chunk_index,
+                            truncate_chars(&chunk.text, 520)
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                format!(
+                    "[S{}] {}\nURI: {}\nChunks:\n{}",
+                    index + 1,
+                    workspace
+                        .source
+                        .title
+                        .as_deref()
+                        .unwrap_or("Untitled Source"),
+                    workspace.source.canonical_uri,
+                    if chunks.is_empty() {
+                        "- No chunks".to_string()
+                    } else {
+                        chunks
+                    },
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n");
         sections.push(format!("## Sources\n{lines}"));
     }
 
     if !context.points.is_empty() {
-        let lines = context.points.iter().enumerate().map(|(index, point)| {
-            format!(
-                "[P{}] [{}] {}\nSource: {}\nExcerpt: {}",
-                index + 1,
-                point.tag_type.as_deref().unwrap_or("Point"),
-                truncate_chars(&point.content, 480),
-                point.source_doc_name.as_deref().unwrap_or("none"),
-                point.source_excerpt.as_deref().unwrap_or("none"),
-            )
-        }).collect::<Vec<_>>().join("\n\n");
+        let lines = context
+            .points
+            .iter()
+            .enumerate()
+            .map(|(index, point)| {
+                format!(
+                    "[P{}] [{}] {}\nSource: {}\nExcerpt: {}",
+                    index + 1,
+                    point.tag_type.as_deref().unwrap_or("Point"),
+                    truncate_chars(&point.content, 480),
+                    point.source_doc_name.as_deref().unwrap_or("none"),
+                    point.source_excerpt.as_deref().unwrap_or("none"),
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n");
         sections.push(format!("## Points\n{lines}"));
     }
 
     if !context.evidence.is_empty() {
-        let lines = context.evidence.iter().enumerate().map(|(index, record)| {
-            format!(
-                "[E{}] [{}]\nClaim: {}\nAnswer: {}\nReasoning: {}\nSource location: {} / {:?}",
-                index + 1,
-                record.verdict,
-                record.claim,
-                truncate_chars(&record.answer, 520),
-                record.reasoning.as_deref().unwrap_or("none"),
-                record.source_id.as_deref().unwrap_or("none"),
-                record.chunk_index,
-            )
-        }).collect::<Vec<_>>().join("\n\n");
+        let lines = context
+            .evidence
+            .iter()
+            .enumerate()
+            .map(|(index, record)| {
+                format!(
+                    "[E{}] [{}]\nClaim: {}\nAnswer: {}\nReasoning: {}\nSource location: {} / {:?}",
+                    index + 1,
+                    record.verdict,
+                    record.claim,
+                    truncate_chars(&record.answer, 520),
+                    record.reasoning.as_deref().unwrap_or("none"),
+                    record.source_id.as_deref().unwrap_or("none"),
+                    record.chunk_index,
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n");
         sections.push(format!("## Evidence\n{lines}"));
     }
 
     if !context.reports.is_empty() {
-        let lines = context.reports.iter().enumerate().map(|(index, report)| {
-            format!(
-                "[R{}] [{}] {}\nSummary: {}\nBody excerpt: {}",
-                index + 1,
-                report.kind,
-                report.title,
-                report.summary,
-                truncate_chars(&report.body_md, 520),
-            )
-        }).collect::<Vec<_>>().join("\n\n");
-        sections.push(format!("## Prior Reports (context only unless their citations are reused)\n{lines}"));
+        let lines = context
+            .reports
+            .iter()
+            .enumerate()
+            .map(|(index, report)| {
+                format!(
+                    "[R{}] [{}] {}\nSummary: {}\nBody excerpt: {}",
+                    index + 1,
+                    report.kind,
+                    report.title,
+                    report.summary,
+                    truncate_chars(&report.body_md, 520),
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        sections.push(format!(
+            "## Prior Reports (context only unless their citations are reused)\n{lines}"
+        ));
     }
 
     if !context.journal.is_empty() {
-        let lines = context.journal.iter().enumerate().map(|(index, entry)| {
-            format!(
-                "[J{}] {}\nNote: {}\nAsset IDs: sources={}, points={}, evidence={}, reports={}",
-                index + 1,
-                entry.query,
-                truncate_chars(&entry.note, 420),
-                entry.source_ids_json,
-                entry.point_ids_json,
-                entry.evidence_ids_json,
-                entry.report_ids_json,
-            )
-        }).collect::<Vec<_>>().join("\n\n");
-        sections.push(format!("## Journal Memory (recall clues, not final evidence)\n{lines}"));
+        let lines = context
+            .journal
+            .iter()
+            .enumerate()
+            .map(|(index, entry)| {
+                format!(
+                    "[J{}] {}\nNote: {}\nAsset IDs: sources={}, points={}, evidence={}, reports={}",
+                    index + 1,
+                    entry.query,
+                    truncate_chars(&entry.note, 420),
+                    entry.source_ids_json,
+                    entry.point_ids_json,
+                    entry.evidence_ids_json,
+                    entry.report_ids_json,
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n");
+        sections.push(format!(
+            "## Journal Memory (recall clues, not final evidence)\n{lines}"
+        ));
     }
 
     if !context.related.is_empty() {
-        let lines = context.related.iter().take(MAX_INVESTIGATION_RELATED).map(|relation| {
-            format!(
-                "- {}:{} -> {}:{} ({}, score {:.2}) {}",
-                relation.from_kind,
-                relation.from_id,
-                relation.to_kind,
-                relation.to_id,
-                relation.relation,
-                relation.score,
-                relation.reason,
-            )
-        }).collect::<Vec<_>>().join("\n");
+        let lines = context
+            .related
+            .iter()
+            .take(MAX_INVESTIGATION_RELATED)
+            .map(|relation| {
+                format!(
+                    "- {}:{} -> {}:{} ({}, score {:.2}) {}",
+                    relation.from_kind,
+                    relation.from_id,
+                    relation.to_kind,
+                    relation.to_id,
+                    relation.relation,
+                    relation.score,
+                    relation.reason,
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
         sections.push(format!("## Related Assets (discovery clues)\n{lines}"));
     }
 
@@ -837,7 +955,11 @@ fn build_investigation_citations(context: &InvestigationContext) -> Vec<DigestCi
             kind: "source".to_string(),
             label: format!("S{}", index + 1),
             id: workspace.source.id.clone(),
-            title: workspace.source.title.clone().unwrap_or_else(|| "Source".to_string()),
+            title: workspace
+                .source
+                .title
+                .clone()
+                .unwrap_or_else(|| "Source".to_string()),
             excerpt: excerpt.clone(),
             source_id: Some(workspace.source.id.clone()),
             chunk_index: first_chunk.map(|chunk| chunk.chunk_index),
@@ -853,7 +975,10 @@ fn build_investigation_citations(context: &InvestigationContext) -> Vec<DigestCi
             kind: "point".to_string(),
             label: format!("P{}", index + 1),
             id: point.id.clone(),
-            title: point.tag_type.clone().unwrap_or_else(|| "Point".to_string()),
+            title: point
+                .tag_type
+                .clone()
+                .unwrap_or_else(|| "Point".to_string()),
             excerpt: truncate_chars(&point.content, 260),
             source_id: point_context.map(|ctx| ctx.source.id.clone()),
             chunk_index: point_context.map(|ctx| ctx.chunk_index),
@@ -922,7 +1047,9 @@ fn digest_input_text(points: &[StoredPoint], evidence: &[EvidenceRecord]) -> Str
             .iter()
             .enumerate()
             .map(|(index, record)| {
-                let sources = record.sources.iter()
+                let sources = record
+                    .sources
+                    .iter()
                     .take(4)
                     .map(|source| {
                         let title = source.title.as_deref().unwrap_or("未命名来源");
@@ -938,7 +1065,11 @@ fn digest_input_text(points: &[StoredPoint], evidence: &[EvidenceRecord]) -> Str
                     record.claim,
                     record.answer,
                     record.reasoning.as_deref().unwrap_or("无"),
-                    if sources.is_empty() { "- 无外部链接".to_string() } else { sources },
+                    if sources.is_empty() {
+                        "- 无外部链接".to_string()
+                    } else {
+                        sources
+                    },
                 )
             })
             .collect::<Vec<_>>()
@@ -957,49 +1088,76 @@ fn synthesis_input_text(
     let mut sections = Vec::new();
 
     if !sources.is_empty() {
-        let lines = sources.iter().enumerate().map(|(index, workspace)| {
-            let source = &workspace.source;
-            let chunks = workspace.chunks.iter()
-                .take(MAX_SYNTHESIS_SOURCE_CHUNKS)
-                .map(|chunk| format!("- Chunk {}: {}", chunk.chunk_index, truncate_chars(&chunk.text, 520)))
-                .collect::<Vec<_>>()
-                .join("\n");
-            format!(
-                "[S{}] {}\nURI: {}\nChunks:\n{}",
-                index + 1,
-                source.title.as_deref().unwrap_or("未命名来源"),
-                source.canonical_uri,
-                if chunks.is_empty() { "- 无分块内容".to_string() } else { chunks },
-            )
-        }).collect::<Vec<_>>().join("\n\n");
+        let lines = sources
+            .iter()
+            .enumerate()
+            .map(|(index, workspace)| {
+                let source = &workspace.source;
+                let chunks = workspace
+                    .chunks
+                    .iter()
+                    .take(MAX_SYNTHESIS_SOURCE_CHUNKS)
+                    .map(|chunk| {
+                        format!(
+                            "- Chunk {}: {}",
+                            chunk.chunk_index,
+                            truncate_chars(&chunk.text, 520)
+                        )
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                format!(
+                    "[S{}] {}\nURI: {}\nChunks:\n{}",
+                    index + 1,
+                    source.title.as_deref().unwrap_or("未命名来源"),
+                    source.canonical_uri,
+                    if chunks.is_empty() {
+                        "- 无分块内容".to_string()
+                    } else {
+                        chunks
+                    },
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n");
         sections.push(format!("## Sources\n{lines}"));
     }
 
     if !evidence.is_empty() {
-        let lines = evidence.iter().enumerate().map(|(index, record)| {
-            format!(
-                "[E{}] [{}]\nClaim: {}\nAnswer: {}\nSource location: {} / {:?}",
-                index + 1,
-                record.verdict,
-                record.claim,
-                truncate_chars(&record.answer, 420),
-                record.source_id.as_deref().unwrap_or("none"),
-                record.chunk_index,
-            )
-        }).collect::<Vec<_>>().join("\n\n");
+        let lines = evidence
+            .iter()
+            .enumerate()
+            .map(|(index, record)| {
+                format!(
+                    "[E{}] [{}]\nClaim: {}\nAnswer: {}\nSource location: {} / {:?}",
+                    index + 1,
+                    record.verdict,
+                    record.claim,
+                    truncate_chars(&record.answer, 420),
+                    record.source_id.as_deref().unwrap_or("none"),
+                    record.chunk_index,
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n");
         sections.push(format!("## Evidence\n{lines}"));
     }
 
     if !points.is_empty() {
-        let lines = points.iter().enumerate().map(|(index, point)| {
-            format!(
-                "[P{}] [{}] {}\n来源: {}",
-                index + 1,
-                point.tag_type.as_deref().unwrap_or("观点"),
-                truncate_chars(&point.content, 420),
-                point.source_doc_name.as_deref().unwrap_or("无来源"),
-            )
-        }).collect::<Vec<_>>().join("\n\n");
+        let lines = points
+            .iter()
+            .enumerate()
+            .map(|(index, point)| {
+                format!(
+                    "[P{}] [{}] {}\n来源: {}",
+                    index + 1,
+                    point.tag_type.as_deref().unwrap_or("观点"),
+                    truncate_chars(&point.content, 420),
+                    point.source_doc_name.as_deref().unwrap_or("无来源"),
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n");
         sections.push(format!("## Starred Points\n{lines}"));
     }
 
@@ -1019,7 +1177,10 @@ fn build_digest_citations(
             kind: "point".to_string(),
             label: format!("P{}", index + 1),
             id: point.id.clone(),
-            title: point.tag_type.clone().unwrap_or_else(|| "Point".to_string()),
+            title: point
+                .tag_type
+                .clone()
+                .unwrap_or_else(|| "Point".to_string()),
             excerpt: point.content.clone(),
             source_id: context.map(|ctx| ctx.source.id.clone()),
             chunk_index: context.map(|ctx| ctx.chunk_index),
@@ -1061,7 +1222,11 @@ fn build_synthesis_citations(
             kind: "source".to_string(),
             label: format!("S{}", index + 1),
             id: workspace.source.id.clone(),
-            title: workspace.source.title.clone().unwrap_or_else(|| "Source".to_string()),
+            title: workspace
+                .source
+                .title
+                .clone()
+                .unwrap_or_else(|| "Source".to_string()),
             excerpt: first_chunk
                 .map(|chunk| truncate_chars(&chunk.text, 260))
                 .unwrap_or_else(|| workspace.source.canonical_uri.clone()),
@@ -1094,7 +1259,10 @@ fn build_synthesis_citations(
             kind: "point".to_string(),
             label: format!("P{}", index + 1),
             id: point.id.clone(),
-            title: point.tag_type.clone().unwrap_or_else(|| "Point".to_string()),
+            title: point
+                .tag_type
+                .clone()
+                .unwrap_or_else(|| "Point".to_string()),
             excerpt: truncate_chars(&point.content, 260),
             source_id: context.map(|ctx| ctx.source.id.clone()),
             chunk_index: context.map(|ctx| ctx.chunk_index),
@@ -1199,7 +1367,8 @@ mod tests {
                 source_id: "source-1".to_string(),
                 chunk_index: 0,
                 heading_path: None,
-                text: "The strategy emphasizes measurable evidence and conflicting viewpoints.".to_string(),
+                text: "The strategy emphasizes measurable evidence and conflicting viewpoints."
+                    .to_string(),
                 created_at: "2026-07-05T00:00:00Z".to_string(),
             }],
         }
@@ -1231,7 +1400,10 @@ mod tests {
         assert_eq!(citations[1].kind, "evidence");
         assert_eq!(citations[1].label, "E1");
         assert_eq!(citations[1].source_id.as_deref(), Some("source-1"));
-        assert_eq!(citations[1].url.as_deref(), Some("https://example.com/report"));
+        assert_eq!(
+            citations[1].url.as_deref(),
+            Some("https://example.com/report")
+        );
     }
 
     #[test]
@@ -1243,7 +1415,10 @@ mod tests {
             "evidence-2".to_string(),
         ]);
 
-        assert_eq!(ids, vec!["evidence-1".to_string(), "evidence-2".to_string()]);
+        assert_eq!(
+            ids,
+            vec!["evidence-1".to_string(), "evidence-2".to_string()]
+        );
     }
 
     #[test]
@@ -1290,6 +1465,22 @@ mod tests {
         assert!(investigation_depth_requirements("standard").contains("5-7"));
         assert!(investigation_depth_requirements("deep").contains("6-10"));
         assert!(investigation_depth_requirements("deep").contains("证据矩阵"));
+    }
+
+    #[test]
+    fn investigation_v2_requires_evidence_roles_strength_and_confidence_without_padding() {
+        assert_eq!(INVESTIGATION_PROMPT_VERSION, "investigation.v2");
+        for contract in [
+            "区分原始 Source、提炼 Point 与外部核查 Evidence 的证据角色",
+            "说明证据强弱和结论置信度",
+            "必须显式标记为推断或不确定",
+            "不要为了满足篇幅或数量要求而重复、填充或编造结论",
+        ] {
+            assert!(
+                INVESTIGATION_SYSTEM.contains(contract),
+                "missing contract: {contract}"
+            );
+        }
     }
 
     #[test]

@@ -322,13 +322,21 @@ pub fn completions_endpoint(base_url: &str, provider_key: &str, custom_endpoint:
         if custom_endpoint.trim().is_empty() {
             // fallback: append openai suffix to base_url
             let base = base_url.trim().trim_end_matches('/');
-            let base = if base.is_empty() { "https://api.openai.com" } else { base };
+            let base = if base.is_empty() {
+                "https://api.openai.com"
+            } else {
+                base
+            };
             return format!("{}/v1/chat/completions", base);
         }
         return custom_endpoint.to_string();
     }
     let base = base_url.trim().trim_end_matches('/');
-    let base = if base.is_empty() { "https://api.openai.com" } else { base };
+    let base = if base.is_empty() {
+        "https://api.openai.com"
+    } else {
+        base
+    };
     let suffix = if provider_key == "anthropic-compat" {
         "/v1/messages"
     } else {
@@ -568,7 +576,10 @@ pub fn get_profiles(app: tauri::AppHandle<Wry>) -> Result<Vec<ConfigProfile>, St
 }
 
 #[tauri::command]
-pub fn set_profiles(app: tauri::AppHandle<Wry>, profiles: Vec<ConfigProfile>) -> Result<(), String> {
+pub fn set_profiles(
+    app: tauri::AppHandle<Wry>,
+    profiles: Vec<ConfigProfile>,
+) -> Result<(), String> {
     let store = app.store(STORE_FILE).map_err(|e| e.to_string())?;
     let val = serde_json::to_value(&profiles).map_err(|e| e.to_string())?;
     store.set(KEY_PROFILES, val);
@@ -582,11 +593,15 @@ pub async fn fetch_models(api_key: String, base_url: String) -> Result<Vec<Strin
         return Err("尚未配置 API Key".to_string());
     }
     #[derive(Deserialize)]
-    struct ModelItem { id: String }
+    struct ModelItem {
+        id: String,
+    }
     #[derive(Deserialize)]
-    struct ModelsResp { data: Vec<ModelItem> }
+    struct ModelsResp {
+        data: Vec<ModelItem>,
+    }
 
-    let resp = reqwest::Client::new()
+    let resp = crate::http::client()
         .get(models_endpoint(&base_url))
         .bearer_auth(&api_key)
         .send()
@@ -597,8 +612,8 @@ pub async fn fetch_models(api_key: String, base_url: String) -> Result<Vec<Strin
     if !status.is_success() {
         return Err(format!("获取模型列表失败 ({status}): {raw}"));
     }
-    let parsed: ModelsResp = serde_json::from_str(&raw)
-        .map_err(|e| format!("解析模型列表失败: {e}"))?;
+    let parsed: ModelsResp =
+        serde_json::from_str(&raw).map_err(|e| format!("解析模型列表失败: {e}"))?;
     let mut ids: Vec<String> = parsed.data.into_iter().map(|m| m.id).collect();
     ids.sort();
     Ok(ids)
@@ -615,7 +630,7 @@ pub async fn import_commentator_from_skill(
     }
 
     let source_url = normalize_github_url(&url);
-    let raw = reqwest::Client::new()
+    let raw = crate::http::client()
         .get(&source_url)
         .send()
         .await
@@ -635,19 +650,28 @@ pub async fn import_commentator_from_skill(
         "response_format": { "type": "json_object" },
         "temperature": 0.35
     });
-    let endpoint = completions_endpoint(&config.openai_base_url, &config.provider_key, &config.custom_endpoint);
-    let mut builder = reqwest::Client::new()
+    let endpoint = completions_endpoint(
+        &config.openai_base_url,
+        &config.provider_key,
+        &config.custom_endpoint,
+    );
+    let mut builder = crate::http::client()
         .post(&endpoint)
         .bearer_auth(&config.openai_api_key)
         .json(&body);
-    if let Ok(map) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&config.extra_headers) {
+    if let Ok(map) =
+        serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(&config.extra_headers)
+    {
         for (k, v) in &map {
             if let Some(s) = v.as_str() {
                 builder = builder.header(k.as_str(), s);
             }
         }
     }
-    let resp = builder.send().await.map_err(|e| format!("生成评论员失败: {e}"))?;
+    let resp = builder
+        .send()
+        .await
+        .map_err(|e| format!("生成评论员失败: {e}"))?;
     let status = resp.status();
     let raw_resp = resp.text().await.map_err(|e| e.to_string())?;
     if !status.is_success() {
@@ -665,11 +689,18 @@ pub async fn import_commentator_from_skill(
         #[serde(default)]
         bio: String,
     }
-    let payload: Payload = serde_json::from_str(&content).map_err(|e| format!("解析评论员 JSON 失败: {e}"))?;
+    let payload: Payload =
+        serde_json::from_str(&content).map_err(|e| format!("解析评论员 JSON 失败: {e}"))?;
     Ok(CommentatorProfile {
         id: format!("github-{}", uuid::Uuid::new_v4()),
         name: payload.name.trim().to_string(),
-        emoji: payload.emoji.trim().chars().next().map(|ch| ch.to_string()).unwrap_or_else(|| "🎭".to_string()),
+        emoji: payload
+            .emoji
+            .trim()
+            .chars()
+            .next()
+            .map(|ch| ch.to_string())
+            .unwrap_or_else(|| "🎭".to_string()),
         domain: payload.domain.trim().to_string(),
         style: payload.style.trim().to_string(),
         bio: payload.bio.trim().chars().take(100).collect(),
@@ -760,7 +791,10 @@ mod tests {
             "沃伦·巴菲特",
             "杨立昆",
         ] {
-            assert!(names.contains(&expected), "missing skill persona: {expected}");
+            assert!(
+                names.contains(&expected),
+                "missing skill persona: {expected}"
+            );
         }
 
         for old_name in [
@@ -781,11 +815,18 @@ mod tests {
             "Warren Buffett",
             "Yann LeCun",
         ] {
-            assert!(!names.contains(&old_name), "old English display name remains: {old_name}");
+            assert!(
+                !names.contains(&old_name),
+                "old English display name remains: {old_name}"
+            );
         }
 
         for profile in profiles {
-            assert!(!profile.bio.trim().is_empty(), "{} has empty bio", profile.name);
+            assert!(
+                !profile.bio.trim().is_empty(),
+                "{} has empty bio",
+                profile.name
+            );
             assert!(
                 profile.bio.chars().count() <= 100,
                 "{} bio exceeds 100 chars",

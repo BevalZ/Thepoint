@@ -83,6 +83,79 @@ fn is_sentence_break(ch: char) -> bool {
 }
 
 #[cfg(test)]
+fn is_sentence_break_at(chars: &[char], index: usize) -> bool {
+    let ch = chars[index];
+    if matches!(ch, '。' | '！' | '？' | '!' | '?' | '；' | ';') {
+        return true;
+    }
+    if ch != '.' {
+        return false;
+    }
+    !is_protected_english_period(chars, index)
+}
+
+#[cfg(test)]
+fn is_protected_english_period(chars: &[char], index: usize) -> bool {
+    let previous = index.checked_sub(1).and_then(|idx| chars.get(idx)).copied();
+    let next = chars.get(index + 1).copied();
+    if matches!((previous, next), (Some(prev), Some(next)) if prev.is_ascii_digit() && next.is_ascii_digit()) {
+        return true;
+    }
+    if matches!((previous, next), (Some(prev), Some(next)) if prev.is_ascii_alphabetic() && next.is_ascii_alphabetic()) {
+        return true;
+    }
+    if ends_with_compact_initialism(chars, index) {
+        return true;
+    }
+    let word = word_before_period(chars, index).to_ascii_lowercase();
+    matches!(
+        word.as_str(),
+        "al" | "cf" | "dr" | "e" | "eg" | "eq" | "etc" | "fig" | "g" | "i" | "ie" | "mr" | "mrs" | "ms" | "no" | "prof" | "ref" | "vs"
+    )
+}
+
+#[cfg(test)]
+fn ends_with_compact_initialism(chars: &[char], index: usize) -> bool {
+    let mut start = index;
+    while start > 0 && (chars[start - 1].is_ascii_alphabetic() || chars[start - 1] == '.') {
+        start -= 1;
+    }
+    let token = chars[start..=index].iter().collect::<String>();
+    if token.chars().count() > 10 {
+        return false;
+    }
+    let period_count = token.chars().filter(|ch| *ch == '.').count();
+    if period_count < 2 {
+        return false;
+    }
+    let mut expect_letter = true;
+    let mut saw_letter = false;
+    for ch in token.chars() {
+        if expect_letter {
+            if !ch.is_ascii_alphabetic() {
+                return false;
+            }
+            saw_letter = true;
+            expect_letter = false;
+        } else if ch == '.' {
+            expect_letter = true;
+        } else {
+            return false;
+        }
+    }
+    saw_letter
+}
+
+#[cfg(test)]
+fn word_before_period(chars: &[char], index: usize) -> String {
+    let mut start = index;
+    while start > 0 && chars[start - 1].is_ascii_alphabetic() {
+        start -= 1;
+    }
+    chars[start..index].iter().collect()
+}
+
+#[cfg(test)]
 fn split_long_info_part(part: &str, max_chars: usize) -> Vec<String> {
     let normalized = normalize_inline(part);
     if normalized.is_empty() {
@@ -91,11 +164,12 @@ fn split_long_info_part(part: &str, max_chars: usize) -> Vec<String> {
 
     let mut chunks = Vec::new();
     let mut current = String::new();
+    let chars = normalized.chars().collect::<Vec<_>>();
 
-    for ch in normalized.chars() {
-        current.push(ch);
+    for (index, ch) in chars.iter().enumerate() {
+        current.push(*ch);
         let len = current.chars().count();
-        if (is_sentence_break(ch) && len >= LOCAL_BLOCK_MIN_CHARS) || len >= max_chars {
+        if (is_sentence_break_at(&chars, index) && len >= LOCAL_BLOCK_MIN_CHARS) || len >= max_chars {
             let trimmed = current.trim();
             if !trimmed.is_empty() {
                 chunks.push(trimmed.to_string());
@@ -528,7 +602,7 @@ pub async fn extract_chunk(
         "response_format": { "type": "json_object" },
         "temperature": 0.2
     });
-    let client = reqwest::Client::new();
+    let client = crate::http::client();
     let mut builder = client.post(&endpoint).bearer_auth(api_key).json(&body);
     if let Ok(map) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(extra_headers) {
         for (k, v) in &map {
@@ -568,7 +642,7 @@ pub async fn extract_points(
         "temperature": 0.2
     });
 
-    let client = reqwest::Client::new();
+    let client = crate::http::client();
     let mut builder = client
         .post(&endpoint)
         .bearer_auth(api_key)
@@ -766,7 +840,7 @@ async fn analyze_chunk_inner(
         "response_format": { "type": "json_object" },
         "temperature": 0.5
     });
-    let client = reqwest::Client::new();
+    let client = crate::http::client();
     let mut builder = client.post(&endpoint).bearer_auth(api_key).json(&body);
     if let Ok(map) = serde_json::from_str::<serde_json::Map<String, serde_json::Value>>(extra_headers) {
         for (k, v) in &map { if let Some(s) = v.as_str() { builder = builder.header(k.as_str(), s); } }
@@ -879,6 +953,18 @@ mod tests {
         assert!(chunks[0].contains("\n\n"));
         assert!(chunks[0].chars().count() >= LOCAL_BLOCK_MIN_CHARS);
         assert!(chunks[0].chars().count() <= LOCAL_BLOCK_MAX_CHARS);
+    }
+
+    #[test]
+    fn split_candidate_chunks_does_not_break_inside_english_abbreviations() {
+        let text = "Evolutionary search has been used in prompt engineering in the past studies. Promptbreeder (Fernando et al. 2023) optimizes task-specific prompts through a rich set of mutation operations, and interestingly the mutation prompts (i.e. instructions to an LLM to mutate a task prompt) are themselves also improved through evolution. GEPA (Agrawal et al. 2025) combines reflection-based prompting with evolutionary search and uses natural language reflection over trajectories of trial and error to propose prompt updates.";
+
+        let chunks = split_candidate_chunks(text);
+
+        assert!(chunks.iter().any(|chunk| chunk.contains("i.e. instructions")));
+        assert!(chunks.iter().any(|chunk| chunk.contains("Fernando et al. 2023")));
+        assert!(chunks.iter().any(|chunk| chunk.contains("Agrawal et al. 2025")));
+        assert!(!chunks.iter().any(|chunk| chunk.starts_with("e. instructions") || chunk.contains("(i.\n\n")));
     }
 
     #[test]

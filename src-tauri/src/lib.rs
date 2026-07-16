@@ -5,6 +5,7 @@ mod ai;
 mod commands;
 mod content_chunking;
 mod db;
+mod http;
 mod parsers;
 mod search;
 mod semantic;
@@ -22,8 +23,8 @@ pub fn run() {
             commands::config::get_profiles,
             commands::config::set_profiles,
             commands::translation::translate_text,
-            commands::extract::plan_content,
             commands::extract::parse_document,
+            commands::extract::plan_content,
             commands::extract::get_file_metadata,
             commands::extract::upsert_source_document,
             commands::extract::extract_text,

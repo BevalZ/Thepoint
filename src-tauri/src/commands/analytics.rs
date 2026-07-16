@@ -138,7 +138,7 @@ pub async fn get_explore_suggestions(app: tauri::AppHandle<Wry>) -> Result<Strin
         "temperature": 0.7
     });
 
-    let mut builder = reqwest::Client::new()
+    let mut builder = crate::http::client()
         .post(&endpoint)
         .bearer_auth(&config.openai_api_key)
         .json(&body);

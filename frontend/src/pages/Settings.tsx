@@ -499,7 +499,7 @@ function SecretInput({ value, onChange, placeholder }: { value: string; onChange
 }
 
 export default function Settings() {
-  const { config, loaded, fetchConfig, saveConfig, profiles, loadProfiles, saveProfiles } = useConfigStore()
+  const { config, loaded, fetchConfig, saveConfig, profiles, profilesLoaded, loadProfiles, saveProfiles } = useConfigStore()
 
   const [topTab, setTopTab] = useState<TopTab>('ai')
   const [aiTab, setAiTab] = useState<AiSubTab>('chat')
@@ -659,8 +659,8 @@ export default function Settings() {
 
   useEffect(() => {
     if (!loaded) fetchConfig()
-    loadProfiles()
-  }, [loaded, fetchConfig, loadProfiles])
+    if (!profilesLoaded) loadProfiles()
+  }, [loaded, profilesLoaded, fetchConfig, loadProfiles])
 
   useEffect(() => {
     if (topTab !== 'data') return
