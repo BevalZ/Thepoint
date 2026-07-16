@@ -1183,3 +1183,37 @@ Reduced idle animation and layout work, kept Explore workflows alive across navi
 ### Next Steps
 
 - None - task complete
+
+
+## Session 35: Complete Explore immersive translation
+
+**Date**: 2026-07-16
+**Task**: Complete Explore immersive translation
+**Branch**: `main`
+
+### Summary
+
+Implemented independently configurable AI and DeepLX translation with full-text, block, and selection workflows; added cancellation, retry, cache isolation, bilingual display modes, provider safety limits, focused tests, and documented frontend/backend contracts.
+
+### Main Changes
+
+(Add details)
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `46e5321` | (see git log) |
+| `c1e2433` | (see git log) |
+
+### Testing
+
+- [OK] (Add test results)
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- None - task complete
