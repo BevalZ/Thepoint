@@ -269,6 +269,90 @@ let candidates = github_pages_fallback_candidates(&requested_url);
 
 ---
 
+## Scenario: Bounded Translation Provider Boundary
+
+### 1. Scope / Trigger
+
+- Trigger: configuring or calling the Explore `translate_text` command through AI API or DeepLX / DLX.
+- Applies to `commands/config.rs`, `commands/translation.rs`, Tauri command registration, and the typed frontend API boundary.
+
+### 2. Signatures
+
+```rust
+translate_text(app, input: TranslationInput) -> Result<TranslationResult, String>
+
+TranslationInput {
+  text: String,
+  source_language: Option<String>,
+  target_language: Option<String>,
+}
+```
+
+```ts
+translateText(input: TranslationInput): Promise<TranslationResult>
+```
+
+### 3. Contracts
+
+- Providers normalize to `ai | deeplx`; unsupported stored values fall back to `deeplx`.
+- Source language normalizes to `AUTO | ZH | EN | JA | KO | DE | FR | ES`; target language must be concrete and defaults to `ZH`.
+- The translation key/token uses the OS credential store. Successful migration must remove and persist deletion of the legacy plaintext store field.
+- All translation calls share one HTTP client and one backend semaphore with three permits. Full-block, single-block, and selected-text translation all pass through this limit.
+- Each request has a 45-second timeout, accepts at most 12,000 input characters, and reads at most 1 MiB of response data.
+- AI endpoints accept a root URL, `/v1`, or a full `/chat/completions` URL. DeepLX accepts a root URL or full `/translate` URL. URL query parameters are preserved; user-info and fragments are rejected.
+- A request carrying a secret may use plain HTTP only for localhost or a loopback IP. Remote authenticated endpoints require HTTPS.
+- AI responses use `extract_chat_text`. DeepLX accepts native `data` and compatibility `translations[0].text` shapes.
+- Returned errors classify timeout, connection, redirect, HTTP status, invalid payload, and response-size failures. Exact configured secrets are redacted and messages are bounded before crossing Tauri.
+- Browser preview rejects `translate_text` through the normal Promise error path; it must never cache an unavailable message as a successful translation.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+|---|---|
+| Blank text | Reject before reading config or making a request |
+| Text exceeds 12,000 characters | Reject with the block-size limit |
+| Fourth simultaneous translation | Wait for a semaphore permit; active network requests remain at three |
+| AI key or model missing | Return an actionable Settings path |
+| Remote authenticated `http://` endpoint | Reject before sending the secret |
+| Response exceeds 1 MiB | Stop reading and return a bounded error |
+| DeepLX HTTP success with non-2xx JSON `code` | Return its sanitized provider message |
+| Provider message contains the configured secret | Replace the exact secret with `[REDACTED]` |
+| Browser preview invokes translation | Return a rejected Promise naming the unavailable Tauri command |
+
+### 5. Good/Base/Bad Cases
+
+- Good: three block workers reuse one client while a fourth request waits; successful blocks remain usable after another block fails.
+- Good: a loopback DeepLX server accepts an optional Bearer token and either supported response shape.
+- Base: a legacy config without translation fields reads as DeepLX, `AUTO -> ZH`, and the loopback default URL.
+- Bad: creating one client per block, buffering an unlimited response, returning a token echoed by a provider, or treating browser preview text as a successful translation.
+
+### 6. Tests Required
+
+- Config tests: camel-case round trip, legacy defaults, provider/language normalization, and plaintext-secret cleanup behavior when the store is available.
+- Translation tests: AI/DeepLX URL normalization including query parameters, transport safety, native/compatibility response parsing, invalid languages, response-size handling, and exact-secret redaction.
+- Shared response tests continue to cover JSON, content-part arrays, reasoning fallback, and SSE chat shapes.
+- Full gates: `cargo check`, `cargo test`, frontend typecheck, command registry, boundary check, focused helper tests, and production build.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```rust
+let client = reqwest::Client::new();
+let raw = client.post(format!("{base}/translate")).send().await?.text().await?;
+```
+
+#### Correct
+
+```rust
+let _permit = TRANSLATION_LIMIT.acquire().await?;
+let endpoint = deeplx_translation_endpoint(base)?;
+validate_endpoint_transport(&endpoint, sends_secret)?;
+let (status, raw) = read_bounded_response(shared_client.post(endpoint).send().await?).await?;
+```
+
+---
+
 ## Tests
 
 Test validation and conversion behavior close to the layer that owns it.

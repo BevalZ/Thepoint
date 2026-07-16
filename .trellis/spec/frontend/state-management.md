@@ -349,3 +349,92 @@ const readiness = investigationReadinessForAssets(assets)
 if (!readiness?.ready) await prepareBoundedSourceContext()
 await generateInvestigation({ mode: 'deep', scope: refreshedScope, query })
 ```
+
+## Scenario: Explore Immersive Translation State
+
+### 1. Scope / Trigger
+
+- Trigger: Explore renders source text with block-aligned translations from a backend translation command.
+- Applies to `Explore.tsx`, `exploreTranslation.ts`, `AppConfig` translation fields, Settings translation controls, and `translate_text`.
+
+### 2. Signatures
+
+```ts
+type TranslationDisplayMode = 'original' | 'bilingual' | 'translated'
+type TranslationBlockStatus = 'queued' | 'loading' | 'done' | 'error'
+
+translateText({
+  text,
+  sourceLanguage,
+  targetLanguage,
+}): Promise<TranslationResult>
+
+translationSettingsSignature(config): string
+translationBlocksSignature(blocks): string
+translationCacheKey(sourceKey, blockIndex, text, signature): string
+pendingTranslationCandidates(blocks, states, sourceKey, signature, retryFailed): TranslationCandidate[]
+```
+
+### 3. Contracts
+
+- Translation is a session UI workflow, not a Source rewrite. Never mutate persisted Source text, Chunk text, Point anchors, Evidence, Reports, or citations with translated text.
+- Explore runs only one block queue at a time. The backend semaphore is the final three-request concurrency boundary shared by full-document, single-block, and selected-text translation.
+- Cache successful block results by source identity, complete block-content signature, block index, text hash, provider, endpoint, model, source language, and target language for the lifetime of the mounted Explore page.
+- Source language supports `AUTO`; target language must be a concrete supported language. Settings owns the persisted defaults, while Explore may override source/target language for the current reading session.
+- Full-document translation queues all translatable text blocks. Single-block translation queues only the chosen block and reuses the same block cache/progress state.
+- Selected-text translation is presentation-only floating UI state. It must not write into block cache, Source text, annotations, Points, Evidence, Reports, or citation anchors.
+- Navigation away from Explore must not cancel translation. Explicit cancel increments the run generation, marks queued blocks cancelled, and keeps current requests busy until they drain; continue is disabled during that drain.
+- Source changes, block-content signature changes, source reopen version changes, history activation, or translation setting signature changes clear presentation state and return to original mode. Rendering must also verify each state's cache key so an effect-delay cannot flash stale translations.
+- Original-only, bilingual, and translated-only modes are display modes over the same block state. Translated-only renders an untranslated placeholder rather than falling back to source text. Modes must not affect selection offsets, fact-check anchors, or source citation navigation.
+- Only one selected-text request may be pending from the UI, and its result is applied only when text, block index, start, and end still match the active selection.
+- DeepLX / DLX and AI providers share the same frontend command wrapper; UI code calls `translateText`, never raw `invoke`.
+
+### 4. Validation & Error Matrix
+
+| Condition | Required behavior |
+|---|---|
+| Block already has a matching successful cache entry | Do not call `translateText`; render cached text |
+| Block text/settings/source signature changed | Treat as a new cache key and queue translation |
+| One block fails | Keep successful blocks; mark only that block as error |
+| User clicks retry failed | Queue only failed blocks whose cache key still matches |
+| User clicks single-block translate | Queue only that block; preserve other block translations |
+| User translates selected text | Show the selected translation near the selection without mutating source or annotation state |
+| User clicks cancel | Stop scheduling more blocks; keep completed translations |
+| Cancel occurs with requests in flight | Keep controls busy until those requests settle; do not start a replacement queue early |
+| Same source name or URL receives different content | Content signature changes; never render the previous content's translation state |
+| User changes selection while translation is pending | Do not attach the old result to the new selection or enqueue duplicates |
+| User switches pages mid-translation | Workers continue and results are visible on return |
+| User changes source or target language | Clear current translation presentation and require a new run |
+
+### 5. Good/Base/Bad Cases
+
+- Good: a long article translates progressively, preserves source highlights, and can be read in bilingual mode while later blocks are still loading.
+- Good: a user can translate one difficult paragraph or a selected sentence without starting a full article run.
+- Base: browser preview rejects the typed command Promise as unavailable, and Explore renders that error without caching a fake successful translation.
+- Base: DeepLX token is optional; AI model is required by the backend only when AI provider is selected.
+- Bad: translating the whole article into one blob, writing translations back into Source text, or restarting translation/import when navigating away and back.
+
+### 6. Tests Required
+
+- Pure helper tests cover provider signature, every cache identity dimension, block-content signature changes, skipping successful blocks, retrying failed blocks, and queued/loading progress counts.
+- Frontend gates: `npm run typecheck`, `npm run check:boundaries`, `npm run check:commands`, `npm run test:run`, and `npm run build`.
+- Backend gates: `cargo check --manifest-path src-tauri/Cargo.toml` and `cargo test --manifest-path src-tauri/Cargo.toml`.
+- Manual desktop E2E: configure DeepLX or AI translation, translate an imported Source, switch to another page and back, cancel/continue, retry a failed block, and verify original Source/Point anchors are unchanged.
+
+### 7. Wrong vs Correct
+
+#### Wrong
+
+```ts
+// Loses block anchors and cannot retry partial failures.
+const translatedDocument = await translateText({ text: fullArticle })
+setText(translatedDocument.text)
+```
+
+#### Correct
+
+```ts
+const candidates = pendingTranslationCandidates(blocks, states, sourceKey, signature, retryFailed)
+await runBoundedWorkers(candidates, 3, translateText)
+// Render translation state next to the original block without mutating Source text.
+```
