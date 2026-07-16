@@ -33,9 +33,7 @@ import {
 } from 'lucide-react'
 import { useConfigStore, useExploreHistoryStore, useExploreStore, useStarStore } from '@/store'
 import { cn } from '@/lib/utils'
-import { initialExplorePresentation } from '@/lib/explorePresentation'
 import { useStarFly } from '@/hooks/useStarFly'
-import { useNearViewport } from '@/hooks/useNearViewport'
 import { addReviewItem, analyzeTextBlock, describeImage, discoverRelatedAssets, factCheckClaim, generateInvestigation, getSourceAssets, listRecentJournalEntries, listRecentSources, saveEvidence, savePoints, translateText } from '@/api'
 import type { AppConfig, AssetRelationRecord, ChunkCard, DigestResult, EvidenceRecord, ExploreHistoryItem, ExploreSourceMetadata, FactCheckResult, JournalEntry, ReportRecord, SourceAssetsRecord, SourceSummaryRecord, StoredPoint, TranslationSourceLanguage, TranslationTargetLanguage } from '@/api/types'
 import { ExternalLinkPreview } from '@/components/ExternalLinkPreview'
@@ -43,7 +41,10 @@ import { DigestModal } from '@/components/DigestModal'
 import { reportKindLabel, reportMarkdownWithCitations } from '@/lib/reportArtifacts'
 import { evidenceMarkdown, markdownFileName, sourceAssetsMarkdown, sourceDisplayTitle } from '@/lib/workbenchArtifacts'
 import { splitSourceHighlight, type SourceHighlightRequest, type SourceHighlightSegment } from '@/lib/sourceHighlight'
+import { splitSentenceLikeParts } from '@/lib/sentenceBoundaries'
 import { sourceBlocksFromContentPlan, type ExploreSourceBlock as SourceBlock } from '@/lib/exploreContentPlan'
+import { initialExplorePresentation, nextRevealPresentationCount, nextStagePresentationCount } from '@/lib/explorePresentation'
+import { useNearViewport } from '@/hooks/useNearViewport'
 import {
   normalizeTranslationTarget,
   normalizeTranslationSource,
@@ -63,6 +64,7 @@ import {
   investigationReadinessForAssets,
   type InvestigationReadiness,
 } from '@/lib/investigationPreparation'
+
 const URL_RE = /^https?:\/\/[^\s]+$/
 const SUPPORTED_EXTS = ['txt','md','markdown','rst','csv','docx','odt','html','htm']
 const BLOCK_PREVIEW_LIMIT = 320
@@ -272,6 +274,7 @@ interface InvestigationEvidenceCandidate {
   context: string
   blockIndex: number | null
 }
+
 function tagTypeForChunkCard(card: ChunkCard): PointTagType {
   const joined = `${card.summary}\n${card.text}`
   if (/[？?]/.test(card.summary) || /(是否|能否|会不会|为什么|如何|待验证|不确定|存疑|需要核查)/.test(card.summary)) {
@@ -316,6 +319,7 @@ function pointClaimForInvestigation(card: ChunkCard): string {
 function investigationEvidenceContext(point: StoredPoint): string {
   return normalizedText(point.sourceExcerpt || point.content)
 }
+
 function processWebHtml(html: string): { richHtml: string; text: string; url: string | null } {
   const parser = new DOMParser()
   const doc = parser.parseFromString(html, 'text/html')
@@ -539,7 +543,7 @@ function splitLongInfoPart(part: string, maxChars = INFO_BLOCK_MAX_CHARS): strin
   const normalized = part.replace(/\s+/g, ' ').trim()
   if (!normalized) return []
 
-  const sentenceParts = normalized.match(/[^。！？!?；;.!?]+[。！？!?；;.!?]?/g) ?? [normalized]
+  const sentenceParts = splitSentenceLikeParts(normalized, maxChars)
   const chunks: string[] = []
 
   for (const sentence of sentenceParts) {
@@ -2556,11 +2560,8 @@ function ThemeBlock({
           </button>
         )}
         {(onOpen && onToggleStar) || onAnalyze ? (
-          <motion.button
+          <button
             ref={starRef}
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            transition={{ delay: 0.16, type: 'spring', stiffness: 400, damping: 15 }}
             onClick={() => {
               if (!starRef.current) return
               if (onOpen) onOpen(starRef.current)
@@ -2594,7 +2595,7 @@ function ThemeBlock({
                 : starred ? '单击查看 / 双击重新生成 / 右键取消采集' : '单击查看 / 双击重新生成 / 右键采集'}
           >
             {analyzing ? <Loader2 size={20} className="animate-spin" /> : <Star size={20} fill={starred ? 'currentColor' : 'none'} />}
-          </motion.button>
+          </button>
         ) : null}
       </div>
     </div>
@@ -3674,14 +3675,19 @@ export default function Explore({ active = true, sourceHighlight = null, onSourc
       setStageCompletedCount(0)
       return
     }
-    if (stageCompletedCount >= stageTargetCount) return
+    if (!active || stageCompletedCount >= stageTargetCount) return
 
     const timer = window.setTimeout(() => {
-      setStageCompletedCount((count) => Math.min(count + 1, stageTargetCount))
+      setStageCompletedCount((count) => nextStagePresentationCount({
+        active,
+        busy,
+        current: count,
+        target: stageTargetCount,
+      }) ?? count)
     }, busy ? STAGE_ADVANCE_MS : STAGE_CATCHUP_MS)
 
     return () => window.clearTimeout(timer)
-  }, [busy, stageCompletedCount, stageTargetCount])
+  }, [active, busy, stageCompletedCount, stageTargetCount])
 
   useEffect(() => {
     if (showProcessing) {
@@ -3697,26 +3703,34 @@ export default function Explore({ active = true, sourceHighlight = null, onSourc
       setRevealedCount(Number.MAX_SAFE_INTEGER)
       return
     }
+    if (!active) {
+      setRevealedCount(Number.MAX_SAFE_INTEGER)
+      return
+    }
+    if (revealedCount >= resultTargetCount) return
 
-    setRevealedCount(0)
-    const timers = Array.from({ length: resultTargetCount }, (_, index) =>
-      window.setTimeout(
-        () => setRevealedCount((count) => Math.max(count, index + 1)),
-        RESULT_REVEAL_START_MS + index * RESULT_REVEAL_MS
-      )
-    )
+    const delay = revealedCount === 0 ? RESULT_REVEAL_START_MS : RESULT_REVEAL_MS
+    const timer = window.setTimeout(() => {
+      setRevealedCount((count) => nextRevealPresentationCount({
+        active,
+        showProcessing,
+        target: resultTargetCount,
+        current: count,
+        skipInitialReveal: false,
+      }))
+    }, delay)
 
-    return () => timers.forEach((timer) => window.clearTimeout(timer))
-  }, [showProcessing, resultTargetCount])
+    return () => window.clearTimeout(timer)
+  }, [active, revealedCount, resultTargetCount, showProcessing])
 
   useEffect(() => {
-    if (!generationInProgress || showProcessing || resultTargetCount === 0) return
+    if (!active || !generationInProgress || showProcessing || resultTargetCount === 0) return
 
     setCompletionBurstKey(Date.now())
     setGenerationInProgress(false)
     const timer = window.setTimeout(() => setCompletionBurstKey(null), 1700)
     return () => window.clearTimeout(timer)
-  }, [generationInProgress, resultTargetCount, showProcessing])
+  }, [active, generationInProgress, resultTargetCount, showProcessing])
 
   useEffect(() => {
     if (!active) {

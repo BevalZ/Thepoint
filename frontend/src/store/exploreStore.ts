@@ -3,6 +3,8 @@ import { listen } from '@tauri-apps/api/event'
 import type { ChunkCard, ContentPlan, ExploreHistoryItem, ExploreSourceMetadata, SourceSummaryRecord, SourceWorkspaceRecord } from '@/api/types'
 import { analyzeTextStreaming, fetchUrl, getFileMetadata, getSourceWorkspaceSummary, openSourceWorkspace, parseDocument, planContent, upsertSourceDocument } from '@/api'
 import { saveSourceMetadataRecord } from '@/lib/sourceMetadataRegistry'
+import { reanalysisTextForCurrent } from '@/lib/exploreReanalysis'
+import { compactExploreHistory, upsertExploreHistorySnapshot } from '@/lib/exploreHistory'
 
 interface ExploreStore {
   sourceId: string | null
@@ -68,14 +70,6 @@ function persistExploreHistoryItems(items: ExploreHistoryItem[]) {
   } catch {
     // Keep the UI responsive even when storage quota is full.
   }
-}
-
-function compactExploreHistory(items: ExploreHistoryItem[]): ExploreHistoryItem[] {
-  const archived = items.filter((item) => item.archived)
-  const active = items
-    .filter((item) => !item.archived)
-    .slice(0, MAX_ACTIVE_EXPLORE_HISTORY)
-  return [...active, ...archived]
 }
 
 function newHistoryId(): string {
@@ -217,12 +211,30 @@ async function autoAnalyze(
 ) {
   if (!content.trim()) return
   set({ analyzing: true, error: null, chunkCards: [] })
+  let unlistenCard: (() => void) | null = null
+  let unlistenDone: (() => void) | null = null
+  let finished = false
+
+  const settle = (failure?: unknown) => {
+    if (finished) return false
+    finished = true
+    unlistenCard?.()
+    unlistenDone?.()
+    if (failure === undefined) {
+      set({ analyzing: false })
+      window.queueMicrotask(() => useExploreHistoryStore.getState().saveCurrent())
+    } else {
+      set({ analyzing: false, error: errorMessage(failure) })
+    }
+    return true
+  }
+
   try {
     const planned = options.contentPlan?.chunks.length
       ? options.contentPlan
       : await planContent(content, options.html, options.sourceScope ?? sourceId)
     set({ contentPlan: planned.chunks.length > 0 ? planned : null })
-    const unlistenCard = await listen<ChunkCard>('chunk_card', (e) => {
+    unlistenCard = await listen<ChunkCard>('chunk_card', (e) => {
       useExploreStore.setState((s) => {
         const next = [
           ...s.chunkCards.filter((card) => card.index !== e.payload.index),
@@ -231,15 +243,11 @@ async function autoAnalyze(
         return { chunkCards: next }
       })
     })
-    const unlistenDone = await listen('chunk_cards_done', () => {
-      set({ analyzing: false })
-      window.queueMicrotask(() => useExploreHistoryStore.getState().saveCurrent())
-      unlistenCard()
-      unlistenDone()
-    })
+    unlistenDone = await listen('chunk_cards_done', () => settle())
     await analyzeTextStreaming(content, sourceId, planned)
+    settle()
   } catch (e) {
-    set({ analyzing: false, error: errorMessage(e) })
+    settle(e)
   }
 }
 
@@ -275,7 +283,7 @@ export const useExploreStore = create<ExploreStore>((set, get) => ({
       error: null,
     })
     saveSourceMetadataRecord('粘贴文本', metadata)
-    autoAnalyze(set, text, null)
+    void autoAnalyze(set, text, null)
   },
   setRichContent: (html, text, url) => {
     const sourceName = url ?? '粘贴网页内容'
@@ -294,7 +302,7 @@ export const useExploreStore = create<ExploreStore>((set, get) => ({
       error: null,
     })
     saveSourceMetadataRecord(sourceName, metadata)
-    autoAnalyze(set, text, null, { html, sourceScope: url })
+    void autoAnalyze(set, text, null, { html, sourceScope: url })
   },
   parseFile: async (filePath) => {
     set({ parsing: true, error: null, chunkCards: [], contentPlan: null, richHtml: null, sourceUrl: null, sourceMetadata: null, sourceId: null, sourceSummary: null, focusChunkIndex: null })
@@ -403,8 +411,31 @@ export const useExploreStore = create<ExploreStore>((set, get) => ({
   clearFocusChunk: () => set({ focusChunkIndex: null }),
   reanalyzeCurrent: async () => {
     const current = get()
-    if (!current.text.trim() || current.analyzing || current.parsing) return
-    await autoAnalyze(set, current.text, current.sourceId)
+    if (current.analyzing || current.parsing) return
+
+    const historyItem = current.sourceId
+      ? useExploreHistoryStore.getState().items.find((item) => item.sourceId === current.sourceId) ?? null
+      : null
+    const content = reanalysisTextForCurrent({
+      currentText: current.text,
+      historyText: historyItem?.text,
+      chunkTexts: current.chunkCards.map((card) => card.text),
+    })
+    if (!content) return
+
+    if (!current.text.trim()) {
+      set({
+        text: content,
+        richHtml: current.richHtml ?? historyItem?.richHtml ?? null,
+        error: null,
+      })
+    }
+
+    await autoAnalyze(set, content, current.sourceId, {
+      contentPlan: current.contentPlan,
+      html: current.richHtml,
+      sourceScope: current.sourceId ?? current.sourceUrl,
+    })
     if (current.sourceId) {
       const summary = await getSourceWorkspaceSummary(current.sourceId)
       set({ sourceSummary: summary })
@@ -446,7 +477,11 @@ export const useExploreHistoryStore = create<ExploreHistoryStore>((set, get) => 
       archived: false,
     }
     saveSourceMetadataRecord(current.sourceName, current.sourceMetadata)
-    const next = compactExploreHistory([item, ...get().items])
+    const next = upsertExploreHistorySnapshot({
+      items: get().items,
+      item,
+      maxActive: MAX_ACTIVE_EXPLORE_HISTORY,
+    })
     persistExploreHistoryItems(next)
     set({ items: next })
   },
@@ -465,7 +500,7 @@ export const useExploreHistoryStore = create<ExploreHistoryStore>((set, get) => 
   unarchive: (id) => {
     const next = compactExploreHistory(get().items.map((item) =>
       item.id === id ? { ...item, archived: false, updatedAt: new Date().toISOString() } : item
-    ))
+    ), MAX_ACTIVE_EXPLORE_HISTORY)
     persistExploreHistoryItems(next)
     set({ items: next })
   },

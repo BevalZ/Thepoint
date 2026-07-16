@@ -81,6 +81,8 @@ function browserPreviewFallback<T extends TauriCommandName>(
     case 'hybrid_semantic_search':
     case 'list_suggestions_by_date':
       return [] as TauriCommandResult<T>
+    case 'plan_content':
+      return { units: [], chunks: [] } as TauriCommandResult<T>
     case 'get_starred_count':
       return 0 as TauriCommandResult<T>
     case 'semantic_api_key_status':
