@@ -38,16 +38,16 @@ Add an immersive, block-aligned translation workflow to the Explore source works
 
 ## Acceptance Criteria (Evolving)
 
-* [ ] A user can translate an imported Explore article and read block-aligned original/translated text.
-* [ ] Original-only, bilingual, and translated-only display modes work without changing persisted Source content.
-* [ ] Translation continues when navigating away from Explore and remains visible when returning.
-* [ ] The user can configure and select an independent AI translation API or DeepLX / DLX in Settings.
-* [ ] DeepLX accepts an optional token and both native/current compatibility response shapes.
-* [ ] Failed blocks can be retried without retranslating successful unchanged blocks.
-* [ ] Cancel stops scheduling new blocks; continuing reuses completed blocks and resumes the remaining queue.
-* [ ] Original Source content, saved Point anchors, and citation navigation remain unchanged.
-* [ ] Frontend typecheck, boundary check, tests, and production build pass.
-* [ ] Rust check and tests pass.
+* [x] A user can translate an imported Explore article and read block-aligned original/translated text.
+* [x] Original-only, bilingual, and translated-only display modes work without changing persisted Source content.
+* [x] Translation continues when navigating away from Explore and remains visible when returning.
+* [x] The user can configure and select an independent AI translation API or DeepLX / DLX in Settings.
+* [x] DeepLX accepts an optional token and both native/current compatibility response shapes.
+* [x] Failed blocks can be retried without retranslating successful unchanged blocks.
+* [x] Cancel stops scheduling new blocks; continuing reuses completed blocks and resumes the remaining queue.
+* [x] Original Source content, saved Point anchors, and citation navigation remain unchanged.
+* [x] Frontend typecheck, boundary check, tests, and production build pass.
+* [x] Rust check and tests pass.
 
 ## Definition of Done
 
