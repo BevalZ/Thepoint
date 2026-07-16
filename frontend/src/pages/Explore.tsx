@@ -21,6 +21,7 @@ import {
   Link,
   Loader2,
   Link2,
+  Languages,
   RotateCcw,
   ScrollText,
   ShieldCheck,
@@ -35,14 +36,25 @@ import { cn } from '@/lib/utils'
 import { initialExplorePresentation } from '@/lib/explorePresentation'
 import { useStarFly } from '@/hooks/useStarFly'
 import { useNearViewport } from '@/hooks/useNearViewport'
-import { addReviewItem, analyzeTextBlock, describeImage, discoverRelatedAssets, factCheckClaim, generateInvestigation, getSourceAssets, listRecentJournalEntries, listRecentSources, saveEvidence, savePoints } from '@/api'
-import type { AppConfig, AssetRelationRecord, ChunkCard, DigestResult, EvidenceRecord, ExploreHistoryItem, ExploreSourceMetadata, FactCheckResult, JournalEntry, ReportRecord, SourceAssetsRecord, SourceSummaryRecord, StoredPoint } from '@/api/types'
+import { addReviewItem, analyzeTextBlock, describeImage, discoverRelatedAssets, factCheckClaim, generateInvestigation, getSourceAssets, listRecentJournalEntries, listRecentSources, saveEvidence, savePoints, translateText } from '@/api'
+import type { AppConfig, AssetRelationRecord, ChunkCard, DigestResult, EvidenceRecord, ExploreHistoryItem, ExploreSourceMetadata, FactCheckResult, JournalEntry, ReportRecord, SourceAssetsRecord, SourceSummaryRecord, StoredPoint, TranslationSourceLanguage, TranslationTargetLanguage } from '@/api/types'
 import { ExternalLinkPreview } from '@/components/ExternalLinkPreview'
 import { DigestModal } from '@/components/DigestModal'
 import { reportKindLabel, reportMarkdownWithCitations } from '@/lib/reportArtifacts'
 import { evidenceMarkdown, markdownFileName, sourceAssetsMarkdown, sourceDisplayTitle } from '@/lib/workbenchArtifacts'
 import { splitSourceHighlight, type SourceHighlightRequest, type SourceHighlightSegment } from '@/lib/sourceHighlight'
 import { sourceBlocksFromContentPlan, type ExploreSourceBlock as SourceBlock } from '@/lib/exploreContentPlan'
+import {
+  normalizeTranslationTarget,
+  normalizeTranslationSource,
+  pendingTranslationCandidates,
+  translationBlocksSignature,
+  translationCacheKey,
+  translationProgress,
+  translationSettingsSignature,
+  type TranslationBlockState,
+  type TranslationDisplayMode,
+} from '@/lib/exploreTranslation'
 import {
   INVESTIGATION_MAX_AUTO_ANALYSIS_BLOCKS,
   INVESTIGATION_TARGET_EVIDENCE,
@@ -64,7 +76,7 @@ const STAGE_ADVANCE_MS = 720
 const STAGE_CATCHUP_MS = 260
 const RESULT_REVEAL_START_MS = 180
 const RESULT_REVEAL_MS = 180
-
+const TRANSLATION_CONCURRENCY = 3
 const STAR_BURST = [
   { x: -24, y: -16, rotate: -28, size: 7 },
   { x: 18, y: -22, rotate: 22, size: 6 },
@@ -97,6 +109,19 @@ const WEBSITE_NOISE_TERMS = [
 ]
 const WEBSITE_NOISE_SET = new Set(WEBSITE_NOISE_TERMS.map((term) => term.toLowerCase()))
 const LS_FACT_CHECKS = 'explore-fact-checks-v1'
+const TRANSLATION_TARGET_OPTIONS: Array<{ value: TranslationTargetLanguage; label: string }> = [
+  { value: 'ZH', label: '简体中文' },
+  { value: 'EN', label: 'English' },
+  { value: 'JA', label: '日本語' },
+  { value: 'KO', label: '한국어' },
+  { value: 'DE', label: 'Deutsch' },
+  { value: 'FR', label: 'Français' },
+  { value: 'ES', label: 'Español' },
+]
+const TRANSLATION_SOURCE_OPTIONS: Array<{ value: TranslationSourceLanguage; label: string }> = [
+  { value: 'AUTO', label: '自动检测' },
+  ...TRANSLATION_TARGET_OPTIONS,
+]
 
 type SourceResultItem =
   | { block: Extract<SourceBlock, { type: 'text' }>; index: number; card: ChunkCard | null; valuable: boolean }
@@ -139,6 +164,15 @@ interface ThemeBlockProps {
   annotationColors?: AnnotationColors
   activeFactCheck?: FactCheckInlineMarker | null
   sourceHighlight?: SourceHighlightRequest | null
+  translation?: TranslationBlockState | null
+  translationMode?: TranslationDisplayMode
+  translationLabel?: string
+  translationWaitingLabel?: string
+  translationMissingLabel?: string
+  translationFailedLabel?: string
+  translateBlockLabel?: string
+  onTranslateBlock?: () => void
+  blockTranslationBusy?: boolean
 }
 
 type AnnotationKind = 'fact' | 'data' | 'viewpoint' | 'quote' | 'poem' | 'description'
@@ -203,6 +237,12 @@ interface SelectionToolbarState {
   blockIndex: number
   start: number
   end: number
+}
+
+interface SelectionTranslationState extends SelectionToolbarState {
+  loading: boolean
+  result?: string
+  error?: string
 }
 
 interface CommentDialogState extends SelectionToolbarState {
@@ -845,7 +885,16 @@ function parseJsonStringArray(value: string): string[] {
 }
 
 function exploreErrorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback
+  if (error instanceof Error && error.message.trim()) return error.message
+  if (typeof error === 'string' && error.trim()) return error.trim()
+  return fallback
+}
+
+function sameSelectionRange(left: SelectionToolbarState, right: SelectionToolbarState): boolean {
+  return left.text === right.text
+    && left.blockIndex === right.blockIndex
+    && left.start === right.start
+    && left.end === right.end
 }
 
 function formatBytes(bytes: number | null): string {
@@ -2212,14 +2261,19 @@ function CommentDialog({ state, value, saving, onChange, onCancel, onSave }: {
   )
 }
 
-function SelectionToolbar({ state, onFactCheck, onMark, onClose, annotationColors = DEFAULT_ANNOTATION_COLORS }: {
+function SelectionToolbar({ state, translation, translationDisabled, language, onFactCheck, onTranslate, onMark, onClose, annotationColors = DEFAULT_ANNOTATION_COLORS }: {
   state: SelectionToolbarState
+  translation: SelectionTranslationState | null
+  translationDisabled: boolean
+  language: AppConfig['uiLanguage']
   onFactCheck: () => void
+  onTranslate: () => void
   onMark: (kind: 'wavy' | 'line' | 'highlight' | 'comment') => void
   onClose: () => void
   annotationColors?: AnnotationColors
 }) {
   const colors = annotationColors
+  const zh = language !== 'en-US'
   const viewportWidth = typeof window === 'undefined' ? 1024 : window.innerWidth
   const left = Math.min(Math.max(state.x - 170, 12), Math.max(viewportWidth - 360, 12))
   const top = Math.max(state.y - 46, 12)
@@ -2230,28 +2284,45 @@ function SelectionToolbar({ state, onFactCheck, onMark, onClose, annotationColor
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: 4, scale: 0.96 }}
       transition={{ duration: 0.12, ease: 'easeOut' }}
-      className="fixed z-[93] flex max-w-[calc(100vw-1.5rem)] items-center gap-1 rounded-xl border border-border bg-bg-elevated/98 p-1 shadow-2xl backdrop-blur"
+      className="fixed z-[93] max-w-[calc(100vw-1.5rem)] rounded-xl border border-border bg-bg-elevated/98 p-1 shadow-2xl backdrop-blur"
       style={{ left, top }}
       onMouseDown={(event) => event.preventDefault()}
     >
-      <button type="button" onClick={onFactCheck} className="rounded-lg px-2.5 py-1.5 text-xs text-emerald-300 transition-colors hover:bg-bg-hover">
-        事实审查
-      </button>
-      <button type="button" onClick={() => onMark('wavy')} className="rounded-lg px-2 py-1.5 text-xs text-fg-muted underline decoration-wavy decoration-2 underline-offset-4 transition-colors hover:bg-bg-hover hover:text-fg" style={{ textDecorationColor: colors.wavy }}>
-        波浪线
-      </button>
-      <button type="button" onClick={() => onMark('line')} className="rounded-lg px-2 py-1.5 text-xs text-fg-muted underline decoration-2 underline-offset-4 transition-colors hover:bg-bg-hover hover:text-fg" style={{ textDecorationColor: colors.underline }}>
-        横线
-      </button>
-      <button type="button" onClick={() => onMark('highlight')} className="rounded-lg px-2 py-1.5 text-xs text-fg transition-colors hover:bg-bg-hover" style={{ backgroundColor: colorWithAlpha(colors.highlight, 0.16) }}>
-        高亮
-      </button>
-      <button type="button" onClick={() => onMark('comment')} className="rounded-lg px-2 py-1.5 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg">
-        Comment
-      </button>
-      <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-fg-faint transition-colors hover:bg-bg-hover hover:text-fg">
-        <X size={13} />
-      </button>
+      <div className="flex items-center gap-1">
+        <button type="button" onClick={onFactCheck} className="rounded-lg px-2.5 py-1.5 text-xs text-emerald-300 transition-colors hover:bg-bg-hover">
+          {zh ? '事实审查' : 'Fact check'}
+        </button>
+        <button type="button" onClick={onTranslate} disabled={translationDisabled || translation?.loading} className="inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs text-accent transition-colors hover:bg-bg-hover disabled:opacity-50">
+          {translation?.loading ? <Loader2 size={12} className="animate-spin" /> : <Languages size={12} />}
+          {zh ? '翻译' : 'Translate'}
+        </button>
+        <button type="button" onClick={() => onMark('wavy')} className="rounded-lg px-2 py-1.5 text-xs text-fg-muted underline decoration-wavy decoration-2 underline-offset-4 transition-colors hover:bg-bg-hover hover:text-fg" style={{ textDecorationColor: colors.wavy }}>
+          {zh ? '波浪线' : 'Wavy'}
+        </button>
+        <button type="button" onClick={() => onMark('line')} className="rounded-lg px-2 py-1.5 text-xs text-fg-muted underline decoration-2 underline-offset-4 transition-colors hover:bg-bg-hover hover:text-fg" style={{ textDecorationColor: colors.underline }}>
+          {zh ? '横线' : 'Underline'}
+        </button>
+        <button type="button" onClick={() => onMark('highlight')} className="rounded-lg px-2 py-1.5 text-xs text-fg transition-colors hover:bg-bg-hover" style={{ backgroundColor: colorWithAlpha(colors.highlight, 0.16) }}>
+          {zh ? '高亮' : 'Highlight'}
+        </button>
+        <button type="button" onClick={() => onMark('comment')} className="rounded-lg px-2 py-1.5 text-xs text-fg-muted transition-colors hover:bg-bg-hover hover:text-fg">
+          {zh ? '评论' : 'Comment'}
+        </button>
+        <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-fg-faint transition-colors hover:bg-bg-hover hover:text-fg">
+          <X size={13} />
+        </button>
+      </div>
+      {translation && (translation.loading || translation.result || translation.error) && (
+        <div className="mt-1 max-w-sm rounded-lg border border-border bg-bg px-2.5 py-2 text-xs leading-relaxed">
+          {translation.loading ? (
+            <span className="text-fg-muted">{zh ? '正在翻译选中文本…' : 'Translating selection...'}</span>
+          ) : translation.error ? (
+            <span className="text-red-300">{translation.error}</span>
+          ) : (
+            <span className="text-fg">{translation.result}</span>
+          )}
+        </div>
+      )}
     </motion.div>
   )
 }
@@ -2380,11 +2451,40 @@ function CompletionConfetti({ burstKey }: { burstKey: number }) {
 }
 
 // ── ThemeBlock ──────────────────────────────────────────────────────────────
-function ThemeBlock({ card, index, starred, onOpen, onToggleStar, onAnalyze, onRegenerate, analyzing = false, analyzeError = null, displayText, muted = false, blockRef, onFactCheck, userAnnotations = [], annotationColors = DEFAULT_ANNOTATION_COLORS, activeFactCheck = null, sourceHighlight = null }: ThemeBlockProps) {
+function ThemeBlock({
+  card,
+  index,
+  starred,
+  onOpen,
+  onToggleStar,
+  onAnalyze,
+  onRegenerate,
+  analyzing = false,
+  analyzeError = null,
+  displayText,
+  muted = false,
+  blockRef,
+  onFactCheck,
+  userAnnotations = [],
+  annotationColors = DEFAULT_ANNOTATION_COLORS,
+  activeFactCheck = null,
+  sourceHighlight = null,
+  translation = null,
+  translationMode = 'original',
+  translationLabel = '译文',
+  translationWaitingLabel = '等待翻译…',
+  translationMissingLabel = '此文本块尚未翻译',
+  translationFailedLabel = '翻译失败',
+  translateBlockLabel = '翻译当前文本块',
+  onTranslateBlock,
+  blockTranslationBusy = false,
+}: ThemeBlockProps) {
   const starRef = useRef<HTMLButtonElement>(null)
   const selectableText = displayText ?? card.text
   const highlightSegments = splitSourceHighlight(selectableText, sourceHighlight)
   const shouldRenderAnnotations = displayText !== undefined || userAnnotations.length > 0 || activeFactCheck?.blockIndex === index
+  const showOriginal = translationMode !== 'translated'
+  const showTranslated = translationMode !== 'original' && translation !== null
   return (
     <div
       ref={blockRef}
@@ -2394,70 +2494,109 @@ function ThemeBlock({ card, index, starred, onOpen, onToggleStar, onAnalyze, onR
         'relative min-h-0 flex-1 overflow-hidden rounded-xl border border-border px-4 py-3 text-sm leading-relaxed shadow-[0_12px_34px_rgba(0,0,0,0.18)]',
         muted ? 'bg-bg/70 text-fg-muted' : 'bg-bg-elevated text-fg'
       )}>
-        <div className="relative" data-selectable-text="true" data-block-index={index}>
-          {shouldRenderAnnotations ? (
-            highlightSegments ? (
-              <HighlightedSourceText segments={highlightSegments} label={sourceHighlight?.label ?? null} />
+        {showOriginal && (
+          <div className="relative" data-selectable-text="true" data-block-index={index}>
+            {shouldRenderAnnotations ? (
+              highlightSegments ? (
+                <HighlightedSourceText segments={highlightSegments} label={sourceHighlight?.label ?? null} />
+              ) : (
+                <AnnotatedTextContent
+                  content={selectableText}
+                  blockIndex={index}
+                  onFactCheck={onFactCheck}
+                  userAnnotations={userAnnotations}
+                  annotationColors={annotationColors}
+                  activeFactCheck={activeFactCheck}
+                />
+              )
             ) : (
-              <AnnotatedTextContent
-                content={selectableText}
-                blockIndex={index}
-                onFactCheck={onFactCheck}
-                userAnnotations={userAnnotations}
-                annotationColors={annotationColors}
-                activeFactCheck={activeFactCheck}
-              />
-            )
-          ) : (
-            highlightSegments ? (
-              <HighlightedSourceText segments={highlightSegments} label={sourceHighlight?.label ?? null} />
+              highlightSegments ? (
+                <HighlightedSourceText segments={highlightSegments} label={sourceHighlight?.label ?? null} />
+              ) : (
+                <MarkdownContent content={selectableText} />
+              )
+            )}
+          </div>
+        )}
+        {showTranslated && (
+          <div className={cn(showOriginal && 'mt-3 border-t border-border/70 pt-3')}>
+            <div className="mb-2 flex items-center gap-2 text-[11px] uppercase tracking-wide text-accent/80">
+              <Languages size={12} />
+              <span>{translationLabel}</span>
+              {translation.status === 'loading' && <Loader2 size={11} className="animate-spin" />}
+            </div>
+            {translation.status === 'done' && translation.text ? (
+              <div className="text-fg">
+                <MarkdownContent content={translation.text} />
+              </div>
+            ) : translation.status === 'error' ? (
+              <p className="text-xs leading-relaxed text-red-300">{translation.error ?? translationFailedLabel}</p>
             ) : (
-              <MarkdownContent content={card.text} />
-            )
-          )}
-        </div>
+              <p className="text-xs text-fg-faint">{translationWaitingLabel}</p>
+            )}
+          </div>
+        )}
+        {!showOriginal && !showTranslated && (
+          <div className="flex min-h-10 items-center gap-2 text-xs text-fg-faint">
+            <Languages size={14} />
+            <span>{translationMissingLabel}</span>
+          </div>
+        )}
       </div>
-      {(onOpen && onToggleStar) || onAnalyze ? (
-        <motion.button
-          ref={starRef}
-          initial={{ scale: 0 }}
-          animate={{ scale: 1 }}
-          transition={{ delay: 0.16, type: 'spring', stiffness: 400, damping: 15 }}
-          onClick={() => {
-            if (!starRef.current) return
-            if (onOpen) onOpen(starRef.current)
-            else onAnalyze?.(starRef.current)
-          }}
-          onDoubleClick={(event) => {
-            event.preventDefault()
-            event.stopPropagation()
-            if (starRef.current) onRegenerate?.(starRef.current)
-          }}
-          onContextMenu={(e) => {
-            e.preventDefault()
-            e.stopPropagation()
-            if (starRef.current && onToggleStar) onToggleStar(starRef.current)
-          }}
-          disabled={analyzing}
-          className={cn(
-            'shrink-0 rounded-full border p-2 shadow-lg transition-colors',
-            onAnalyze
-              ? analyzeError
-                ? 'border-red-400/30 bg-red-500/5 text-red-300/70 hover:border-red-300/45 hover:bg-red-500/10 hover:text-red-200 disabled:opacity-60'
-                : 'border-border bg-bg text-fg-faint hover:border-amber-400/25 hover:bg-amber-400/5 hover:text-amber-400/70 disabled:opacity-60'
-              : starred
-              ? 'border-amber-400/50 bg-amber-400/15 text-amber-400'
-              : 'border-border bg-bg-elevated text-amber-400/60 hover:border-amber-400/40 hover:bg-amber-400/10 hover:text-amber-400'
-          )}
-          title={onAnalyze
-            ? analyzeError ? `生成失败，点击重试：${analyzeError}` : '点击尝试生成 AI 解读'
-            : analyzeError
-              ? `重新生成失败，双击重试：${analyzeError}`
-              : starred ? '单击查看 / 双击重新生成 / 右键取消采集' : '单击查看 / 双击重新生成 / 右键采集'}
-        >
-          {analyzing ? <Loader2 size={20} className="animate-spin" /> : <Star size={20} fill={starred ? 'currentColor' : 'none'} />}
-        </motion.button>
-      ) : null}
+      <div className="flex shrink-0 flex-col items-center gap-2">
+        {onTranslateBlock && (
+          <button
+            type="button"
+            onClick={onTranslateBlock}
+            disabled={blockTranslationBusy}
+            className="rounded-full border border-border bg-bg-elevated p-2 text-fg-faint shadow-lg transition-colors hover:border-accent/40 hover:bg-accent/10 hover:text-accent disabled:opacity-50"
+            title={translateBlockLabel}
+          >
+            {blockTranslationBusy ? <Loader2 size={18} className="animate-spin" /> : <Languages size={18} />}
+          </button>
+        )}
+        {(onOpen && onToggleStar) || onAnalyze ? (
+          <motion.button
+            ref={starRef}
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            transition={{ delay: 0.16, type: 'spring', stiffness: 400, damping: 15 }}
+            onClick={() => {
+              if (!starRef.current) return
+              if (onOpen) onOpen(starRef.current)
+              else onAnalyze?.(starRef.current)
+            }}
+            onDoubleClick={(event) => {
+              event.preventDefault()
+              event.stopPropagation()
+              if (starRef.current) onRegenerate?.(starRef.current)
+            }}
+            onContextMenu={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              if (starRef.current && onToggleStar) onToggleStar(starRef.current)
+            }}
+            disabled={analyzing}
+            className={cn(
+              'rounded-full border p-2 shadow-lg transition-colors',
+              onAnalyze
+                ? analyzeError
+                  ? 'border-red-400/30 bg-red-500/5 text-red-300/70 hover:border-red-300/45 hover:bg-red-500/10 hover:text-red-200 disabled:opacity-60'
+                  : 'border-border bg-bg text-fg-faint hover:border-amber-400/25 hover:bg-amber-400/5 hover:text-amber-400/70 disabled:opacity-60'
+                : starred
+                ? 'border-amber-400/50 bg-amber-400/15 text-amber-400'
+                : 'border-border bg-bg-elevated text-amber-400/60 hover:border-amber-400/40 hover:bg-amber-400/10 hover:text-amber-400'
+            )}
+            title={onAnalyze
+              ? analyzeError ? `生成失败，点击重试：${analyzeError}` : '点击尝试生成 AI 解读'
+              : analyzeError
+                ? `重新生成失败，双击重试：${analyzeError}`
+                : starred ? '单击查看 / 双击重新生成 / 右键取消采集' : '单击查看 / 双击重新生成 / 右键采集'}
+          >
+            {analyzing ? <Loader2 size={20} className="animate-spin" /> : <Star size={20} fill={starred ? 'currentColor' : 'none'} />}
+          </motion.button>
+        ) : null}
+      </div>
     </div>
   )
 }
@@ -2720,6 +2859,150 @@ function SourceImageResultBlock({ block, index, shouldDescribeImages, imageDescr
         />
       </div>
       <div aria-hidden className="h-10 w-10 shrink-0" />
+    </div>
+  )
+}
+
+function TranslationToolbar({
+  language,
+  sourceLanguage,
+  targetLanguage,
+  mode,
+  progress,
+  busy,
+  error,
+  disabled,
+  onSourceLanguageChange,
+  onTargetLanguageChange,
+  onStart,
+  onRetry,
+  onCancel,
+  onModeChange,
+  onHide,
+}: {
+  language: AppConfig['uiLanguage']
+  sourceLanguage: TranslationSourceLanguage
+  targetLanguage: TranslationTargetLanguage
+  mode: TranslationDisplayMode
+  progress: ReturnType<typeof translationProgress>
+  busy: boolean
+  error: string | null
+  disabled: boolean
+  onSourceLanguageChange: (language: TranslationSourceLanguage) => void
+  onTargetLanguageChange: (language: TranslationTargetLanguage) => void
+  onStart: () => void
+  onRetry: () => void
+  onCancel: () => void
+  onModeChange: (mode: TranslationDisplayMode) => void
+  onHide: () => void
+}) {
+  const zh = language !== 'en-US'
+  const hasTranslated = progress.done > 0 || progress.error > 0 || busy
+  const primaryLabel = hasTranslated
+    ? zh ? '继续翻译' : 'Continue'
+    : zh ? '沉浸翻译' : 'Translate'
+
+  return (
+    <div className="sticky top-0 z-20 -mx-1 mb-4 rounded-xl border border-border bg-bg/95 px-3 py-2 shadow-lg backdrop-blur">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="mr-auto flex min-w-0 items-center gap-2 text-xs text-fg-muted">
+          <Languages size={14} className="text-accent" />
+          <span className="font-medium text-fg">{zh ? '沉浸式翻译' : 'Immersive translation'}</span>
+          {progress.total > 0 && (
+            <span>{progress.done}/{progress.total}</span>
+          )}
+          {busy && <Loader2 size={12} className="animate-spin text-accent" />}
+          {error && <span className="truncate text-red-300">{error}</span>}
+        </div>
+
+        <label className="flex items-center gap-1 text-xs text-fg-muted">
+          <span>{zh ? '原文' : 'From'}</span>
+          <select
+            value={sourceLanguage}
+            onChange={(event) => onSourceLanguageChange(event.target.value as TranslationSourceLanguage)}
+            disabled={busy}
+            className="rounded-md border border-border bg-bg-elevated px-2 py-1 text-xs text-fg outline-none focus:border-accent disabled:opacity-50"
+          >
+            {TRANSLATION_SOURCE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.value === 'AUTO' ? zh ? '自动检测' : 'Auto detect' : option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex items-center gap-1 text-xs text-fg-muted">
+          <span>{zh ? '目标' : 'To'}</span>
+          <select
+            value={targetLanguage}
+            onChange={(event) => onTargetLanguageChange(event.target.value as TranslationTargetLanguage)}
+            disabled={busy}
+            className="rounded-md border border-border bg-bg-elevated px-2 py-1 text-xs text-fg outline-none focus:border-accent disabled:opacity-50"
+          >
+            {TRANSLATION_TARGET_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </label>
+
+        {(['original', 'bilingual', 'translated'] as const).map((value) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => onModeChange(value)}
+            disabled={!hasTranslated && value !== 'original'}
+            className={cn(
+              'rounded-md border px-2.5 py-1 text-xs transition-colors disabled:opacity-40',
+              mode === value
+                ? 'border-accent bg-accent/10 text-accent'
+                : 'border-border bg-bg-elevated text-fg-muted hover:text-fg'
+            )}
+          >
+            {value === 'original'
+              ? zh ? '原文' : 'Original'
+              : value === 'bilingual'
+                ? zh ? '双语' : 'Bilingual'
+                : zh ? '译文' : 'Translated'}
+          </button>
+        ))}
+
+        <button
+          type="button"
+          onClick={onStart}
+          disabled={disabled || busy}
+          className="inline-flex items-center gap-1.5 rounded-md bg-accent px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+        >
+          {busy ? <Loader2 size={12} className="animate-spin" /> : <Languages size={12} />}
+          {primaryLabel}
+        </button>
+        {progress.error > 0 && (
+          <button
+            type="button"
+            onClick={onRetry}
+            disabled={busy}
+            className="rounded-md border border-border bg-bg-elevated px-2.5 py-1 text-xs text-fg-muted transition-colors hover:text-fg disabled:opacity-50"
+          >
+            {zh ? '重试失败' : 'Retry failed'}
+          </button>
+        )}
+        {busy ? (
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-md border border-border bg-bg-elevated px-2.5 py-1 text-xs text-fg-muted transition-colors hover:text-fg"
+          >
+            {zh ? '取消' : 'Cancel'}
+          </button>
+        ) : hasTranslated ? (
+          <button
+            type="button"
+            onClick={onHide}
+            className="rounded-md border border-border bg-bg-elevated px-2.5 py-1 text-xs text-fg-muted transition-colors hover:text-fg"
+          >
+            {zh ? '隐藏' : 'Hide'}
+          </button>
+        ) : null}
+      </div>
     </div>
   )
 }
@@ -3126,6 +3409,18 @@ export default function Explore({ active = true, sourceHighlight = null, onSourc
   const [commentSaving, setCommentSaving] = useState(false)
   const [userAnnotations, setUserAnnotations] = useState<Record<number, UserTextAnnotation[]>>({})
   const [activeSourceHighlight, setActiveSourceHighlight] = useState<SourceHighlightRequest | null>(null)
+  const [translationMode, setTranslationMode] = useState<TranslationDisplayMode>('original')
+  const [translationStates, setTranslationStates] = useState<Record<number, TranslationBlockState>>({})
+  const [translationError, setTranslationError] = useState<string | null>(null)
+  const [translationSourceLanguage, setTranslationSourceLanguage] = useState<TranslationSourceLanguage>('AUTO')
+  const [translationTargetLanguage, setTranslationTargetLanguage] = useState<TranslationTargetLanguage>('ZH')
+  const [selectionTranslation, setSelectionTranslation] = useState<SelectionTranslationState | null>(null)
+  const [translationInFlightCount, setTranslationInFlightCount] = useState(0)
+  const [selectionTranslationBusy, setSelectionTranslationBusy] = useState(false)
+  const translationRunRef = useRef(0)
+  const translationRunActiveRef = useRef(false)
+  const selectionTranslationActiveRef = useRef(false)
+  const translationCacheRef = useRef<Record<string, TranslationBlockState>>({})
   // index → saved point id (once a chunk has been saved+starred)
   const [savedIds, setSavedIds] = useState<Record<number, string>>({})
 
@@ -3162,6 +3457,62 @@ export default function Explore({ active = true, sourceHighlight = null, onSourc
       return { block, index, card: null, valuable: false }
     })
   }, [adHocCards, chunkCards, sourceBlocks])
+  useEffect(() => {
+    if (!config) return
+    setTranslationSourceLanguage(normalizeTranslationSource(config.translationSourceLanguage))
+    setTranslationTargetLanguage(normalizeTranslationTarget(config.translationTargetLanguage))
+  }, [config])
+
+  const translationConfig = useMemo<AppConfig | null>(() => config
+    ? {
+        ...config,
+        translationSourceLanguage,
+        translationTargetLanguage,
+      }
+    : null,
+    [config, translationSourceLanguage, translationTargetLanguage]
+  )
+  const translationSignature = useMemo(() => translationSettingsSignature(translationConfig), [translationConfig])
+  const translatableBlocks = useMemo(
+    () => hasSourceBlocks
+      ? sourceResultItems
+          .filter((item): item is Extract<SourceResultItem, { block: Extract<SourceBlock, { type: 'text' }> }> => item.block.type === 'text')
+          .map((item) => ({ index: item.index, text: item.block.text }))
+      : chunkCards.map((card, index) => ({ index, text: card.text })),
+    [chunkCards, hasSourceBlocks, sourceResultItems]
+  )
+  const translationContentSignature = useMemo(
+    () => translationBlocksSignature(translatableBlocks),
+    [translatableBlocks]
+  )
+  const translationSourceKey = `${sourceId ?? sourceUrl ?? sourceName ?? 'current-source'}|${translationContentSignature}`
+  const currentTranslationStates = useMemo(() => {
+    const current: Record<number, TranslationBlockState> = {}
+    for (const block of translatableBlocks) {
+      const state = translationStates[block.index]
+      if (!state) continue
+      const expectedKey = translationCacheKey(
+        translationSourceKey,
+        block.index,
+        block.text,
+        translationSignature,
+      )
+      if (state.cacheKey === expectedKey) current[block.index] = state
+    }
+    return current
+  }, [translatableBlocks, translationSignature, translationSourceKey, translationStates])
+  const currentTranslationProgress = useMemo(
+    () => translationProgress(currentTranslationStates, translatableBlocks.length),
+    [currentTranslationStates, translatableBlocks.length]
+  )
+  const translationBusy = translationInFlightCount > 0 || currentTranslationProgress.loading > 0
+  useEffect(() => {
+    translationRunRef.current += 1
+    setTranslationMode('original')
+    setTranslationStates({})
+    setTranslationError(null)
+    setSelectionTranslation(null)
+  }, [history.activeVersion, sourceOpenVersion, translationSignature, translationSourceKey])
   const sourceInvestigationReadiness = useMemo(
     () => investigationReadinessForAssets(sourceAssets),
     [sourceAssets]
@@ -3411,7 +3762,7 @@ export default function Explore({ active = true, sourceHighlight = null, onSourc
           setSelectionToolbar(null)
           return
         }
-        setSelectionToolbar({
+        const nextSelection = {
           text,
           context: textBlock.textContent?.trim() ?? text,
           x: rect.left + rect.width / 2,
@@ -3419,7 +3770,9 @@ export default function Explore({ active = true, sourceHighlight = null, onSourc
           blockIndex,
           start: normalizedStart,
           end: normalizedEnd,
-        })
+        }
+        setSelectionTranslation((current) => current && sameSelectionRange(current, nextSelection) ? current : null)
+        setSelectionToolbar(nextSelection)
       }, 0)
     }
 
@@ -3638,6 +3991,184 @@ export default function Explore({ active = true, sourceHighlight = null, onSourc
     if (targetChunkIndex === blockIndex || targetChunkIndex === cardIndex) return activeSourceHighlight
     return null
   }, [activeSourceHighlight, sourceId])
+
+  const runTranslation = useCallback(async (
+    retryFailed = false,
+    blocks: Array<{ index: number; text: string }> = translatableBlocks,
+  ) => {
+    if (translationRunActiveRef.current) return
+
+    const candidates = pendingTranslationCandidates(
+      blocks,
+      translationStates,
+      translationSourceKey,
+      translationSignature,
+      retryFailed
+    )
+    if (candidates.length === 0) {
+      if (blocks.length > 0) setTranslationMode((mode) => mode === 'original' ? 'bilingual' : mode)
+      return
+    }
+
+    const runId = translationRunRef.current + 1
+    translationRunRef.current = runId
+    translationRunActiveRef.current = true
+    setTranslationError(null)
+    setTranslationMode((mode) => mode === 'original' ? 'bilingual' : mode)
+    setTranslationStates((current) => {
+      const next = { ...current }
+      for (const candidate of candidates) {
+        const cached = translationCacheRef.current[candidate.cacheKey]
+        next[candidate.index] = cached ?? { status: 'queued', cacheKey: candidate.cacheKey }
+      }
+      return next
+    })
+
+    let cursor = 0
+    const worker = async () => {
+      while (translationRunRef.current === runId) {
+        const candidate = candidates[cursor]
+        cursor += 1
+        if (!candidate) return
+
+        const cached = translationCacheRef.current[candidate.cacheKey]
+        if (cached?.status === 'done') {
+          setTranslationStates((current) => ({ ...current, [candidate.index]: cached }))
+          continue
+        }
+
+        setTranslationStates((current) => ({
+          ...current,
+          [candidate.index]: { status: 'loading', cacheKey: candidate.cacheKey },
+        }))
+
+        setTranslationInFlightCount((count) => count + 1)
+        try {
+          const result = await translateText({
+            text: candidate.text,
+            sourceLanguage: translationSourceLanguage,
+            targetLanguage: translationTargetLanguage,
+          })
+          if (translationRunRef.current !== runId) {
+            setTranslationStates((current) => {
+              const state = current[candidate.index]
+              if (!state || state.cacheKey !== candidate.cacheKey || state.status !== 'loading') return current
+              return {
+                ...current,
+                [candidate.index]: {
+                  status: 'error',
+                  error: config?.uiLanguage === 'en-US' ? 'Cancelled' : '已取消',
+                  cacheKey: candidate.cacheKey,
+                },
+              }
+            })
+            return
+          }
+          const done: TranslationBlockState = {
+            status: 'done',
+            text: result.text,
+            cacheKey: candidate.cacheKey,
+          }
+          translationCacheRef.current[candidate.cacheKey] = done
+          setTranslationStates((current) => ({ ...current, [candidate.index]: done }))
+        } catch (error: unknown) {
+          if (translationRunRef.current !== runId) {
+            setTranslationStates((current) => {
+              const state = current[candidate.index]
+              if (!state || state.cacheKey !== candidate.cacheKey || state.status !== 'loading') return current
+              return {
+                ...current,
+                [candidate.index]: {
+                  status: 'error',
+                  error: config?.uiLanguage === 'en-US' ? 'Cancelled' : '已取消',
+                  cacheKey: candidate.cacheKey,
+                },
+              }
+            })
+            return
+          }
+          const message = exploreErrorMessage(error, config?.uiLanguage === 'en-US' ? 'Translation failed' : '翻译失败')
+          const failed: TranslationBlockState = {
+            status: 'error',
+            error: message,
+            cacheKey: candidate.cacheKey,
+          }
+          setTranslationStates((current) => ({ ...current, [candidate.index]: failed }))
+          setTranslationError(message)
+        } finally {
+          setTranslationInFlightCount((count) => Math.max(0, count - 1))
+        }
+      }
+    }
+
+    try {
+      await Promise.all(Array.from({ length: Math.min(TRANSLATION_CONCURRENCY, candidates.length) }, () => worker()))
+    } finally {
+      translationRunActiveRef.current = false
+    }
+  }, [
+    config?.uiLanguage,
+    translatableBlocks,
+    translationSignature,
+    translationSourceKey,
+    translationStates,
+    translationSourceLanguage,
+    translationTargetLanguage,
+  ])
+
+  const runBlockTranslation = useCallback((index: number, text: string) => {
+    void runTranslation(true, [{ index, text }])
+  }, [runTranslation])
+
+  const runSelectionTranslation = useCallback(async () => {
+    if (!selectionToolbar || translationBusy || selectionTranslationActiveRef.current) return
+    const selected = selectionToolbar
+    selectionTranslationActiveRef.current = true
+    setSelectionTranslationBusy(true)
+    setSelectionTranslation({ ...selected, loading: true })
+    try {
+      const result = await translateText({
+        text: selected.text,
+        sourceLanguage: translationSourceLanguage,
+        targetLanguage: translationTargetLanguage,
+      })
+      setSelectionTranslation((current) => current && sameSelectionRange(current, selected)
+        ? { ...current, loading: false, result: result.text }
+        : current
+      )
+    } catch (error: unknown) {
+      const message = exploreErrorMessage(error, config?.uiLanguage === 'en-US' ? 'Selection translation failed' : '划选翻译失败')
+      setSelectionTranslation((current) => current && sameSelectionRange(current, selected)
+        ? { ...current, loading: false, error: message }
+        : current
+      )
+    } finally {
+      selectionTranslationActiveRef.current = false
+      setSelectionTranslationBusy(false)
+    }
+  }, [config?.uiLanguage, selectionToolbar, translationBusy, translationSourceLanguage, translationTargetLanguage])
+
+  const cancelTranslation = useCallback(() => {
+    translationRunRef.current += 1
+    setTranslationStates((current) => {
+      const next = { ...current }
+      for (const [index, state] of Object.entries(current)) {
+        if (state.status === 'queued') {
+          next[Number(index)] = {
+            status: 'error',
+            error: config?.uiLanguage === 'en-US' ? 'Cancelled' : '已取消',
+            cacheKey: state.cacheKey,
+          }
+        }
+      }
+      return next
+    })
+  }, [config?.uiLanguage])
+
+  const clearTranslationView = useCallback(() => {
+    setTranslationMode('original')
+    setTranslationError(null)
+  }, [])
 
   useEffect(() => {
     if (!sourceHighlight || !sourceId || sourceHighlight.sourceId !== sourceId) return
@@ -4351,6 +4882,25 @@ export default function Explore({ active = true, sourceHighlight = null, onSourc
                 }}
               >
                 <div className="mx-auto max-w-2xl space-y-4 pb-10">
+                  {translatableBlocks.length > 0 && (
+                    <TranslationToolbar
+                      language={config?.uiLanguage ?? 'zh-CN'}
+                      sourceLanguage={translationSourceLanguage}
+                      targetLanguage={translationTargetLanguage}
+                      mode={translationMode}
+                      progress={currentTranslationProgress}
+                      busy={translationBusy}
+                      error={translationError}
+                      disabled={translationBusy || selectionTranslationBusy}
+                      onSourceLanguageChange={setTranslationSourceLanguage}
+                      onTargetLanguageChange={setTranslationTargetLanguage}
+                      onStart={() => { void runTranslation(currentTranslationProgress.error > 0) }}
+                      onRetry={() => { void runTranslation(true) }}
+                      onCancel={cancelTranslation}
+                      onModeChange={setTranslationMode}
+                      onHide={clearTranslationView}
+                    />
+                  )}
                   {resultTargetCount > 0 && (hasSourceBlocks ? visibleSourceItems.length === 0 : visibleCards.length === 0) && (
                     <motion.div
                       initial={{ opacity: 0, y: 12 }}
@@ -4414,6 +4964,15 @@ export default function Explore({ active = true, sourceHighlight = null, onSourc
                             annotationColors={annotationColors}
                             activeFactCheck={activeFactCheckMarker}
                             sourceHighlight={sourceHighlightForBlock(item.index, analysisCard?.index ?? null)}
+                            translation={currentTranslationStates[item.index] ?? null}
+                            translationMode={translationMode}
+                            translationLabel={config?.uiLanguage === 'en-US' ? 'Translation' : '译文'}
+                            translationWaitingLabel={config?.uiLanguage === 'en-US' ? 'Waiting for translation...' : '等待翻译…'}
+                            translationMissingLabel={config?.uiLanguage === 'en-US' ? 'This block has not been translated' : '此文本块尚未翻译'}
+                            translationFailedLabel={config?.uiLanguage === 'en-US' ? 'Translation failed' : '翻译失败'}
+                            translateBlockLabel={config?.uiLanguage === 'en-US' ? 'Translate this block' : '翻译当前文本块'}
+                            onTranslateBlock={() => runBlockTranslation(item.index, blockText)}
+                            blockTranslationBusy={translationBusy || selectionTranslationBusy}
                           />
                         )
                       })
@@ -4436,6 +4995,15 @@ export default function Explore({ active = true, sourceHighlight = null, onSourc
                           annotationColors={annotationColors}
                           activeFactCheck={activeFactCheckMarker}
                           sourceHighlight={sourceHighlightForBlock(i, card.index)}
+                          translation={currentTranslationStates[i] ?? null}
+                          translationMode={translationMode}
+                          translationLabel={config?.uiLanguage === 'en-US' ? 'Translation' : '译文'}
+                          translationWaitingLabel={config?.uiLanguage === 'en-US' ? 'Waiting for translation...' : '等待翻译…'}
+                          translationMissingLabel={config?.uiLanguage === 'en-US' ? 'This block has not been translated' : '此文本块尚未翻译'}
+                          translationFailedLabel={config?.uiLanguage === 'en-US' ? 'Translation failed' : '翻译失败'}
+                          translateBlockLabel={config?.uiLanguage === 'en-US' ? 'Translate this block' : '翻译当前文本块'}
+                          onTranslateBlock={() => runBlockTranslation(i, card.text)}
+                          blockTranslationBusy={translationBusy || selectionTranslationBusy}
                         />
                       })
                     )}
@@ -4452,11 +5020,16 @@ export default function Explore({ active = true, sourceHighlight = null, onSourc
         {selectionToolbar && (
           <SelectionToolbar
             state={selectionToolbar}
+            translation={selectionTranslation && sameSelectionRange(selectionTranslation, selectionToolbar) ? selectionTranslation : null}
+            translationDisabled={translationBusy || selectionTranslationBusy}
+            language={config?.uiLanguage ?? 'zh-CN'}
             onFactCheck={handleSelectionFactCheck}
+            onTranslate={() => { void runSelectionTranslation() }}
             onMark={handleSelectionMark}
             annotationColors={annotationColors}
             onClose={() => {
               setSelectionToolbar(null)
+              setSelectionTranslation(null)
               window.getSelection()?.removeAllRanges()
             }}
           />

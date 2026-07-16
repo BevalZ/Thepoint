@@ -19,6 +19,12 @@ export interface AppConfig {
   searchBaseUrl: string
   searchProviderKey: string
   searchCustomEndpoint: string
+  translationProvider: 'ai' | 'deeplx'
+  translationApiKey: string
+  translationModel: string
+  translationBaseUrl: string
+  translationSourceLanguage: TranslationSourceLanguage
+  translationTargetLanguage: TranslationTargetLanguage
   factCheckLanguage: string
   uiLanguage: 'zh-CN' | 'en-US'
   annotationUnderlineColor: string
@@ -68,6 +74,22 @@ export interface ExtractedPoint {
   content: string
   tagType: string
   anchor?: string
+}
+
+export type TranslationTargetLanguage = 'ZH' | 'EN' | 'JA' | 'KO' | 'DE' | 'FR' | 'ES'
+export type TranslationSourceLanguage = 'AUTO' | TranslationTargetLanguage
+
+export interface TranslationInput {
+  text: string
+  sourceLanguage?: TranslationSourceLanguage | null
+  targetLanguage?: TranslationTargetLanguage | null
+}
+
+export interface TranslationResult {
+  text: string
+  sourceLanguage: string | null
+  targetLanguage: TranslationTargetLanguage
+  provider: 'ai' | 'deeplx'
 }
 
 export interface PointSourceLinkInput {

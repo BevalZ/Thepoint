@@ -21,6 +21,7 @@ pub fn run() {
             commands::config::import_commentator_from_skill,
             commands::config::get_profiles,
             commands::config::set_profiles,
+            commands::translation::translate_text,
             commands::extract::plan_content,
             commands::extract::parse_document,
             commands::extract::get_file_metadata,

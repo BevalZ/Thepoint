@@ -5,18 +5,31 @@ use tauri_plugin_store::StoreExt;
 
 use crate::ai::models::MentalModel;
 
-fn migrated_secret(store: &tauri_plugin_store::Store<Wry>, store_key: &str, account: &str) -> String {
+fn migrated_secret(
+    store: &tauri_plugin_store::Store<Wry>,
+    store_key: &str,
+    account: &str,
+) -> Result<String, String> {
     if let Some(secret) = crate::semantic::commands::get_secret(account) {
-        return secret;
+        if store.get(store_key).is_some() {
+            store.delete(store_key);
+            store
+                .save()
+                .map_err(|error| format!("清理已迁移的明文密钥 {store_key} 失败: {error}"))?;
+        }
+        return Ok(secret);
     }
-    let plaintext = store.get(store_key)
+    let plaintext = store
+        .get(store_key)
         .and_then(|value| value.as_str().map(String::from))
         .unwrap_or_default();
     if !plaintext.is_empty() && crate::semantic::commands::set_secret(account, &plaintext).is_ok() {
         store.delete(store_key);
-        let _ = store.save();
+        store
+            .save()
+            .map_err(|error| format!("保存密钥迁移结果 {store_key} 失败: {error}"))?;
     }
-    plaintext
+    Ok(plaintext)
 }
 
 const STORE_FILE: &str = "config.json";
@@ -41,6 +54,12 @@ const KEY_SEARCH_MODEL: &str = "search_model";
 const KEY_SEARCH_BASE_URL: &str = "search_base_url";
 const KEY_SEARCH_PROVIDER_KEY: &str = "search_provider_key";
 const KEY_SEARCH_CUSTOM_ENDPOINT: &str = "search_custom_endpoint";
+const KEY_TRANSLATION_PROVIDER: &str = "translation_provider";
+const KEY_TRANSLATION_API_KEY: &str = "translation_api_key";
+const KEY_TRANSLATION_MODEL: &str = "translation_model";
+const KEY_TRANSLATION_BASE_URL: &str = "translation_base_url";
+const KEY_TRANSLATION_SOURCE_LANGUAGE: &str = "translation_source_language";
+const KEY_TRANSLATION_TARGET_LANGUAGE: &str = "translation_target_language";
 const KEY_FACT_CHECK_LANGUAGE: &str = "fact_check_language";
 const KEY_UI_LANGUAGE: &str = "ui_language";
 const KEY_ANNOTATION_UNDERLINE_COLOR: &str = "annotation_underline_color";
@@ -58,6 +77,63 @@ fn normalize_ui_language(value: &str) -> &'static str {
     } else {
         "zh-CN"
     }
+}
+
+fn normalize_translation_provider(value: &str) -> &'static str {
+    if value.trim().eq_ignore_ascii_case("ai") {
+        "ai"
+    } else {
+        "deeplx"
+    }
+}
+
+fn normalize_translation_source_language(value: &str) -> &'static str {
+    match value.trim().to_ascii_uppercase().as_str() {
+        "ZH" | "ZH-CN" => "ZH",
+        "EN" => "EN",
+        "JA" => "JA",
+        "KO" => "KO",
+        "DE" => "DE",
+        "FR" => "FR",
+        "ES" => "ES",
+        _ => "AUTO",
+    }
+}
+
+fn normalize_translation_target_language(value: &str) -> &'static str {
+    match value.trim().to_ascii_uppercase().as_str() {
+        "EN" => "EN",
+        "JA" => "JA",
+        "KO" => "KO",
+        "DE" => "DE",
+        "FR" => "FR",
+        "ES" => "ES",
+        _ => "ZH",
+    }
+}
+
+fn default_translation_base_url(provider: &str) -> &'static str {
+    if provider == "ai" {
+        "https://api.openai.com"
+    } else {
+        "http://127.0.0.1:1188"
+    }
+}
+
+fn default_translation_provider_value() -> String {
+    "deeplx".to_string()
+}
+
+fn default_translation_base_url_value() -> String {
+    default_translation_base_url("deeplx").to_string()
+}
+
+fn default_translation_source_language_value() -> String {
+    "AUTO".to_string()
+}
+
+fn default_translation_target_language_value() -> String {
+    "ZH".to_string()
 }
 const DEFAULT_MODEL: &str = "gpt-4o-mini";
 pub const DEFAULT_IMAGE_KNOWLEDGE_STYLE_PROMPT: &str = r#"# 角色
@@ -103,6 +179,18 @@ pub struct AppConfig {
     pub search_base_url: String,
     pub search_provider_key: String,
     pub search_custom_endpoint: String,
+    #[serde(default = "default_translation_provider_value")]
+    pub translation_provider: String,
+    #[serde(default)]
+    pub translation_api_key: String,
+    #[serde(default)]
+    pub translation_model: String,
+    #[serde(default = "default_translation_base_url_value")]
+    pub translation_base_url: String,
+    #[serde(default = "default_translation_source_language_value")]
+    pub translation_source_language: String,
+    #[serde(default = "default_translation_target_language_value")]
+    pub translation_target_language: String,
     pub fact_check_language: String,
     pub ui_language: String,
     pub annotation_underline_color: String,
@@ -251,24 +339,34 @@ pub fn completions_endpoint(base_url: &str, provider_key: &str, custom_endpoint:
 
 fn models_endpoint(base_url: &str) -> String {
     let base = base_url.trim().trim_end_matches('/');
-    let base = if base.is_empty() { "https://api.openai.com" } else { base };
+    let base = if base.is_empty() {
+        "https://api.openai.com"
+    } else {
+        base
+    };
     format!("{}/v1/models", base)
 }
 
 #[tauri::command]
 pub fn get_config(app: tauri::AppHandle<Wry>) -> Result<AppConfig, String> {
     let store = app.store(STORE_FILE).map_err(|e| e.to_string())?;
-    let custom_profiles = store.get(KEY_COMMENTATOR_PROFILES)
+    let custom_profiles = store
+        .get(KEY_COMMENTATOR_PROFILES)
         .and_then(|v| serde_json::from_value::<Vec<CommentatorProfile>>(v).ok())
         .unwrap_or_default();
     let mut commentator_profiles = default_commentator_profiles();
     commentator_profiles.extend(custom_profiles);
-    let custom_mental_models = store.get(KEY_CUSTOM_MENTAL_MODELS)
+    let custom_mental_models = store
+        .get(KEY_CUSTOM_MENTAL_MODELS)
         .and_then(|v| serde_json::from_value::<Vec<MentalModel>>(v).ok())
         .unwrap_or_default();
+    let translation_provider = store
+        .get(KEY_TRANSLATION_PROVIDER)
+        .and_then(|value| value.as_str().map(normalize_translation_provider))
+        .unwrap_or("deeplx");
 
     Ok(AppConfig {
-        openai_api_key: migrated_secret(&store, KEY_API, "openai_api_key"),
+        openai_api_key: migrated_secret(&store, KEY_API, "openai_api_key")?,
         openai_model: store.get(KEY_MODEL)
             .and_then(|v| v.as_str().map(String::from))
             .unwrap_or_else(|| DEFAULT_MODEL.to_string()),
@@ -278,7 +376,7 @@ pub fn get_config(app: tauri::AppHandle<Wry>) -> Result<AppConfig, String> {
         image_base_url: store.get(KEY_IMAGE_BASE_URL)
             .and_then(|v| v.as_str().map(String::from))
             .unwrap_or_default(),
-        image_api_key: migrated_secret(&store, KEY_IMAGE_API_KEY, "image_api_key"),
+        image_api_key: migrated_secret(&store, KEY_IMAGE_API_KEY, "image_api_key")?,
         image_model: store.get(KEY_IMAGE_MODEL)
             .and_then(|v| v.as_str().map(String::from))
             .unwrap_or_default(),
@@ -309,7 +407,7 @@ pub fn get_config(app: tauri::AppHandle<Wry>) -> Result<AppConfig, String> {
         search_enabled: store.get(KEY_SEARCH_ENABLED)
             .and_then(|v| v.as_bool())
             .unwrap_or(false),
-        search_api_key: migrated_secret(&store, KEY_SEARCH_API_KEY, "search_api_key"),
+        search_api_key: migrated_secret(&store, KEY_SEARCH_API_KEY, "search_api_key")?,
         search_model: store.get(KEY_SEARCH_MODEL)
             .and_then(|v| v.as_str().map(String::from))
             .unwrap_or_default(),
@@ -322,6 +420,20 @@ pub fn get_config(app: tauri::AppHandle<Wry>) -> Result<AppConfig, String> {
         search_custom_endpoint: store.get(KEY_SEARCH_CUSTOM_ENDPOINT)
             .and_then(|v| v.as_str().map(String::from))
             .unwrap_or_default(),
+        translation_provider: translation_provider.to_string(),
+        translation_api_key: migrated_secret(&store, KEY_TRANSLATION_API_KEY, "translation_api_key")?,
+        translation_model: store.get(KEY_TRANSLATION_MODEL)
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_default(),
+        translation_base_url: store.get(KEY_TRANSLATION_BASE_URL)
+            .and_then(|v| v.as_str().map(String::from))
+            .unwrap_or_else(|| default_translation_base_url(translation_provider).to_string()),
+        translation_source_language: store.get(KEY_TRANSLATION_SOURCE_LANGUAGE)
+            .and_then(|v| v.as_str().map(normalize_translation_source_language).map(String::from))
+            .unwrap_or_else(|| "AUTO".to_string()),
+        translation_target_language: store.get(KEY_TRANSLATION_TARGET_LANGUAGE)
+            .and_then(|v| v.as_str().map(normalize_translation_target_language).map(String::from))
+            .unwrap_or_else(|| "ZH".to_string()),
         fact_check_language: store.get(KEY_FACT_CHECK_LANGUAGE)
             .and_then(|v| v.as_str().map(String::from))
             .unwrap_or_else(|| "中文".to_string()),
@@ -355,10 +467,16 @@ pub fn get_config(app: tauri::AppHandle<Wry>) -> Result<AppConfig, String> {
 #[tauri::command]
 pub fn set_config(app: tauri::AppHandle<Wry>, config: AppConfig) -> Result<(), String> {
     let store = app.store(STORE_FILE).map_err(|e| e.to_string())?;
+    let translation_provider = normalize_translation_provider(&config.translation_provider);
+    let translation_source_language =
+        normalize_translation_source_language(&config.translation_source_language);
+    let translation_target_language =
+        normalize_translation_target_language(&config.translation_target_language);
     for (account, value) in [
         ("openai_api_key", config.openai_api_key.as_str()),
         ("image_api_key", config.image_api_key.as_str()),
         ("search_api_key", config.search_api_key.as_str()),
+        ("translation_api_key", config.translation_api_key.as_str()),
     ] {
         if value.is_empty() {
             crate::semantic::commands::delete_secret(account).map_err(|e| e.to_string())?;
@@ -373,33 +491,70 @@ pub fn set_config(app: tauri::AppHandle<Wry>, config: AppConfig) -> Result<(), S
     store.delete(KEY_IMAGE_API_KEY);
     store.set(KEY_IMAGE_MODEL, config.image_model.as_str());
     store.set(KEY_IMAGE_PROVIDER_KEY, config.image_provider_key.as_str());
-    store.set(KEY_IMAGE_CUSTOM_ENDPOINT, config.image_custom_endpoint.as_str());
+    store.set(
+        KEY_IMAGE_CUSTOM_ENDPOINT,
+        config.image_custom_endpoint.as_str(),
+    );
     store.set(KEY_IMAGE_SIZE, config.image_size.as_str());
-    store.set(KEY_IMAGE_KNOWLEDGE_STYLE_PROMPT, config.image_knowledge_style_prompt.as_str());
+    store.set(
+        KEY_IMAGE_KNOWLEDGE_STYLE_PROMPT,
+        config.image_knowledge_style_prompt.as_str(),
+    );
     store.set(KEY_PROVIDER_KEY, config.provider_key.as_str());
     store.set(KEY_CUSTOM_ENDPOINT, config.custom_endpoint.as_str());
-    store.set(KEY_CUSTOM_PROVIDER_NAME, config.custom_provider_name.as_str());
+    store.set(
+        KEY_CUSTOM_PROVIDER_NAME,
+        config.custom_provider_name.as_str(),
+    );
     store.set(KEY_EXTRA_HEADERS, config.extra_headers.as_str());
     store.set(KEY_SEARCH_ENABLED, config.search_enabled);
     store.delete(KEY_SEARCH_API_KEY);
     store.set(KEY_SEARCH_MODEL, config.search_model.as_str());
     store.set(KEY_SEARCH_BASE_URL, config.search_base_url.as_str());
     store.set(KEY_SEARCH_PROVIDER_KEY, config.search_provider_key.as_str());
-    store.set(KEY_SEARCH_CUSTOM_ENDPOINT, config.search_custom_endpoint.as_str());
+    store.set(
+        KEY_SEARCH_CUSTOM_ENDPOINT,
+        config.search_custom_endpoint.as_str(),
+    );
+    store.set(KEY_TRANSLATION_PROVIDER, translation_provider);
+    store.delete(KEY_TRANSLATION_API_KEY);
+    store.set(KEY_TRANSLATION_MODEL, config.translation_model.as_str());
+    store.set(
+        KEY_TRANSLATION_BASE_URL,
+        config.translation_base_url.as_str(),
+    );
+    store.set(KEY_TRANSLATION_SOURCE_LANGUAGE, translation_source_language);
+    store.set(KEY_TRANSLATION_TARGET_LANGUAGE, translation_target_language);
     store.set(KEY_FACT_CHECK_LANGUAGE, config.fact_check_language.as_str());
     store.set(KEY_UI_LANGUAGE, normalize_ui_language(&config.ui_language));
-    store.set(KEY_ANNOTATION_UNDERLINE_COLOR, config.annotation_underline_color.as_str());
-    store.set(KEY_ANNOTATION_WAVY_COLOR, config.annotation_wavy_color.as_str());
-    store.set(KEY_ANNOTATION_HIGHLIGHT_COLOR, config.annotation_highlight_color.as_str());
+    store.set(
+        KEY_ANNOTATION_UNDERLINE_COLOR,
+        config.annotation_underline_color.as_str(),
+    );
+    store.set(
+        KEY_ANNOTATION_WAVY_COLOR,
+        config.annotation_wavy_color.as_str(),
+    );
+    store.set(
+        KEY_ANNOTATION_HIGHLIGHT_COLOR,
+        config.annotation_highlight_color.as_str(),
+    );
     store.set(KEY_COMMENTATOR_NAME, config.commentator_name.as_str());
     store.set(KEY_COMMENTATOR_STYLE, config.commentator_style.as_str());
     store.set(KEY_COMMENTATOR_EMOJI, config.commentator_emoji.as_str());
-    let custom_profiles: Vec<CommentatorProfile> = config.commentator_profiles
+    let custom_profiles: Vec<CommentatorProfile> = config
+        .commentator_profiles
         .into_iter()
         .filter(|profile| profile.source_kind != "builtin")
         .collect();
-    store.set(KEY_COMMENTATOR_PROFILES, serde_json::to_value(custom_profiles).map_err(|e| e.to_string())?);
-    store.set(KEY_CUSTOM_MENTAL_MODELS, serde_json::to_value(config.custom_mental_models).map_err(|e| e.to_string())?);
+    store.set(
+        KEY_COMMENTATOR_PROFILES,
+        serde_json::to_value(custom_profiles).map_err(|e| e.to_string())?,
+    );
+    store.set(
+        KEY_CUSTOM_MENTAL_MODELS,
+        serde_json::to_value(config.custom_mental_models).map_err(|e| e.to_string())?,
+    );
     store.save().map_err(|e| e.to_string())
 }
 
@@ -545,10 +700,54 @@ fn host_label(url: &str) -> String {
 mod tests {
     use super::*;
 
+    fn sample_app_config() -> AppConfig {
+        AppConfig {
+            openai_api_key: String::new(),
+            openai_model: "gpt-4o-mini".to_string(),
+            openai_base_url: String::new(),
+            image_base_url: String::new(),
+            image_api_key: String::new(),
+            image_model: String::new(),
+            image_provider_key: "openai-compatible".to_string(),
+            image_custom_endpoint: String::new(),
+            image_size: "1024x1024".to_string(),
+            image_knowledge_style_prompt: String::new(),
+            provider_key: "openai-compat".to_string(),
+            custom_endpoint: String::new(),
+            custom_provider_name: String::new(),
+            extra_headers: "{}".to_string(),
+            search_enabled: false,
+            search_api_key: String::new(),
+            search_model: String::new(),
+            search_base_url: String::new(),
+            search_provider_key: "openai-compat".to_string(),
+            search_custom_endpoint: String::new(),
+            translation_provider: "ai".to_string(),
+            translation_api_key: "translation-secret".to_string(),
+            translation_model: "translate-model".to_string(),
+            translation_base_url: "https://translate.example.com/v1".to_string(),
+            translation_source_language: "JA".to_string(),
+            translation_target_language: "EN".to_string(),
+            fact_check_language: "中文".to_string(),
+            ui_language: "zh-CN".to_string(),
+            annotation_underline_color: "#00A4EF".to_string(),
+            annotation_wavy_color: "#F25022".to_string(),
+            annotation_highlight_color: "#FFB900".to_string(),
+            commentator_name: "鲁迅".to_string(),
+            commentator_style: String::new(),
+            commentator_emoji: String::new(),
+            commentator_profiles: Vec::new(),
+            custom_mental_models: Vec::new(),
+        }
+    }
+
     #[test]
     fn default_commentators_are_chinese_and_include_skill_personas() {
         let profiles = default_commentator_profiles();
-        let names: Vec<&str> = profiles.iter().map(|profile| profile.name.as_str()).collect();
+        let names: Vec<&str> = profiles
+            .iter()
+            .map(|profile| profile.name.as_str())
+            .collect();
         for expected in [
             "爱因斯坦",
             "阿基米德",
@@ -601,5 +800,58 @@ mod tests {
         assert_eq!(normalize_ui_language("zh-CN"), "zh-CN");
         assert_eq!(normalize_ui_language("invalid"), "zh-CN");
         assert_eq!(normalize_ui_language(""), "zh-CN");
+    }
+
+    #[test]
+    fn translation_config_defaults_and_normalization_are_stable() {
+        assert_eq!(normalize_translation_provider("ai"), "ai");
+        assert_eq!(normalize_translation_provider("unknown"), "deeplx");
+        assert_eq!(default_translation_base_url("ai"), "https://api.openai.com");
+        assert_eq!(
+            default_translation_base_url("deeplx"),
+            "http://127.0.0.1:1188"
+        );
+
+        assert_eq!(normalize_translation_source_language("zh-CN"), "ZH");
+        assert_eq!(normalize_translation_source_language("auto"), "AUTO");
+        assert_eq!(normalize_translation_source_language("invalid"), "AUTO");
+        assert_eq!(normalize_translation_target_language("en"), "EN");
+        assert_eq!(normalize_translation_target_language("AUTO"), "ZH");
+        assert_eq!(normalize_translation_target_language("invalid"), "ZH");
+    }
+
+    #[test]
+    fn translation_config_survives_camel_case_round_trip_and_legacy_defaults() {
+        let config = sample_app_config();
+        let mut serialized = serde_json::to_value(&config).unwrap();
+        assert_eq!(serialized["translationProvider"], "ai");
+        assert_eq!(serialized["translationTargetLanguage"], "EN");
+
+        let round_trip: AppConfig = serde_json::from_value(serialized.clone()).unwrap();
+        assert_eq!(round_trip.translation_provider, "ai");
+        assert_eq!(round_trip.translation_api_key, "translation-secret");
+        assert_eq!(round_trip.translation_model, "translate-model");
+        assert_eq!(round_trip.translation_base_url, "https://translate.example.com/v1");
+        assert_eq!(round_trip.translation_source_language, "JA");
+        assert_eq!(round_trip.translation_target_language, "EN");
+
+        let object = serialized.as_object_mut().unwrap();
+        for field in [
+            "translationProvider",
+            "translationApiKey",
+            "translationModel",
+            "translationBaseUrl",
+            "translationSourceLanguage",
+            "translationTargetLanguage",
+        ] {
+            object.remove(field);
+        }
+        let legacy: AppConfig = serde_json::from_value(serialized).unwrap();
+        assert_eq!(legacy.translation_provider, "deeplx");
+        assert!(legacy.translation_api_key.is_empty());
+        assert!(legacy.translation_model.is_empty());
+        assert_eq!(legacy.translation_base_url, "http://127.0.0.1:1188");
+        assert_eq!(legacy.translation_source_language, "AUTO");
+        assert_eq!(legacy.translation_target_language, "ZH");
     }
 }

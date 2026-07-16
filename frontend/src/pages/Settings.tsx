@@ -6,8 +6,9 @@ import { useConfigStore, useThemeStore, UI_FONTS, CODE_FONTS } from '@/store'
 import type { ThemeMode, UiFontKey, CodeFontKey, FontSize } from '@/store'
 import { addIndexedFolder, backupDatabase, buildOpenDataMirrorPlan, checkDatabaseIntegrity, exportOpenDataMirror, fetchModels, getOpenDataMirrorConfig, getSemanticIndexStatus, importCommentatorFromSkill, listIndexedFilesForFolder, listIndexedFolders, loadIndexedFilePreview, loadOpenDataMirrorManifest, pruneOpenDataMirror, rebuildSemanticIndex, removeIndexedFolder, scanIndexedFolder, setOpenDataMirrorConfig, storeSemanticApiKey } from '@/api'
 import { cn } from '@/lib/utils'
-import type { CommentatorProfile, ConfigProfile, DatabaseSafetyStatus, EmbeddingProviderConfig, IndexedFile, IndexedFolder, IndexedFolderScanResult, MentalModel, MirrorExportResult, MirrorManifestCounts, MirrorPlanItem, OpenDataMirrorConfig, OpenDataMirrorManifest, OpenDataMirrorPlan, OpenDataMirrorPruneResult, SemanticIndexStatus } from '@/api/types'
+import type { CommentatorProfile, ConfigProfile, DatabaseSafetyStatus, EmbeddingProviderConfig, IndexedFile, IndexedFolder, IndexedFolderScanResult, MentalModel, MirrorExportResult, MirrorManifestCounts, MirrorPlanItem, OpenDataMirrorConfig, OpenDataMirrorManifest, OpenDataMirrorPlan, OpenDataMirrorPruneResult, SemanticIndexStatus, TranslationSourceLanguage, TranslationTargetLanguage } from '@/api/types'
 import { loadEmbeddingProvider, saveEmbeddingProvider } from '@/lib/semanticSettings'
+import { normalizeTranslationProvider, normalizeTranslationSource, normalizeTranslationTarget } from '@/lib/exploreTranslation'
 
 const PROVIDERS = [
   { key: 'openai-compat', label: 'OpenAI compatible', baseUrl: 'https://api.openai.com', suffix: '/v1/chat/completions' },
@@ -372,8 +373,12 @@ const DEFAULT_LUXUN_STYLE = `# 鲁迅 的数字分身
 
 type ProviderKey = typeof PROVIDERS[number]['key']
 type ImageProviderKey = 'openai-compatible' | 'gemini-image'
+type TranslationProvider = 'ai' | 'deeplx'
 type TopTab = 'ai' | 'persona' | 'data' | 'appearance'
-type AiSubTab = 'chat' | 'image' | 'advanced' | 'search' | 'commentator' | 'framework'
+type AiSubTab = 'chat' | 'image' | 'translation' | 'advanced' | 'search' | 'commentator' | 'framework'
+
+const DEFAULT_AI_TRANSLATION_BASE_URL = 'https://api.openai.com'
+const DEFAULT_DEEPLX_TRANSLATION_BASE_URL = 'http://127.0.0.1:1188'
 
 function genId() {
   return Math.random().toString(36).slice(2) + Date.now().toString(36)
@@ -526,6 +531,12 @@ export default function Settings() {
   const [searchCustomEndpoint, setSearchCustomEndpoint] = useState('')
   const [searchApiKey, setSearchApiKey] = useState('')
   const [searchModel, setSearchModel] = useState('')
+  const [translationProvider, setTranslationProvider] = useState<TranslationProvider>('deeplx')
+  const [translationApiKey, setTranslationApiKey] = useState('')
+  const [translationModel, setTranslationModel] = useState('')
+  const [translationBaseUrl, setTranslationBaseUrl] = useState(DEFAULT_DEEPLX_TRANSLATION_BASE_URL)
+  const [translationSourceLanguage, setTranslationSourceLanguage] = useState<TranslationSourceLanguage>('AUTO')
+  const [translationTargetLanguage, setTranslationTargetLanguage] = useState<TranslationTargetLanguage>('ZH')
   const [factCheckLanguage, setFactCheckLanguage] = useState('中文')
   const [uiLanguage, setUiLanguage] = useState<'zh-CN' | 'en-US'>('zh-CN')
   const [annotationUnderlineColor, setAnnotationUnderlineColor] = useState('#00A4EF')
@@ -586,6 +597,7 @@ export default function Settings() {
   const [databaseStatus, setDatabaseStatus] = useState<DatabaseSafetyStatus | null>(null)
   const [databaseBusy, setDatabaseBusy] = useState(false)
   const [safetyError, setSafetyError] = useState<string | null>(null)
+  const translationZh = uiLanguage !== 'en-US'
 
   async function loadDataSettings() {
     setMirrorLoading(true)
@@ -676,6 +688,12 @@ export default function Settings() {
     setSearchCustomEndpoint(config.searchCustomEndpoint || '')
     setSearchApiKey(config.searchApiKey || '')
     setSearchModel(config.searchModel || '')
+    setTranslationProvider(config.translationProvider || 'deeplx')
+    setTranslationApiKey(config.translationApiKey || '')
+    setTranslationModel(config.translationModel || '')
+    setTranslationBaseUrl(config.translationBaseUrl || DEFAULT_DEEPLX_TRANSLATION_BASE_URL)
+    setTranslationSourceLanguage(config.translationSourceLanguage || 'AUTO')
+    setTranslationTargetLanguage(config.translationTargetLanguage || 'ZH')
     setFactCheckLanguage(config.factCheckLanguage || '中文')
     setUiLanguage(config.uiLanguage || 'zh-CN')
     setAnnotationUnderlineColor(config.annotationUnderlineColor || '#00A4EF')
@@ -706,6 +724,12 @@ export default function Settings() {
       searchBaseUrl: config.searchBaseUrl,
       searchProviderKey: config.searchProviderKey,
       searchCustomEndpoint: config.searchCustomEndpoint,
+      translationProvider: config.translationProvider || 'deeplx',
+      translationApiKey: config.translationApiKey,
+      translationModel: config.translationModel,
+      translationBaseUrl: config.translationBaseUrl,
+      translationSourceLanguage: config.translationSourceLanguage || 'AUTO',
+      translationTargetLanguage: config.translationTargetLanguage || 'ZH',
       factCheckLanguage: config.factCheckLanguage || '中文',
       uiLanguage: config.uiLanguage || 'zh-CN',
       annotationUnderlineColor: config.annotationUnderlineColor || '#00A4EF',
@@ -774,6 +798,12 @@ export default function Settings() {
       extraHeaders: config?.extraHeaders ?? '{}',
       searchEnabled, searchApiKey, searchModel, searchBaseUrl,
       searchProviderKey, searchCustomEndpoint,
+      translationProvider,
+      translationApiKey,
+      translationModel,
+      translationBaseUrl,
+      translationSourceLanguage,
+      translationTargetLanguage,
       factCheckLanguage,
       uiLanguage,
       annotationUnderlineColor,
@@ -804,6 +834,8 @@ export default function Settings() {
         setJsonError('下划线、波浪线、高亮颜色不能相同')
         return
       }
+      const nextTranslationProvider = normalizeTranslationProvider(parsed.translationProvider ?? translationProvider)
+      const translationProviderChanged = nextTranslationProvider !== translationProvider
       await saveConfig({
         openaiApiKey: parsed.openaiApiKey ?? apiKey,
         openaiModel: parsed.openaiModel ?? model,
@@ -825,6 +857,15 @@ export default function Settings() {
         searchBaseUrl: parsed.searchBaseUrl ?? searchBaseUrl,
         searchProviderKey: parsed.searchProviderKey ?? searchProviderKey,
         searchCustomEndpoint: parsed.searchCustomEndpoint ?? searchCustomEndpoint,
+        translationProvider: nextTranslationProvider,
+        translationApiKey: parsed.translationApiKey ?? (translationProviderChanged ? '' : translationApiKey),
+        translationModel: parsed.translationModel ?? translationModel,
+        translationBaseUrl: parsed.translationBaseUrl
+          ?? (translationProviderChanged
+            ? nextTranslationProvider === 'ai' ? DEFAULT_AI_TRANSLATION_BASE_URL : DEFAULT_DEEPLX_TRANSLATION_BASE_URL
+            : translationBaseUrl),
+        translationSourceLanguage: normalizeTranslationSource(parsed.translationSourceLanguage ?? translationSourceLanguage),
+        translationTargetLanguage: normalizeTranslationTarget(parsed.translationTargetLanguage ?? translationTargetLanguage),
         factCheckLanguage: parsed.factCheckLanguage ?? factCheckLanguage,
         uiLanguage: parsed.uiLanguage ?? uiLanguage,
         annotationUnderlineColor: parsed.annotationUnderlineColor ?? annotationUnderlineColor,
@@ -1037,7 +1078,7 @@ export default function Settings() {
         saved ? 'bg-green-600 text-white' : 'bg-accent text-white hover:bg-accent-hover')}>
       <>
         {saved && <Check size={15} />}
-        {saved ? '已保存' : '保存'}
+        {saved ? translationZh ? '已保存' : 'Saved' : translationZh ? '保存' : 'Save'}
       </>
     </motion.button>
   )
@@ -1346,6 +1387,7 @@ export default function Settings() {
               : ([
                   { id: 'chat', icon: <MessageSquare size={13} />, label: '聊天模型' },
                   { id: 'image', icon: <Palette size={13} />, label: '图片模型' },
+                  { id: 'translation', icon: <Type size={13} />, label: translationZh ? '翻译' : 'Translation' },
                   { id: 'search', icon: <Search size={13} />, label: '搜索模型' },
                   { id: 'advanced', icon: <Settings2 size={13} />, label: '高级配置' },
                 ] as const)
@@ -1517,6 +1559,134 @@ export default function Settings() {
                   />
                 </Field>
                 {renderSaveActions()}
+              </>
+            )}
+
+            {/* Translation sub-tab */}
+            {aiTab === 'translation' && (
+              <>
+                <div className="rounded-xl border border-border bg-bg-elevated px-4 py-3">
+                  <p className="text-sm font-medium text-fg">{translationZh ? '探索页沉浸式翻译' : 'Explore immersive translation'}</p>
+                  <p className="mt-1 text-xs leading-relaxed text-fg-muted">
+                    {translationZh
+                      ? '这里配置独立翻译服务。Explore 会按正文块逐段翻译，并保留原文和知识锚点。'
+                      : 'Configure an independent translation service. Explore translates text block by block while preserving source text and knowledge anchors.'}
+                  </p>
+                </div>
+
+                <Field label={translationZh ? '翻译服务' : 'Translation provider'}>
+                  <div className="flex flex-wrap gap-2">
+                    {([
+                      ['deeplx', 'DeepLX / DLX'],
+                      ['ai', 'AI API'],
+                    ] as const).map(([key, label]) => (
+                      <button
+                        key={key}
+                        type="button"
+                        onClick={() => {
+                          if (key !== translationProvider) {
+                            setTranslationApiKey('')
+                            setTranslationBaseUrl(
+                              key === 'ai' ? DEFAULT_AI_TRANSLATION_BASE_URL : DEFAULT_DEEPLX_TRANSLATION_BASE_URL
+                            )
+                          }
+                          setTranslationProvider(key)
+                        }}
+                        className={cn(
+                          'rounded-lg border px-3 py-1.5 text-xs font-medium transition-all',
+                          translationProvider === key
+                            ? 'border-accent bg-accent/10 text-accent shadow-sm'
+                            : 'border-border bg-bg-elevated text-fg-muted hover:border-fg-muted hover:text-fg'
+                        )}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </Field>
+
+                <Field
+                  label={translationProvider === 'deeplx' ? 'DeepLX Base URL' : 'AI Base URL'}
+                  hint={translationProvider === 'deeplx'
+                    ? translationZh
+                      ? '填写服务根地址或完整 /translate endpoint；留空时后端使用 http://127.0.0.1:1188。'
+                      : 'Enter the service root or a full /translate endpoint. The backend defaults to http://127.0.0.1:1188.'
+                    : translationZh
+                      ? 'OpenAI-compatible chat-completions 地址；填根地址时后端自动补 /v1/chat/completions。'
+                      : 'OpenAI-compatible chat-completions endpoint. A root URL is completed with /v1/chat/completions.'}
+                >
+                  <input
+                    type="text"
+                    value={translationBaseUrl}
+                    onChange={e => setTranslationBaseUrl(e.target.value)}
+                    placeholder={translationProvider === 'deeplx' ? DEFAULT_DEEPLX_TRANSLATION_BASE_URL : DEFAULT_AI_TRANSLATION_BASE_URL}
+                    className="w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm outline-none placeholder:text-fg-faint focus:border-accent transition-colors"
+                  />
+                </Field>
+
+                <Field label={translationProvider === 'deeplx' ? translationZh ? 'Token（可选）' : 'Token (optional)' : 'API Key'}>
+                  <SecretInput
+                    value={translationApiKey}
+                    onChange={setTranslationApiKey}
+                    placeholder={translationProvider === 'deeplx'
+                      ? translationZh ? '如服务未启用鉴权可留空' : 'Leave blank when authentication is disabled'
+                      : 'sk-...'}
+                  />
+                </Field>
+
+                {translationProvider === 'ai' && (
+                  <Field label={translationZh ? '翻译模型' : 'Translation model'}>
+                    <input
+                      type="text"
+                      value={translationModel}
+                      onChange={e => setTranslationModel(e.target.value)}
+                      placeholder="gpt-4o-mini / deepseek-chat"
+                      className="w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm outline-none placeholder:text-fg-faint focus:border-accent transition-colors"
+                    />
+                  </Field>
+                )}
+
+                <Field
+                  label={translationZh ? '默认原文语言' : 'Default source language'}
+                  hint={translationZh
+                    ? '选择自动检测时，DeepLX 使用 AUTO，AI 翻译会先判断原文语言。'
+                    : 'With auto-detect, DeepLX uses AUTO and AI translation detects the source language first.'}
+                >
+                  <select
+                    value={translationSourceLanguage}
+                    onChange={event => setTranslationSourceLanguage(event.target.value as TranslationSourceLanguage)}
+                    className="w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm outline-none focus:border-accent"
+                  >
+                    <option value="AUTO">{translationZh ? '自动检测' : 'Auto detect'}</option>
+                    <option value="ZH">简体中文</option>
+                    <option value="EN">English</option>
+                    <option value="JA">日本語</option>
+                    <option value="KO">한국어</option>
+                    <option value="DE">Deutsch</option>
+                    <option value="FR">Français</option>
+                    <option value="ES">Español</option>
+                  </select>
+                </Field>
+
+                <Field label={translationZh ? '默认目标语言' : 'Default target language'}>
+                  <select
+                    value={translationTargetLanguage}
+                    onChange={event => setTranslationTargetLanguage(event.target.value as TranslationTargetLanguage)}
+                    className="w-full rounded-lg border border-border bg-bg-elevated px-3 py-2 text-sm outline-none focus:border-accent"
+                  >
+                    <option value="ZH">简体中文</option>
+                    <option value="EN">English</option>
+                    <option value="JA">日本語</option>
+                    <option value="KO">한국어</option>
+                    <option value="DE">Deutsch</option>
+                    <option value="FR">Français</option>
+                    <option value="ES">Español</option>
+                  </select>
+                </Field>
+
+                <div className="pt-2">
+                  <SaveBtn onClick={handleSave} />
+                </div>
               </>
             )}
 
@@ -2340,6 +2510,7 @@ export default function Settings() {
           saved={saved}
         />
       )}
+
     </div>
   )
 }
@@ -2491,6 +2662,7 @@ function AppearancePanel({ uiLanguage, onUiLanguageChange, onSave, saved }: Appe
           </button>
         </div>
       </div>
+
       {/* Theme mode */}
       <div className="rounded-2xl border border-border bg-bg overflow-hidden">
         <div className="px-5 py-3 border-b border-border bg-bg-elevated/50">

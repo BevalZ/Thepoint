@@ -96,6 +96,8 @@ import type {
   StoredPoint,
   Suggestion,
   SuggestionMeta,
+  TranslationInput,
+  TranslationResult,
 } from './types'
 import { invokeCommand } from './invoke'
 
@@ -136,6 +138,9 @@ export const semanticApiKeyStatus = () => invokeCommand('semantic_api_key_status
 
 export const setConfig = (config: AppConfig) =>
   invokeCommand('set_config', { config })
+
+export const translateText = (input: TranslationInput): Promise<TranslationResult> =>
+  invokeCommand('translate_text', { input })
 
 export const parseDocument = (filePath: string) =>
   invokeCommand('parse_document', { filePath })

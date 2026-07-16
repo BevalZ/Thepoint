@@ -103,6 +103,8 @@ import type {
   StoredPoint,
   Suggestion,
   SuggestionMeta,
+  TranslationInput,
+  TranslationResult,
   WorkspaceSearchResult,
 } from './types'
 
@@ -114,6 +116,10 @@ export interface TauriCommandMap {
   set_config: {
     args: { config: AppConfig }
     result: void
+  }
+  translate_text: {
+    args: { input: TranslationInput }
+    result: TranslationResult
   }
   parse_document: {
     args: { filePath: string }
